@@ -57,6 +57,9 @@ def pytest_configure(config):
         "markers", "amplitude: marks tests for amplitude quantization solver"
     )
     config.addinivalue_line(
+        "markers", "sfm_amplitude: marks tests for SFM amplitude solver (fundamental predictions)"
+    )
+    config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
 
@@ -122,7 +125,16 @@ def _get_test_category(item) -> str:
     nodeid = item.nodeid.lower()
     
     # Check file name first for more accurate categorization
-    if 'test_gp_solver' in nodeid or 'gp_solver' in nodeid:
+    if 'test_sfm_amplitude' in nodeid:
+        if 'mass_ratio' in nodeid or 'fundamental' in nodeid:
+            return 'SFM Amplitude: Fundamental Predictions'
+        elif 'scaling' in nodeid:
+            return 'SFM Amplitude: Scaling Law'
+        elif 'energy' in nodeid:
+            return 'SFM Amplitude: Energy Components'
+        else:
+            return 'SFM Amplitude: Core Functionality'
+    elif 'test_gp_solver' in nodeid or 'gp_solver' in nodeid:
         if 'mass_ratio' in nodeid:
             return 'GP Solver: Mass Ratios'
         elif 'convergence' in nodeid:
@@ -131,15 +143,6 @@ def _get_test_category(item) -> str:
             return 'GP Solver: Physics'
         else:
             return 'GP Solver: Non-normalized'
-    elif 'test_amplitude' in nodeid or 'amplitude_solver' in nodeid:
-        if 'ite' in nodeid:
-            return 'Amplitude Solver: ITE'
-        elif 'branch' in nodeid or 'continuation' in nodeid:
-            return 'Amplitude Solver: Branch Continuation'
-        else:
-            return 'Amplitude Solver: Quantization'
-    elif 'test_nonlinear_coupled' in nodeid:
-        return 'Amplitude Solver: Nonlinear Coupled'
     elif 'test_coupled' in nodeid:
         # Further categorize coupled tests
         if 'radial' in nodeid:
