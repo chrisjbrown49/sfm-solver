@@ -1,19 +1,19 @@
 """
-SFT Solver - Single-Field Theory Tier 1 Eigenvalue Solver
+SFM Solver - Single-Field Model Tier 1 Eigenvalue Solver
 
 A numerical solver for computing eigenvalues and eigenfunctions
-in the Single-Field Theory framework.
+in the Single-Field Model framework.
 """
 
-from sft_solver.core import (
+from sfm_solver.core import (
     HBAR,
     C,
     E_CHARGE,
-    SFTParameters,
+    SFMParameters,
     SpectralGrid,
 )
-from sft_solver.potentials import ThreeWellPotential, EffectivePotential
-from sft_solver.eigensolver import LinearEigensolver, NonlinearEigensolver
+from sfm_solver.potentials import ThreeWellPotential, EffectivePotential
+from sfm_solver.eigensolver import LinearEigensolver, NonlinearEigensolver
 
 __version__ = "0.1.0"
 
@@ -23,7 +23,7 @@ __all__ = [
     "C",
     "E_CHARGE",
     # Core classes
-    "SFTParameters",
+    "SFMParameters",
     "SpectralGrid",
     # Potentials
     "ThreeWellPotential",
@@ -32,4 +32,3 @@ __all__ = [
     "LinearEigensolver",
     "NonlinearEigensolver",
 ]
-

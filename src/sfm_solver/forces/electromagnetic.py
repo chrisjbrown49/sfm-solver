@@ -1,7 +1,7 @@
 """
 Electromagnetic force calculations.
 
-The EM force in SFT emerges from the circulation term:
+The EM force in SFM emerges from the circulation term:
     Ĥ_circ = g₂ |∫ χ* ∂χ/∂σ dσ|²
 
 For two particles, like charges (same winding sign) lead to
@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Tuple, Optional, Dict
 
-from sft_solver.core.grid import SpectralGrid
+from sfm_solver.core.grid import SpectralGrid
 
 
 def calculate_circulation(

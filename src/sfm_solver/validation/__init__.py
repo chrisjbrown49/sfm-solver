@@ -1,10 +1,10 @@
 """
-Validation module for SFT Solver.
+Validation module for SFM Solver.
 
 Contains testbench comparison against experimental data.
 """
 
-from sft_solver.validation.testbench import (
+from sfm_solver.validation.testbench import (
     TestbenchValidator,
     ValidationResult,
     TESTBENCH_VALUES,
@@ -15,4 +15,3 @@ __all__ = [
     "ValidationResult",
     "TESTBENCH_VALUES",
 ]
-

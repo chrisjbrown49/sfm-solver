@@ -1,7 +1,7 @@
 """
 Three-Well Potential for the S¹ subspace.
 
-The fundamental potential structure in SFT with three minima
+The fundamental potential structure in SFM with three minima
 at σ = 0, 2π/3, 4π/3.
 """
 

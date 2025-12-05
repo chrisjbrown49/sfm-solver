@@ -1,21 +1,21 @@
 """
-SFT Parameters dataclass for configuring the solver.
+SFM Parameters dataclass for configuring the solver.
 
 The parameters define the properties of the three-well potential
-and coupling constants for the single-field theory.
+and coupling constants for the Single-Field Model.
 """
 
 from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
 
-from sft_solver.core.constants import HBAR, C
+from sfm_solver.core.constants import HBAR, C
 
 
 @dataclass
-class SFTParameters:
+class SFMParameters:
     """
-    Parameters for the Single-Field Theory solver.
+    Parameters for the Single-Field Model solver.
     
     The Beautiful Equation: β L₀ c = ℏ
     
@@ -150,7 +150,7 @@ class SFTParameters:
     
     def __repr__(self) -> str:
         return (
-            f"SFTParameters(\n"
+            f"SFMParameters(\n"
             f"  beta = {self.beta:.2f} GeV,\n"
             f"  V0 = {self.V0:.4f} GeV,\n"
             f"  V1 = {self.V1:.4f} GeV,\n"
@@ -160,4 +160,3 @@ class SFTParameters:
             f"  L0 = {self.L0:.3e} m\n"
             f")"
         )
-

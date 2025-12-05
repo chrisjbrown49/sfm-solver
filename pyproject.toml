@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sft-solver"
+name = "sfm-solver"
 version = "0.1.0"
-description = "Single-Field Theory Tier 1 Solver - Eigenvalue solver for the SFT framework"
+description = "Single-Field Model Tier 1 Solver - Eigenvalue solver for the SFM framework"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
-    {name = "SFT Project"}
+    {name = "SFM Project"}
 ]
-keywords = ["physics", "quantum mechanics", "eigenvalue solver", "field theory"]
+keywords = ["physics", "quantum mechanics", "eigenvalue solver", "field theory", "unified theory"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -40,9 +40,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sft-project/sft-solver"
-Documentation = "https://github.com/sft-project/sft-solver#readme"
-Repository = "https://github.com/sft-project/sft-solver.git"
+Homepage = "https://github.com/sfm-project/sfm-solver"
+Documentation = "https://github.com/sfm-project/sfm-solver#readme"
+Repository = "https://github.com/sfm-project/sfm-solver.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -54,7 +54,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["src/sft_solver"]
+source = ["src/sfm_solver"]
 branch = true
 
 [tool.coverage.report]

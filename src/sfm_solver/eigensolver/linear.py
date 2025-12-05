@@ -12,9 +12,9 @@ from scipy import sparse
 from scipy.sparse.linalg import eigsh, LinearOperator
 from typing import Tuple, Optional, List
 
-from sft_solver.core.grid import SpectralGrid
-from sft_solver.potentials.three_well import ThreeWellPotential
-from sft_solver.eigensolver.spectral import SpectralOperators
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
 class LinearEigensolver:

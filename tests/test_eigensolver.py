@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from sft_solver.core.grid import SpectralGrid
-from sft_solver.core.parameters import SFTParameters
-from sft_solver.potentials.three_well import ThreeWellPotential
-from sft_solver.eigensolver.linear import LinearEigensolver
-from sft_solver.eigensolver.nonlinear import NonlinearEigensolver
-from sft_solver.eigensolver.spectral import SpectralOperators
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.parameters import SFMParameters
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.eigensolver.nonlinear import NonlinearEigensolver
+from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
 class TestSpectralOperators:

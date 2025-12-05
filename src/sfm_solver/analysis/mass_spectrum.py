@@ -1,5 +1,5 @@
 """
-Mass spectrum analysis for SFT solutions.
+Mass spectrum analysis for SFM solutions.
 
 Calculates particle masses from wavefunction amplitudes and
 compares with experimental values.
@@ -10,8 +10,8 @@ from numpy.typing import NDArray
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
-from sft_solver.core.grid import SpectralGrid
-from sft_solver.core.constants import (
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.constants import (
     ELECTRON_MASS_GEV,
     MUON_MASS_GEV,
     TAU_MASS_GEV,
@@ -268,7 +268,7 @@ class MassSpectrum:
             Formatted summary string.
         """
         lines = ["=" * 60]
-        lines.append("SFT Mass Spectrum Summary")
+        lines.append("SFM Mass Spectrum Summary")
         lines.append("=" * 60)
         
         if self.beta is not None:

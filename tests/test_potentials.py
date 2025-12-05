@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from sft_solver.potentials.three_well import ThreeWellPotential
-from sft_solver.potentials.effective import EffectivePotential, SpinOrbitPotential
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.potentials.effective import EffectivePotential, SpinOrbitPotential
 
 
 class TestThreeWellPotential:

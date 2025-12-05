@@ -14,10 +14,10 @@ from scipy.sparse.linalg import eigsh
 from typing import Tuple, Optional, List, Dict
 from dataclasses import dataclass
 
-from sft_solver.core.grid import SpectralGrid
-from sft_solver.potentials.three_well import ThreeWellPotential
-from sft_solver.eigensolver.spectral import SpectralOperators
-from sft_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.eigensolver.spectral import SpectralOperators
+from sfm_solver.eigensolver.linear import LinearEigensolver
 
 
 @dataclass

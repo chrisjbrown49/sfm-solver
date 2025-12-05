@@ -1,5 +1,5 @@
 """
-Physical constants for SFT Solver.
+Physical constants for SFM Solver.
 
 All values from CODATA 2018/SI 2019 definitions where applicable.
 """
@@ -58,7 +58,7 @@ ELECTRON_MASS_GEV: float = 0.000_510_998_950_00  # GeV (0.30 ppb precision)
 MUON_MASS_GEV: float = 0.105_658_375_5  # GeV (0.22 ppm precision)
 TAU_MASS_GEV: float = 1.776_86  # GeV (68 ppm precision)
 
-# Lepton mass ratios (critical tests for SFT)
+# Lepton mass ratios (critical tests for SFM)
 MUON_ELECTRON_RATIO: float = 206.768_283_0  # m_μ/m_e
 TAU_MUON_RATIO: float = 16.816_7  # m_τ/m_μ
 TAU_ELECTRON_RATIO: float = 3477.15  # m_τ/m_e

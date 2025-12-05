@@ -1,10 +1,10 @@
-# SFT Solver - Single-Field Theory Tier 1 Eigenvalue Solver
+# SFM Solver - Single-Field Model Tier 1 Eigenvalue Solver
 
-A Python implementation of the Tier 1 numerical solver for the Single-Field Theory (SFT) framework. This solver computes eigenvalues and eigenfunctions for particles in the SFT three-well potential on the S¹ subspace.
+A Python implementation of the Tier 1 numerical solver for the Single-Field Model (SFM) framework. This solver computes eigenvalues and eigenfunctions for particles in the SFM three-well potential on the S¹ subspace.
 
 ## Overview
 
-The Single-Field Theory proposes that all fundamental particles emerge from a single scalar field defined on an extended spacetime that includes a compact circular subspace S¹. Different particles correspond to different winding modes of this field around the subspace.
+The Single-Field Model proposes that all fundamental particles emerge from a single scalar field defined on an extended spacetime that includes a compact circular subspace S¹. Different particles correspond to different winding modes of this field around the subspace.
 
 This Tier 1 solver implements:
 
@@ -19,8 +19,8 @@ This Tier 1 solver implements:
 
 ```bash
 # Clone the repository
-git clone https://github.com/sft-project/sft-solver.git
-cd sft-solver
+git clone https://github.com/sfm-project/sfm-solver.git
+cd sfm-solver
 
 # Install in development mode
 pip install -e ".[dev]"
@@ -32,12 +32,12 @@ pip install -r requirements.txt
 ## Quick Start
 
 ```python
-from sft_solver.core import SFTParameters, SpectralGrid
-from sft_solver.potentials import ThreeWellPotential
-from sft_solver.eigensolver import LinearEigensolver
+from sfm_solver.core import SFMParameters, SpectralGrid
+from sfm_solver.potentials import ThreeWellPotential
+from sfm_solver.eigensolver import LinearEigensolver
 
 # Set up parameters
-params = SFTParameters(
+params = SFMParameters(
     beta=50.0,      # Mass coupling (GeV)
     V0=1.0,         # Primary well depth (GeV)
     V1=0.1,         # Secondary modulation (GeV)
@@ -59,8 +59,8 @@ print(f"Ground state energy: {energies[0]:.4f} GeV")
 ## Project Structure
 
 ```
-sft-solver/
-├── src/sft_solver/
+sfm-solver/
+├── src/sfm_solver/
 │   ├── core/           # Constants, parameters, grid
 │   │   ├── constants.py
 │   │   ├── parameters.py
@@ -89,7 +89,7 @@ sft-solver/
 
 ### The Beautiful Equation
 
-The SFT framework is constrained by:
+The SFM framework is constrained by:
 
 ```
 β L₀ c = ℏ
@@ -126,7 +126,7 @@ where A²_χ = ∫₀^(2π) |χ(σ)|² dσ
 pytest
 
 # Run with coverage
-pytest --cov=sft_solver
+pytest --cov=sfm_solver
 
 # Run specific test file
 pytest tests/test_grid.py
@@ -153,9 +153,8 @@ The solver should satisfy:
 - Mathematical Formulation Parts A, B, C
 - Origin of Mass Research Note
 - Origin of Electromagnetism Research Note
-- SFT Testbench Documentation
+- SFM Testbench Documentation
 
 ## License
 
 MIT License - see LICENSE file for details.
-

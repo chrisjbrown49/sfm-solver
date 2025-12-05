@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from typing import Union, Tuple, Optional
 
-from sft_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.potentials.three_well import ThreeWellPotential
 
 
 class SpinOrbitPotential:

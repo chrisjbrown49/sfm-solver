@@ -1,8 +1,8 @@
 """
 Testbench validation against experimental values.
 
-Compares SFT solver results with the model-independent
-testbench parameters from SFT_Testbench.md.
+Compares SFM solver results with the model-independent
+testbench parameters from SFM_Testbench.md.
 """
 
 import numpy as np
@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from sft_solver.core.constants import (
+from sfm_solver.core.constants import (
     HBAR, C, E_CHARGE, ALPHA_EM,
     ELECTRON_MASS_GEV, MUON_MASS_GEV, TAU_MASS_GEV,
     MUON_ELECTRON_RATIO, TAU_MUON_RATIO, TAU_ELECTRON_RATIO,
@@ -296,7 +296,7 @@ class TestbenchValidator:
             Formatted summary string.
         """
         lines = ["=" * 70]
-        lines.append("SFT Testbench Validation Summary")
+        lines.append("SFM Testbench Validation Summary")
         lines.append("=" * 70)
         
         # Group by tier

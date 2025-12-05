@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from scipy import sparse
 from typing import Tuple, Optional
 
-from sft_solver.core.grid import SpectralGrid
+from sfm_solver.core.grid import SpectralGrid
 
 
 class SpectralOperators:

@@ -1,10 +1,10 @@
 """
-Forces module for SFT Solver.
+Forces module for SFM Solver.
 
 Contains electromagnetic force calculations based on circulation integrals.
 """
 
-from sft_solver.forces.electromagnetic import (
+from sfm_solver.forces.electromagnetic import (
     calculate_circulation,
     calculate_winding_number,
     calculate_envelope_asymmetry,
@@ -23,4 +23,3 @@ __all__ = [
     "calculate_total_interaction_energy",
     "EMForceCalculator",
 ]
-

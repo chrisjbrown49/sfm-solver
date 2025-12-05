@@ -1,4 +1,3 @@
 """
-Test suite for SFT Solver.
+Test suite for SFM Solver.
 """
-

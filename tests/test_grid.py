@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from sft_solver.core.grid import SpectralGrid
+from sfm_solver.core.grid import SpectralGrid
 
 
 class TestSpectralGridBasics:

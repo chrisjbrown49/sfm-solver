@@ -1,5 +1,5 @@
 """
-Physics validation tests for SFT Solver.
+Physics validation tests for SFM Solver.
 
 Tests physical consistency, mass hierarchy, and testbench compliance.
 """
@@ -8,41 +8,41 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from sft_solver.core.grid import SpectralGrid
-from sft_solver.core.parameters import SFTParameters
-from sft_solver.core.constants import (
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.parameters import SFMParameters
+from sfm_solver.core.constants import (
     ELECTRON_MASS_GEV, MUON_MASS_GEV, TAU_MASS_GEV,
     MUON_ELECTRON_RATIO, TAU_ELECTRON_RATIO,
     HBAR, C,
 )
-from sft_solver.potentials.three_well import ThreeWellPotential
-from sft_solver.eigensolver.linear import LinearEigensolver
-from sft_solver.forces.electromagnetic import (
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.forces.electromagnetic import (
     calculate_circulation,
     calculate_winding_number,
     calculate_em_energy,
     EMForceCalculator,
 )
-from sft_solver.analysis.mass_spectrum import (
+from sfm_solver.analysis.mass_spectrum import (
     MassSpectrum,
     calibrate_beta_from_electron,
 )
-from sft_solver.validation.testbench import TestbenchValidator
+from sfm_solver.validation.testbench import TestbenchValidator
 
 
-class TestSFTParameters:
-    """Test SFT parameter consistency."""
+class TestSFMParameters:
+    """Test SFM parameter consistency."""
     
     def test_beautiful_equation(self):
         """Test that β L₀ c / ℏ = 1 (Beautiful Equation)."""
-        params = SFTParameters(beta=50.0)
+        params = SFMParameters(beta=50.0)
         
         ratio = params.verify_beautiful_equation()
         assert_allclose(ratio, 1.0, rtol=1e-10)
     
     def test_L0_calculation(self):
         """Test L₀ is correctly computed from β."""
-        params = SFTParameters(beta=50.0)
+        params = SFMParameters(beta=50.0)
         
         # L₀ = ℏ c / β
         # With β in GeV, need to convert
@@ -53,7 +53,7 @@ class TestSFTParameters:
     
     def test_mass_from_amplitude(self):
         """Test mass calculation from amplitude."""
-        params = SFTParameters(beta=50.0)
+        params = SFMParameters(beta=50.0)
         
         # For A² = 2π (normalized state), mass = β × 2π
         A_sq = 2 * np.pi
@@ -64,7 +64,7 @@ class TestSFTParameters:
     
     def test_amplitude_from_mass(self):
         """Test amplitude calculation from target mass."""
-        params = SFTParameters(beta=50.0)
+        params = SFMParameters(beta=50.0)
         
         # For electron mass
         A_sq = params.amplitude_from_mass(ELECTRON_MASS_GEV)
@@ -249,7 +249,7 @@ class TestTestbenchValidation:
         """Test Beautiful Equation validation."""
         validator = TestbenchValidator()
         
-        params = SFTParameters(beta=50.0)
+        params = SFMParameters(beta=50.0)
         result = validator.validate_beautiful_equation(params.beta, params.L0)
         
         assert result.passed

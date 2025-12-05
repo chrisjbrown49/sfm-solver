@@ -1,10 +1,10 @@
 """
-Core module for SFT Solver.
+Core module for SFM Solver.
 
 Contains physical constants, parameter definitions, and grid utilities.
 """
 
-from sft_solver.core.constants import (
+from sfm_solver.core.constants import (
     HBAR,
     HBAR_EV,
     C,
@@ -16,8 +16,8 @@ from sft_solver.core.constants import (
     MUON_MASS_GEV,
     TAU_MASS_GEV,
 )
-from sft_solver.core.parameters import SFTParameters
-from sft_solver.core.grid import SpectralGrid
+from sfm_solver.core.parameters import SFMParameters
+from sfm_solver.core.grid import SpectralGrid
 
 __all__ = [
     # Constants
@@ -32,7 +32,6 @@ __all__ = [
     "MUON_MASS_GEV",
     "TAU_MASS_GEV",
     # Classes
-    "SFTParameters",
+    "SFMParameters",
     "SpectralGrid",
 ]
-
