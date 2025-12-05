@@ -14,6 +14,7 @@ from sfm_solver.core import (
 )
 from sfm_solver.potentials import ThreeWellPotential, EffectivePotential
 from sfm_solver.eigensolver import LinearEigensolver, NonlinearEigensolver
+from sfm_solver.reporting import ResultsReporter
 
 __version__ = "0.1.0"
 
@@ -31,4 +32,6 @@ __all__ = [
     # Eigensolvers
     "LinearEigensolver",
     "NonlinearEigensolver",
+    # Reporting
+    "ResultsReporter",
 ]

@@ -1,0 +1,8 @@
+# Ignore all results files (they are generated)
+*.md
+*.json
+*.html
+
+# But keep this .gitignore
+!.gitignore
+
