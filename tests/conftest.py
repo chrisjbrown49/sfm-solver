@@ -122,7 +122,16 @@ def _get_test_category(item) -> str:
     nodeid = item.nodeid.lower()
     
     # Check file name first for more accurate categorization
-    if 'test_amplitude' in nodeid or 'amplitude_solver' in nodeid:
+    if 'test_gp_solver' in nodeid or 'gp_solver' in nodeid:
+        if 'mass_ratio' in nodeid:
+            return 'GP Solver: Mass Ratios'
+        elif 'convergence' in nodeid:
+            return 'GP Solver: Convergence'
+        elif 'physics' in nodeid:
+            return 'GP Solver: Physics'
+        else:
+            return 'GP Solver: Non-normalized'
+    elif 'test_amplitude' in nodeid or 'amplitude_solver' in nodeid:
         if 'ite' in nodeid:
             return 'Amplitude Solver: ITE'
         elif 'branch' in nodeid or 'continuation' in nodeid:

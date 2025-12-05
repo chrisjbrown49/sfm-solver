@@ -25,6 +25,11 @@ from sfm_solver.eigensolver.nonlinear_coupled import (
     NonlinearCoupledSolution,
     find_amplitude_quantization,
 )
+from sfm_solver.eigensolver.gp_solver import (
+    GrossPitaevskiiSolver,
+    GPSolution,
+    compute_mass_ratios_from_gp,
+)
 from sfm_solver.eigensolver.coupled_solver import (
     CoupledGrids,
     CoupledHamiltonian,
@@ -45,6 +50,9 @@ __all__ = [
     "NonlinearCoupledSolver",
     "NonlinearCoupledSolution",
     "find_amplitude_quantization",
+    "GrossPitaevskiiSolver",
+    "GPSolution",
+    "compute_mass_ratios_from_gp",
     "CoupledGrids",
     "CoupledHamiltonian",
     "CoupledEigensolver",
