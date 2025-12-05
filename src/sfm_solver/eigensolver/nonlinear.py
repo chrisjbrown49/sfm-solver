@@ -5,12 +5,18 @@ Solves the nonlinear eigenvalue problem:
     (H_0 + g|χ|²) χ = E χ
     
 using iterative self-consistent field methods.
+
+Includes:
+- Simple linear mixing: χ_new = (1-α)χ_old + α χ_step
+- DIIS (Direct Inversion in the Iterative Subspace) for accelerated convergence
+- Anderson mixing as an alternative acceleration scheme
 """
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy import sparse
 from scipy.sparse.linalg import eigsh
+from scipy.linalg import lstsq
 from typing import Tuple, Optional, List, Dict
 from dataclasses import dataclass
 
@@ -28,6 +34,201 @@ class ConvergenceInfo:
     energy_history: List[float]
     residual_history: List[float]
     final_residual: float
+    mixing_method: str = "linear"
+
+
+class DIISMixer:
+    """
+    Direct Inversion in the Iterative Subspace (DIIS) mixing.
+    
+    DIIS accelerates convergence by extrapolating from recent iterates
+    to find a linear combination that minimizes the residual norm.
+    
+    The method stores recent iterates {x_i} and residuals {r_i}, then
+    finds coefficients {c_i} such that sum(c_i) = 1 and ||sum(c_i r_i)||
+    is minimized. The next iterate is then x_new = sum(c_i x_i).
+    
+    Reference: Pulay, Chem. Phys. Lett. 73, 393 (1980)
+    
+    Attributes:
+        max_vectors: Maximum number of vectors to store.
+        vectors: List of recent iterates.
+        residuals: List of corresponding residuals.
+    """
+    
+    def __init__(self, max_vectors: int = 6):
+        """
+        Initialize DIIS mixer.
+        
+        Args:
+            max_vectors: Maximum number of vectors to keep in history.
+        """
+        self.max_vectors = max_vectors
+        self.vectors: List[NDArray] = []
+        self.residuals: List[NDArray] = []
+    
+    def reset(self):
+        """Clear the stored history."""
+        self.vectors = []
+        self.residuals = []
+    
+    def add(self, x: NDArray, r: NDArray):
+        """
+        Add a new iterate and residual to history.
+        
+        Args:
+            x: Current iterate (wavefunction).
+            r: Residual (H·x - E·x or similar).
+        """
+        self.vectors.append(x.copy())
+        self.residuals.append(r.copy())
+        
+        # Keep only most recent vectors
+        if len(self.vectors) > self.max_vectors:
+            self.vectors.pop(0)
+            self.residuals.pop(0)
+    
+    def extrapolate(self) -> Optional[NDArray]:
+        """
+        Compute DIIS extrapolation from stored history.
+        
+        Solves the constrained least squares problem:
+            min ||sum(c_i r_i)||²  subject to sum(c_i) = 1
+        
+        Returns:
+            Extrapolated iterate, or None if insufficient history.
+        """
+        n = len(self.vectors)
+        if n < 2:
+            return None
+        
+        # Build the DIIS B matrix: B_ij = <r_i | r_j>
+        B = np.zeros((n + 1, n + 1), dtype=complex)
+        
+        for i in range(n):
+            for j in range(n):
+                B[i, j] = np.vdot(self.residuals[i], self.residuals[j])
+        
+        # Add Lagrange multiplier row/column for constraint sum(c) = 1
+        B[n, :n] = 1.0
+        B[:n, n] = 1.0
+        B[n, n] = 0.0
+        
+        # Right-hand side: [0, 0, ..., 0, 1]
+        rhs = np.zeros(n + 1, dtype=complex)
+        rhs[n] = 1.0
+        
+        # Solve the linear system
+        try:
+            # Use least squares for numerical stability
+            c, residual, rank, s = lstsq(B, rhs, lapack_driver='gelsy')
+            coeffs = c[:n]
+            
+            # Check for reasonable coefficients
+            if np.any(np.abs(coeffs) > 10):
+                # Coefficients too large, DIIS unstable
+                return None
+            
+            # Compute extrapolated iterate
+            x_new = np.zeros_like(self.vectors[0])
+            for i in range(n):
+                x_new += coeffs[i] * self.vectors[i]
+            
+            return x_new
+            
+        except np.linalg.LinAlgError:
+            return None
+
+
+class AndersonMixer:
+    """
+    Anderson mixing (also known as Anderson acceleration).
+    
+    An alternative to DIIS that uses the change in iterates and residuals
+    to compute an optimal mixing. Often more stable than DIIS for
+    difficult problems.
+    
+    Reference: Anderson, J. ACM 12, 547 (1965)
+    
+    Attributes:
+        max_vectors: Maximum history length.
+        beta: Base mixing parameter.
+    """
+    
+    def __init__(self, max_vectors: int = 6, beta: float = 0.3):
+        """
+        Initialize Anderson mixer.
+        
+        Args:
+            max_vectors: Maximum history length.
+            beta: Base linear mixing parameter.
+        """
+        self.max_vectors = max_vectors
+        self.beta = beta
+        
+        self.x_history: List[NDArray] = []
+        self.f_history: List[NDArray] = []  # f = x_new - x_old (update step)
+    
+    def reset(self):
+        """Clear history."""
+        self.x_history = []
+        self.f_history = []
+    
+    def mix(self, x_old: NDArray, x_step: NDArray) -> NDArray:
+        """
+        Compute Anderson-mixed iterate.
+        
+        Args:
+            x_old: Previous iterate.
+            x_step: Result of applying iteration operator to x_old.
+            
+        Returns:
+            Mixed iterate.
+        """
+        f = x_step - x_old  # The "residual" in Anderson's formulation
+        
+        # Store history
+        self.x_history.append(x_old.copy())
+        self.f_history.append(f.copy())
+        
+        # Keep limited history
+        if len(self.x_history) > self.max_vectors:
+            self.x_history.pop(0)
+            self.f_history.pop(0)
+        
+        n = len(self.x_history)
+        
+        if n < 2:
+            # Simple linear mixing
+            return x_old + self.beta * f
+        
+        # Build the matrix of residual differences
+        # df_j = f_n - f_j for j = 0, ..., n-2
+        m = n - 1
+        df = np.column_stack([
+            self.f_history[-1] - self.f_history[j] 
+            for j in range(m)
+        ])
+        
+        # Solve least squares: min ||f_n - sum(gamma_j df_j)||²
+        try:
+            gamma, residual, rank, s = lstsq(
+                df, self.f_history[-1], lapack_driver='gelsy'
+            )
+            
+            # Compute Anderson update
+            # x_new = (1-beta)(x_n + sum(gamma_j (x_{n-j} - x_n))) + beta*(...)
+            x_new = x_old + self.beta * f
+            
+            for j in range(m):
+                dx = self.x_history[-1] - self.x_history[j]
+                x_new -= gamma[j] * (dx + self.beta * (self.f_history[-1] - self.f_history[j]))
+            
+            return x_new
+            
+        except np.linalg.LinAlgError:
+            # Fall back to simple mixing
+            return x_old + self.beta * f
     
 
 class NonlinearEigensolver:
@@ -86,23 +287,25 @@ class NonlinearEigensolver:
         tol: float = 1e-8,
         mixing: float = 0.3,
         initial_guess: Optional[NDArray] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        mixing_method: str = "linear"
     ) -> Tuple[float, NDArray[np.complexfloating], ConvergenceInfo]:
         """
         Solve the nonlinear eigenvalue problem self-consistently.
         
-        Uses simple mixing iteration:
-            χ_new = (1 - α) χ_old + α χ_step
-        
-        where χ_step is the ground state of H[χ_old].
+        Supports multiple mixing methods for convergence:
+        - "linear": Simple linear mixing χ_new = (1-α)χ_old + α χ_step
+        - "diis": Direct Inversion in the Iterative Subspace (faster convergence)
+        - "anderson": Anderson mixing (often more stable than DIIS)
         
         Args:
             k: Winding number sector.
             max_iter: Maximum number of iterations.
             tol: Convergence tolerance on energy.
-            mixing: Mixing parameter α (0 < α ≤ 1).
+            mixing: Mixing parameter α (0 < α ≤ 1) for linear/Anderson methods.
             initial_guess: Initial wavefunction guess, or None for linear solution.
             verbose: If True, print convergence info.
+            mixing_method: "linear", "diis", or "anderson".
             
         Returns:
             Tuple of (energy, wavefunction, convergence_info).
@@ -120,16 +323,41 @@ class NonlinearEigensolver:
         E_old = E0
         converged = False
         
+        # Initialize mixer based on method
+        if mixing_method == "diis":
+            diis = DIISMixer(max_vectors=6)
+        elif mixing_method == "anderson":
+            anderson = AndersonMixer(max_vectors=6, beta=mixing)
+        
         for iteration in range(max_iter):
             # Compute effective potential with current density
             density = np.abs(chi)**2
             V_eff = self._V_grid + self.g1 * density
             
             # Solve linear eigenvalue problem with effective potential
-            chi_new = self._solve_linear_step(V_eff, k)
+            chi_step = self._solve_linear_step(V_eff, k)
             
-            # Mix old and new
-            chi = (1 - mixing) * chi + mixing * chi_new
+            # Apply mixing
+            if mixing_method == "diis":
+                # Compute residual for DIIS
+                E_step = self._compute_energy(chi_step)
+                residual_vec = self._compute_residual_vector(chi, E_step)
+                diis.add(chi, residual_vec)
+                
+                # Try DIIS extrapolation
+                chi_diis = diis.extrapolate()
+                if chi_diis is not None:
+                    chi = chi_diis
+                else:
+                    # Fall back to linear mixing
+                    chi = (1 - mixing) * chi + mixing * chi_step
+                    
+            elif mixing_method == "anderson":
+                chi = anderson.mix(chi, chi_step)
+                
+            else:  # linear mixing
+                chi = (1 - mixing) * chi + mixing * chi_step
+            
             chi = self.grid.normalize(chi)
             
             # Compute new energy
@@ -156,10 +384,22 @@ class NonlinearEigensolver:
             iterations=iteration + 1,
             energy_history=energy_history,
             residual_history=residual_history,
-            final_residual=residual_history[-1] if residual_history else float('inf')
+            final_residual=residual_history[-1] if residual_history else float('inf'),
+            mixing_method=mixing_method
         )
         
         return E_new, chi, info
+    
+    def _compute_residual_vector(self, chi: NDArray, E: float) -> NDArray:
+        """
+        Compute residual vector H_eff χ - E χ.
+        
+        This is the full vector, not just the norm (needed for DIIS).
+        """
+        density = np.abs(chi)**2
+        V_eff = self._V_grid + self.g1 * density
+        H_chi = self.operators.apply_hamiltonian(chi, V_eff)
+        return H_chi - E * chi
     
     def solve_excited_states(
         self,
