@@ -626,7 +626,7 @@ class HTMLResultsViewer:
         if charge_preds:
             met = sum(1 for p in charge_preds if p.within_target)
             html_parts.append(f'''
-        <h3>Charge Quantization <span class="{'status-pass' if met == len(charge_preds) else 'status-fail'}">({met}/{len(charge_preds)})</span></h3>
+        <h3>Charge Quantization Predictions (Tier 1b) <span class="{'status-pass' if met == len(charge_preds) else 'status-fail'}">({met}/{len(charge_preds)})</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th></tr>
             {''.join(f"""
@@ -637,6 +637,26 @@ class HTMLResultsViewer:
                 <td>{p.percent_error:.1f}%</td>
                 <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
             </tr>""" for p in charge_preds)}
+        </table>''')
+        
+        # Other predictions (g2/alpha, H-like attraction, etc.)
+        other_preds = [p for p in reporter.predictions 
+                       if p not in mass_ratio_preds and p not in charge_preds]
+        if other_preds:
+            met = sum(1 for p in other_preds if p.within_target)
+            html_parts.append(f'''
+        <h3>Other Predictions (Tier 1b) <span class="{'status-pass' if met == len(other_preds) else 'status-fail'}">({met}/{len(other_preds)})</span></h3>
+        <table>
+            <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th><th>Notes</th></tr>
+            {''.join(f"""
+            <tr>
+                <td>{p.parameter}</td>
+                <td>{p.predicted:.4g}</td>
+                <td>{p.experimental:.4g}</td>
+                <td>{p.percent_error:.1f}%</td>
+                <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
+                <td style="font-size: 0.85em; color: var(--text-secondary);">{p.notes if p.notes else ''}</td>
+            </tr>""" for p in other_preds)}
         </table>''')
         
         if not reporter.predictions:
@@ -742,14 +762,30 @@ class HTMLResultsViewer:
         mass_ratio_preds = [p for p in reporter.predictions if 'm_μ/m_e' in p.parameter.lower()]
         best_ratio = min(mass_ratio_preds, key=lambda p: p.percent_error) if mass_ratio_preds else None
         
-        # Check requirements
+        # Check Tier 1 requirements
         tier1_tests = [t for t in reporter.test_results 
-                      if 'tier 1' in t.category.lower() or 'eigenstate' in t.category.lower()]
+                      if ('tier 1' in t.category.lower() and 'tier 1b' not in t.category.lower())
+                      or 'eigenstate' in t.category.lower()]
         tier1_passed = all(t.passed for t in tier1_tests) if tier1_tests else False
         periodic_tests = [t for t in reporter.test_results if 'periodic' in t.name.lower()]
         periodic_passed = all(t.passed for t in periodic_tests) if periodic_tests else True
         winding_tests = [t for t in reporter.test_results if 'winding' in t.name.lower()]
         winding_passed = all(t.passed for t in winding_tests) if winding_tests else True
+        
+        # Check Tier 1b requirements
+        tier1b_tests = [t for t in reporter.test_results 
+                       if 'tier 1b' in t.category.lower() or 'tier1b' in t.name.lower()]
+        tier1b_passed = all(t.passed for t in tier1b_tests) if tier1b_tests else False
+        charge_quant_tests = [t for t in tier1b_tests if 'charge' in t.category.lower()]
+        charge_quant_passed = all(t.passed for t in charge_quant_tests) if charge_quant_tests else False
+        circulation_tests = [t for t in tier1b_tests if 'circulation' in t.category.lower()]
+        circulation_passed = all(t.passed for t in circulation_tests) if circulation_tests else False
+        coulomb_tests = [t for t in tier1b_tests if 'coulomb' in t.category.lower()]
+        coulomb_passed = all(t.passed for t in coulomb_tests) if coulomb_tests else False
+        
+        # Check charge predictions
+        charge_preds = [p for p in reporter.predictions if 'q' in p.parameter.lower() or 'charge' in p.parameter.lower()]
+        charge_preds_passed = all(p.within_target for p in charge_preds) if charge_preds else False
         
         html = f'''
         <h3>5a. Solver Execution Completion</h3>
@@ -795,6 +831,11 @@ class HTMLResultsViewer:
                 <td class="status-pass">✅ Operational</td>
                 <td>Scaling law m(n) = m₀ × n^a × exp(b×n)</td>
             </tr>
+            <tr>
+                <td>EM Force Calculator</td>
+                <td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Operational' if summary.tier1b_complete else '⏳ Pending'}</td>
+                <td>Circulation integral Ĥ_circ = g₂|∫χ*∂χ/∂σ dσ|²</td>
+            </tr>
         </table>
         
         <h3>5b. Physics Prediction Accuracy</h3>
@@ -802,7 +843,7 @@ class HTMLResultsViewer:
             <strong>Predictions Passing (within target of experimental values): {len(predictions_met)}/{len(reporter.predictions)} ({len(predictions_met)/len(reporter.predictions)*100 if reporter.predictions else 0:.0f}%)</strong>
         </div>
         
-        <h4>Tier 1 Requirements Checklist</h4>
+        <h4>Tier 1 Requirements Checklist (Eigenstates)</h4>
         <p style="color: var(--text-secondary); font-size: 0.9em;">
             <em>Completed = solver runs successfully | Passing = matches experimental values</em>
         </p>
@@ -834,6 +875,47 @@ class HTMLResultsViewer:
             </tr>
         </table>
         
+        <h4>Tier 1b Requirements Checklist (Electromagnetic Forces)</h4>
+        <table>
+            <tr><th>#</th><th>Requirement</th><th>Status</th><th>Evidence</th></tr>
+            <tr>
+                <td>1</td>
+                <td>Charge quantization Q = e/k</td>
+                <td class="{'status-pass' if charge_quant_passed or charge_preds_passed else 'status-fail'}">{'✅ PASSING' if charge_quant_passed or charge_preds_passed else '❌ NOT PASSING'}</td>
+                <td>Q/e = 1 (k=1), 1/3 (k=3)</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td>Circulation integral ∫χ*∂χ/∂σ dσ</td>
+                <td class="{'status-pass' if circulation_passed else 'status-fail'}">{'✅ COMPLETED' if circulation_passed else '❌ INCOMPLETE'}</td>
+                <td>Winding number from circulation</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>Like charges repel</td>
+                <td class="{'status-pass' if tier1b_passed else 'status-fail'}">{'✅ PASSING' if tier1b_passed else '❌ NOT PASSING'}</td>
+                <td>Same winding → higher energy</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>Opposite charges attract</td>
+                <td class="{'status-pass' if tier1b_passed else 'status-fail'}">{'✅ PASSING' if tier1b_passed else '❌ NOT PASSING'}</td>
+                <td>Opposite winding → lower energy</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td>Coulomb energy scaling</td>
+                <td class="{'status-pass' if coulomb_passed else 'status-fail'}">{'✅ COMPLETED' if coulomb_passed else '❌ INCOMPLETE'}</td>
+                <td>E ~ k² (charge squared)</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td>Fine structure α ~ g₂</td>
+                <td class="{'status-pass' if tier1b_passed else 'status-fail'}">{'✅ PASSING' if tier1b_passed else '❌ NOT PASSING'}</td>
+                <td>g₂/α ~ O(1)</td>
+            </tr>
+        </table>
+        
         <h4>What's Working vs What's Needed</h4>
         <table>
             <tr><th>Aspect</th><th>Status</th><th>Details</th></tr>
@@ -847,6 +929,9 @@ class HTMLResultsViewer:
             <tr><td>GP Solver</td><td class="status-pass">✅ Working</td><td>Non-normalized wavefunctions with N</td></tr>
             <tr><td>SFM Amplitude Solver</td><td class="status-pass">✅ Working</td><td>Scaling law m(n) = m₀ × n^a × exp(b×n)</td></tr>
             <tr><td>Amplitude Quantization</td><td class="status-pass">✅ Solved</td><td>Mass ratios reproduced exactly</td></tr>
+            <tr><td>Charge Quantization</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Q = e/k from winding number</td></tr>
+            <tr><td>EM Force Calculator</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Circulation term for attraction/repulsion</td></tr>
+            <tr><td>Coulomb Scaling</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Energy scales as charge squared</td></tr>
         </table>
         
         <div class="success-finding">
@@ -868,6 +953,8 @@ class HTMLResultsViewer:
             </ul>
             <p>See <code>docs/Amplitude_Quantization_Solution.md</code> for full derivation.</p>
         </div>
+        
+        {'<div class="success-finding"><h4>✅ Electromagnetic Forces: IMPLEMENTED</h4><p>Tier 1b electromagnetic force mechanism validated:</p><ul><li>✅ Charge quantization: Q = e/k emerges from winding number</li><li>✅ Like charges repel (same winding → higher energy)</li><li>✅ Opposite charges attract (opposite winding → cancellation)</li><li>✅ Coulomb scaling: Energy ∝ k² (charge squared)</li><li>✅ Fine structure: g₂/α ~ O(1)</li></ul></div>' if summary.tier1b_complete else ''}
         
         {self._generate_notes_html(reporter)}
         '''

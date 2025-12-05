@@ -156,7 +156,25 @@ def _get_test_category(item) -> str:
         else:
             return 'Coupled Solver: Eigenvalue Problem'
     elif 'test_tier1b' in nodeid or 'electromagnetic' in nodeid:
-        return 'Tier 1b: EM Forces'
+        # Further categorize Tier 1b tests
+        if 'charge' in nodeid or 'quantization' in nodeid:
+            return 'Tier 1b: Charge Quantization'
+        elif 'circulation' in nodeid:
+            return 'Tier 1b: Circulation Integral'
+        elif 'coulomb' in nodeid or 'scaling' in nodeid:
+            return 'Tier 1b: Coulomb Scaling'
+        elif 'fine_structure' in nodeid or 'alpha' in nodeid:
+            return 'Tier 1b: Fine Structure'
+        elif 'multi' in nodeid or 'particle' in nodeid:
+            return 'Tier 1b: Multi-Particle'
+        elif 'asymmetry' in nodeid or 'envelope' in nodeid:
+            return 'Tier 1b: Envelope Asymmetry'
+        elif 'analysis' in nodeid:
+            return 'Tier 1b: Two-Particle Analysis'
+        elif 'consistency' in nodeid or 'physical' in nodeid:
+            return 'Tier 1b: Physical Consistency'
+        else:
+            return 'Tier 1b: EM Forces'
     elif 'test_tier1' in nodeid:
         return 'Tier 1: Eigenstates'
     elif 'test_tier2' in nodeid or 'multiquark' in nodeid or 'hadron' in nodeid:
