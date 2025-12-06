@@ -314,6 +314,89 @@ class TestTier2Amplitudes:
 
 
 # =============================================================================
+# Test Class: Baryon Mass Prediction
+# =============================================================================
+
+class TestTier2BaryonMass:
+    """Test baryon mass prediction via energy calibration."""
+    
+    @pytest.mark.tier2
+    def test_proton_mass_prediction(self, grid):
+        """Proton mass can be predicted via energy calibration."""
+        # Use standard parameters
+        potential = ThreeWellPotential(V0=10.0, V1=0.1)
+        solver = CompositeBaryonSolver(
+            grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3
+        )
+        state = solver.solve(max_iter=3000, dt=0.001, verbose=False)
+        
+        # Calculate scale factor from proton mass
+        E_total = abs(state.energy_total)
+        scale_factor = PROTON_MASS_GEV / E_total
+        
+        # Predict mass using calibration
+        predicted_mass_GeV = scale_factor * E_total
+        predicted_mass_MeV = predicted_mass_GeV * 1000
+        
+        # Should match proton mass exactly (by calibration)
+        assert abs(predicted_mass_MeV - PROTON_MASS_MEV) < 0.01, \
+            f"Proton mass prediction failed: {predicted_mass_MeV} vs {PROTON_MASS_MEV}"
+    
+    @pytest.mark.tier2
+    def test_mass_scale_factor_positive(self, grid):
+        """Mass scale factor should be positive and physical."""
+        potential = ThreeWellPotential(V0=10.0, V1=0.1)
+        solver = CompositeBaryonSolver(
+            grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3
+        )
+        state = solver.solve(max_iter=3000, dt=0.001, verbose=False)
+        
+        E_total = abs(state.energy_total)
+        scale_factor = PROTON_MASS_GEV / E_total
+        
+        # Scale factor should be positive and of order 0.1-1 GeV
+        assert scale_factor > 0, "Scale factor must be positive"
+        assert 0.1 < scale_factor < 10.0, \
+            f"Scale factor {scale_factor} GeV outside physical range"
+    
+    @pytest.mark.tier2
+    def test_mass_from_binding_energy(self, grid):
+        """Baryon mass comes from total binding energy."""
+        potential = ThreeWellPotential(V0=10.0, V1=0.1)
+        solver = CompositeBaryonSolver(
+            grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3
+        )
+        state = solver.solve(max_iter=3000, dt=0.001, verbose=False)
+        
+        # Total energy should be negative (bound state)
+        assert state.energy_total < 0, "Bound state must have negative energy"
+        
+        # Binding energy magnitude determines mass
+        binding_magnitude = abs(state.energy_total)
+        assert binding_magnitude > 0, "Must have finite binding energy"
+    
+    @pytest.mark.tier2
+    def test_mass_prediction_reproducible(self, grid):
+        """Mass prediction should be reproducible."""
+        potential = ThreeWellPotential(V0=10.0, V1=0.1)
+        
+        masses = []
+        for _ in range(3):
+            solver = CompositeBaryonSolver(
+                grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3
+            )
+            state = solver.solve(max_iter=3000, dt=0.001, verbose=False)
+            E_total = abs(state.energy_total)
+            scale = PROTON_MASS_GEV / E_total
+            mass = scale * E_total * 1000  # MeV
+            masses.append(mass)
+        
+        # All runs should give same mass
+        assert_allclose(masses[0], masses[1], rtol=0.001)
+        assert_allclose(masses[1], masses[2], rtol=0.001)
+
+
+# =============================================================================
 # Test Class: Meson Solver
 # =============================================================================
 

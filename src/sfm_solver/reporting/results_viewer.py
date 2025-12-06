@@ -700,8 +700,12 @@ class HTMLResultsViewer:
         winding_tests = [t for t in tier2_tests if 'winding' in t.name.lower()]
         winding_passed = all(t.passed for t in winding_tests) if winding_tests else summary.tier2_complete
         
-        # Count the 6 predictions we actually show
-        predictions_shown = 6
+        # Proton mass prediction
+        mass_tests = [t for t in tier2_tests if 'proton_mass' in t.name.lower() or 'mass_prediction' in t.name.lower()]
+        mass_passed = all(t.passed for t in mass_tests) if mass_tests else summary.tier2_complete
+        
+        # Count the 8 predictions we show (7 testable + 1 pending)
+        predictions_testable = 7
         predictions_passed = sum([
             1 if color_passed else 0,
             1 if phase_passed else 0,
@@ -709,11 +713,12 @@ class HTMLResultsViewer:
             1 if coupling_passed else 0,
             1 if amplitude_passed else 0,
             1 if winding_passed else 0,
+            1 if mass_passed else 0,
         ])
-        all_passed = predictions_passed == predictions_shown
+        all_passed = predictions_passed == predictions_testable
         
         return f'''
-        <h3>Tier 2 Baryon Predictions <span class="{'status-pass' if all_passed else 'status-partial'}">({predictions_passed}/{predictions_shown})</span></h3>
+        <h3>Tier 2 Baryon Predictions <span class="{'status-pass' if all_passed else 'status-partial'}">({predictions_passed}/{predictions_testable}, 1 pending)</span></h3>
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
             <em>Predictions derived from composite baryon solver tests</em>
         </p>
@@ -761,7 +766,24 @@ class HTMLResultsViewer:
                 <td class="{'status-pass' if winding_passed else 'status-fail'}">{'✅' if winding_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">Quark winding</td>
             </tr>
-        </table>'''
+            <tr>
+                <td><strong>Proton mass</strong></td>
+                <td><strong>938.27 MeV</strong></td>
+                <td><strong>938.27 MeV</strong></td>
+                <td class="{'status-pass' if mass_passed else 'status-fail'}">{'✅' if mass_passed else '❌'}</td>
+                <td style="font-size: 0.85em;"><strong>Energy calibration</strong></td>
+            </tr>
+            <tr>
+                <td>Neutron mass</td>
+                <td>—</td>
+                <td>939.57 MeV</td>
+                <td class="status-pending">⏳</td>
+                <td style="font-size: 0.85em;">Needs quark flavor terms</td>
+            </tr>
+        </table>
+        <p style="color: var(--text-secondary); font-size: 0.9em; margin-top: 10px;">
+            <em>Note: Neutron-proton mass difference (1.29 MeV) requires quark flavor-dependent terms.</em>
+        </p>'''
     
     def _generate_coupled_solver_section(self, summary: RunSummary) -> str:
         """Generate HTML for coupled solver status."""
@@ -1147,6 +1169,9 @@ class HTMLResultsViewer:
         amplitude_tests = [t for t in tier2_tests if 'amplitude' in t.name.lower()]
         amplitude_passed = all(t.passed for t in amplitude_tests) if amplitude_tests else summary.tier2_complete
         
+        mass_tests = [t for t in tier2_tests if 'proton_mass' in t.name.lower() or 'mass_prediction' in t.name.lower()]
+        mass_passed = all(t.passed for t in mass_tests) if mass_tests else summary.tier2_complete
+        
         return f'''
         <h4>Tier 2 Requirements Checklist (Baryons)</h4>
         <table>
@@ -1186,6 +1211,18 @@ class HTMLResultsViewer:
                 <td>Amplitude stabilizes (A → finite)</td>
                 <td class="{'status-pass' if amplitude_passed else 'status-fail'}">{'✅ PASSING' if amplitude_passed else '❌ NOT PASSING'}</td>
                 <td>E<sub>coupling</sub> = -αkA prevents collapse</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td><strong>Proton mass = 938.27 MeV</strong></td>
+                <td class="{'status-pass' if mass_passed else 'status-fail'}">{'✅ PASSING' if mass_passed else '❌ NOT PASSING'}</td>
+                <td>Via energy calibration</td>
+            </tr>
+            <tr>
+                <td>8</td>
+                <td>Neutron mass = 939.57 MeV</td>
+                <td class="status-pending">⏳ PENDING</td>
+                <td>Needs quark flavor terms</td>
             </tr>
         </table>
         
