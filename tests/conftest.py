@@ -62,6 +62,22 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
+    # Tier 2 specific markers
+    config.addinivalue_line(
+        "markers", "baryon: marks tests for baryon (three-quark) solver"
+    )
+    config.addinivalue_line(
+        "markers", "meson: marks tests for meson (quark-antiquark) solver"
+    )
+    config.addinivalue_line(
+        "markers", "color: marks tests for color phase verification"
+    )
+    config.addinivalue_line(
+        "markers", "confinement: marks tests for quark confinement"
+    )
+    config.addinivalue_line(
+        "markers", "binding: marks tests for binding energy calculations"
+    )
 
 
 def pytest_runtest_setup(item):
@@ -177,8 +193,35 @@ def _get_test_category(item) -> str:
             return 'Tier 1b: EM Forces'
     elif 'test_tier1' in nodeid:
         return 'Tier 1: Eigenstates'
-    elif 'test_tier2' in nodeid or 'multiquark' in nodeid or 'hadron' in nodeid:
-        return 'Tier 2: Multi-quark'
+    elif 'test_tier2' in nodeid or 'multiquark' in nodeid or 'hadron' in nodeid or 'baryon' in nodeid or 'meson' in nodeid:
+        # Further categorize Tier 2 tests
+        if 'color' in nodeid:
+            if 'emergence' in nodeid:
+                return 'Tier 2: Color Emergence'
+            elif 'neutrality' in nodeid:
+                return 'Tier 2: Color Neutrality'
+            elif 'phase' in nodeid:
+                return 'Tier 2: Color Phases'
+            else:
+                return 'Tier 2: Color Verification'
+        elif 'baryon' in nodeid:
+            if 'mass' in nodeid:
+                return 'Tier 2: Baryon Mass'
+            elif 'binding' in nodeid:
+                return 'Tier 2: Binding Energy'
+            elif 'confine' in nodeid:
+                return 'Tier 2: Confinement'
+            elif 'amplitude' in nodeid:
+                return 'Tier 2: Baryon Amplitudes'
+            else:
+                return 'Tier 2: Baryon Solver'
+        elif 'meson' in nodeid:
+            if 'pion' in nodeid:
+                return 'Tier 2: Pion Structure'
+            else:
+                return 'Tier 2: Meson Solver'
+        else:
+            return 'Tier 2: Multi-quark'
     elif 'test_tier3' in nodeid or 'weak_decay' in nodeid:
         return 'Tier 3: Weak Decay'
     elif 'test_grid' in nodeid:
@@ -291,6 +334,42 @@ def _check_for_known_issues(reporter: ResultsReporter):
     elif tier1_tests and not tier1_passed:
         failed = sum(1 for t in tier1_tests if not t.passed)
         reporter.add_issue(f"Tier 1 tests: {failed} failures detected.")
+    
+    # Check Tier 2 tests (baryons, mesons, color)
+    tier2_tests = [t for t in reporter.test_results 
+                  if 'tier2' in t.name.lower() or 'tier 2' in t.category.lower()
+                  or 'baryon' in t.name.lower() or 'meson' in t.name.lower()
+                  or 'color' in t.name.lower()]
+    if tier2_tests:
+        tier2_passed = sum(1 for t in tier2_tests if t.passed)
+        tier2_total = len(tier2_tests)
+        tier2_failed = tier2_total - tier2_passed
+        
+        if tier2_failed == 0:
+            reporter.add_note(
+                f"Tier 2 multi-quark tests: {tier2_passed}/{tier2_total} passing. "
+                "Color phase emergence validated, baryon structure confirmed."
+            )
+        else:
+            reporter.add_note(
+                f"Tier 2 multi-quark tests: {tier2_passed}/{tier2_total} passing, "
+                f"{tier2_failed} failing."
+            )
+        
+        # Check color emergence specifically
+        color_tests = [t for t in tier2_tests if 'color' in t.name.lower()]
+        if color_tests:
+            color_passed = sum(1 for t in color_tests if t.passed)
+            if color_passed == len(color_tests):
+                reporter.add_note(
+                    "Color phase emergence: All tests passing. "
+                    "Three-phase structure {0, 2π/3, 4π/3} emerges from dynamics."
+                )
+            else:
+                reporter.add_issue(
+                    f"Color phase tests: {len(color_tests) - color_passed} failures. "
+                    "Color emergence mechanism may need refinement."
+                )
 
 
 # Fixtures for test convenience
