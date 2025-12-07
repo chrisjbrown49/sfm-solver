@@ -392,8 +392,15 @@ def add_prediction(results_reporter):
         target_accuracy: float = 0.10,
         notes: str = ""
     ):
-        percent_error = abs(predicted - experimental) / experimental * 100 if experimental != 0 else float('inf')
-        within_target = percent_error <= target_accuracy * 100
+        if experimental != 0:
+            percent_error = abs(predicted - experimental) / experimental * 100
+            within_target = percent_error <= target_accuracy * 100
+        else:
+            # For zero targets (like color sum), use absolute error
+            # and check if predicted is "close enough" to zero
+            absolute_error = abs(predicted - experimental)
+            percent_error = 0.0 if absolute_error < 0.01 else absolute_error * 100
+            within_target = absolute_error < 0.01  # Within 0.01 of target
         
         prediction = PredictionResult(
             parameter=parameter,

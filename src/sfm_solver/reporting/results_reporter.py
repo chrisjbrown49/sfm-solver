@@ -463,7 +463,9 @@ class ResultsReporter:
         # Tier 2 Baryon Predictions (from test results, not recorded predictions)
         tier2_tests = [t for t in self.test_results 
                       if 'tier2' in t.name.lower() or 'baryon' in t.name.lower() 
-                      or 'color' in t.name.lower()]
+                      or 'color' in t.name.lower() or 'tier 2' in t.category.lower()
+                      or 'neutron' in t.name.lower() or 'pion' in t.name.lower()
+                      or 'jpsi' in t.name.lower() or 'meson' in t.name.lower()]
         
         if tier2_tests:
             lines.append("#### Tier 2 Baryon Predictions")
@@ -483,28 +485,28 @@ class ResultsReporter:
             # Color neutrality - get from predictions
             color_tests = [t for t in tier2_tests if 'color_sum' in t.name.lower() or 'neutral' in t.name.lower()]
             color_passed = all(t.passed for t in color_tests) if color_tests else summary.color_emergence_verified
-            color_pred = get_tier2_pred("Color_Sum")
+            color_pred = get_tier2_pred("Tier2_Color_Sum")
             color_val = f"{color_pred.predicted:.4f}" if color_pred else "~0.0001"
             lines.append(f"| Color sum |Σe^(iφ)| | {color_val} | < 0.01 | {'✅' if color_passed else '❌'} | Emergent color neutrality |")
             
             # Phase differences - get from predictions
             phase_tests = [t for t in tier2_tests if 'phase' in t.name.lower() and ('diff' in t.name.lower() or '120' in t.name.lower())]
             phase_passed = all(t.passed for t in phase_tests) if phase_tests else summary.color_emergence_verified
-            phase_pred = get_tier2_pred("Phase_Diff")
+            phase_pred = get_tier2_pred("Tier2_Phase_Diff")
             phase_val = f"{phase_pred.predicted:.4f} rad" if phase_pred else "2.094 rad"
             lines.append(f"| Phase differences Δφ | {phase_val} | 2π/3 ≈ 2.094 | {'✅' if phase_passed else '❌'} | 120° separation |")
             
             # Binding energy - get from predictions
             binding_tests = [t for t in tier2_tests if 'binding' in t.name.lower() or 'energy_negative' in t.name.lower()]
             binding_passed = all(t.passed for t in binding_tests) if binding_tests else summary.tier2_complete
-            binding_pred = get_tier2_pred("Binding_Energy")
+            binding_pred = get_tier2_pred("Tier2_Binding_Energy")
             binding_val = f"{binding_pred.predicted:.3f}" if binding_pred else "< 0"
             lines.append(f"| Total energy E | {binding_val} | Negative | {'✅' if binding_passed else '❌'} | Bound state |")
             
             # Coupling energy
             coupling_tests = [t for t in tier2_tests if 'coupling' in t.name.lower()]
             coupling_passed = all(t.passed for t in coupling_tests) if coupling_tests else summary.tier2_complete
-            lines.append(f"| Coupling energy | < 0 | Negative | {'✅' if coupling_passed else '❌'} | E_coupling = -αkA |")
+            lines.append(f"| Coupling energy | < 0 | Negative | {'✅' if coupling_passed else '❌'} | E_coupling = -α×n^p×k×A |")
             
             # Amplitude stability
             amplitude_tests = [t for t in tier2_tests if 'amplitude' in t.name.lower() and 'stabil' in t.name.lower()]
@@ -519,35 +521,35 @@ class ResultsReporter:
             # Proton mass prediction - get from predictions
             mass_tests = [t for t in tier2_tests if 'proton_mass' in t.name.lower() or 'mass_prediction' in t.name.lower()]
             mass_passed = all(t.passed for t in mass_tests) if mass_tests else summary.tier2_complete
-            proton_pred = get_tier2_pred("Proton_Mass")
+            proton_pred = get_tier2_pred("Tier2_Proton_Mass")
             proton_val = f"{proton_pred.predicted:.2f} MeV" if proton_pred else "938.27 MeV"
             lines.append(f"| Proton mass | {proton_val} | 938.27 MeV | {'✅' if mass_passed else '❌'} | Via energy calibration |")
             
             # Neutron mass prediction - get from predictions
             neutron_tests = [t for t in tier2_tests if 'neutron' in t.name.lower()]
             neutron_passed = all(t.passed for t in neutron_tests) if neutron_tests else False
-            neutron_pred = get_tier2_pred("Neutron_Mass")
+            neutron_pred = get_tier2_pred("Tier2_Neutron_Mass")
             neutron_val = f"{neutron_pred.predicted:.2f} MeV" if neutron_pred else "939.6 MeV"
             lines.append(f"| Neutron mass | {neutron_val} | 939.57 MeV | {'✅' if neutron_passed else '❌'} | Via quark types (udd) |")
             
             # n-p mass difference - get from predictions
             np_diff_tests = [t for t in tier2_tests if 'np_mass_difference' in t.name.lower()]
             np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
-            np_diff_pred = get_tier2_pred("NP_Mass_Diff")
+            np_diff_pred = get_tier2_pred("Tier2_NP_Mass_Diff")
             np_diff_val = f"{np_diff_pred.predicted:.2f} MeV" if np_diff_pred else "~1.3 MeV"
             lines.append(f"| n-p mass diff | {np_diff_val} | 1.29 MeV | {'✅' if np_diff_passed else '❌'} | From Coulomb energy |")
             
             # Pion mass prediction
             pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
             pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
-            pion_pred = get_tier2_pred("Pion_Mass")
+            pion_pred = get_tier2_pred("Tier2_Pion_Mass")
             pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
             lines.append(f"| Pion (π⁺) mass | {pion_val} | 139.6 MeV | {'✅' if pion_passed else '⏳'} | Meson (ud̄) |")
             
             # J/ψ mass prediction
             jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
             jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
-            jpsi_pred = get_tier2_pred("JPsi_Mass")
+            jpsi_pred = get_tier2_pred("Tier2_JPsi_Mass")
             jpsi_val = f"{jpsi_pred.predicted:.1f} MeV" if jpsi_pred else "—"
             lines.append(f"| J/ψ mass | {jpsi_val} | 3096.9 MeV | {'✅' if jpsi_passed else '⏳'} | Charmonium (cc̄) |")
             
@@ -731,7 +733,7 @@ class ResultsReporter:
         
         amplitude_tests = [t for t in tier2_tests if 'amplitude' in t.name.lower() and 'stabil' in t.name.lower()]
         amplitude_passed = all(t.passed for t in amplitude_tests) if amplitude_tests else summary.tier2_complete
-        lines.append(f"| 6 | Amplitude stabilizes (A → finite) | {'✅ PASSING' if amplitude_passed else '❌ NOT PASSING'} | E_coupling = -αkA prevents collapse |")
+        lines.append(f"| 6 | Amplitude stabilizes (A → finite) | {'✅ PASSING' if amplitude_passed else '❌ NOT PASSING'} | E_coupling ∝ -A (linear) prevents collapse |")
         
         mass_tests = [t for t in tier2_tests if 'proton_mass' in t.name.lower() or 'mass_prediction' in t.name.lower()]
         mass_passed = all(t.passed for t in mass_tests) if mass_tests else summary.tier2_complete

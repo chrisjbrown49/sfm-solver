@@ -683,7 +683,9 @@ class HTMLResultsViewer:
         # Get Tier 2 tests
         tier2_tests = [t for t in reporter.test_results 
                       if 'tier2' in t.name.lower() or 'baryon' in t.name.lower() 
-                      or 'color' in t.name.lower()]
+                      or 'color' in t.name.lower() or 'tier 2' in t.category.lower()
+                      or 'neutron' in t.name.lower() or 'pion' in t.name.lower()
+                      or 'jpsi' in t.name.lower() or 'meson' in t.name.lower()]
         
         if not tier2_tests:
             return ''
@@ -720,34 +722,34 @@ class HTMLResultsViewer:
         np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
         
         # Get actual prediction values from stored predictions
-        color_pred = get_tier2_pred("Color_Sum")
+        color_pred = get_tier2_pred("Tier2_Color_Sum")
         color_val = f"{color_pred.predicted:.4f}" if color_pred else "~0.0001"
         
-        phase_pred = get_tier2_pred("Phase_Diff")
+        phase_pred = get_tier2_pred("Tier2_Phase_Diff")
         phase_val = f"{phase_pred.predicted:.4f} rad" if phase_pred else "2.094 rad"
         
-        binding_pred = get_tier2_pred("Binding_Energy")
+        binding_pred = get_tier2_pred("Tier2_Binding_Energy")
         binding_val = f"{binding_pred.predicted:.3f}" if binding_pred else "&lt; 0"
         
-        proton_pred = get_tier2_pred("Proton_Mass")
+        proton_pred = get_tier2_pred("Tier2_Proton_Mass")
         proton_val = f"{proton_pred.predicted:.2f} MeV" if proton_pred else "938.27 MeV"
         
-        neutron_pred = get_tier2_pred("Neutron_Mass")
+        neutron_pred = get_tier2_pred("Tier2_Neutron_Mass")
         neutron_val = f"{neutron_pred.predicted:.2f} MeV" if neutron_pred else "939.6 MeV"
         
-        np_diff_pred = get_tier2_pred("NP_Mass_Diff")
+        np_diff_pred = get_tier2_pred("Tier2_NP_Mass_Diff")
         np_diff_val = f"{np_diff_pred.predicted:.2f} MeV" if np_diff_pred else "~1.3 MeV"
         
         # Pion mass prediction
         pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
         pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
-        pion_pred = get_tier2_pred("Pion_Mass")
+        pion_pred = get_tier2_pred("Tier2_Pion_Mass")
         pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
         
         # J/ψ mass prediction
         jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
         jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
-        jpsi_pred = get_tier2_pred("JPsi_Mass")
+        jpsi_pred = get_tier2_pred("Tier2_JPsi_Mass")
         jpsi_val = f"{jpsi_pred.predicted:.1f} MeV" if jpsi_pred else "—"
         
         # Count all 11 predictions (+ Υ as future = 12 total shown)
@@ -800,7 +802,7 @@ class HTMLResultsViewer:
                 <td>&lt; 0</td>
                 <td>Negative</td>
                 <td class="{'status-pass' if coupling_passed else 'status-fail'}">{'✅' if coupling_passed else '❌'}</td>
-                <td style="font-size: 0.85em;">E = -αkA stabilizes</td>
+                <td style="font-size: 0.85em;">E ∝ -A (linear) stabilizes</td>
             </tr>
             <tr>
                 <td>Amplitude A²</td>
@@ -1099,7 +1101,7 @@ class HTMLResultsViewer:
             <tr>
                 <td>Baryon Solver (Tier 2)</td>
                 <td class="{'status-pass' if summary.tier2_complete else 'status-pending'}">{'✅ Operational' if summary.tier2_complete else '⏳ Pending'}</td>
-                <td>Composite wavefunction with E_coupling = -αkA</td>
+                <td>Composite wavefunction with E_coupling ∝ -A (linear)</td>
             </tr>
         </table>
         
@@ -1233,7 +1235,8 @@ class HTMLResultsViewer:
         tier2_tests = [t for t in reporter.test_results 
                       if 'tier2' in t.name.lower() or 'tier 2' in t.category.lower()
                       or 'baryon' in t.name.lower() or 'meson' in t.name.lower()
-                      or 'color' in t.name.lower()]
+                      or 'color' in t.name.lower() or 'neutron' in t.name.lower()
+                      or 'pion' in t.name.lower() or 'jpsi' in t.name.lower()]
         
         color_tests = [t for t in tier2_tests if 'color' in t.name.lower()]
         color_passed = all(t.passed for t in color_tests) if color_tests else False
@@ -1300,7 +1303,7 @@ class HTMLResultsViewer:
                 <td>6</td>
                 <td>Amplitude stabilizes (A → finite)</td>
                 <td class="{'status-pass' if amplitude_passed else 'status-fail'}">{'✅ PASSING' if amplitude_passed else '❌ NOT PASSING'}</td>
-                <td>E<sub>coupling</sub> = -αkA prevents collapse</td>
+                <td>E<sub>coupling</sub> ∝ -A (linear) prevents collapse</td>
             </tr>
             <tr>
                 <td>7</td>
@@ -1358,11 +1361,11 @@ class HTMLResultsViewer:
             <ul>
                 <li>✅ <strong>Color emergence:</strong> Three-phase structure {0, 2π/3, 4π/3} emerges from energy minimization</li>
                 <li>✅ <strong>Color neutrality:</strong> |Σe<sup>iφ</sup>| &lt; 0.01 verified</li>
-                <li>✅ <strong>Amplitude stabilization:</strong> E<sub>coupling</sub> = -αkA prevents collapse to zero</li>
+                <li>✅ <strong>Amplitude stabilization:</strong> E<sub>coupling</sub> ∝ -A (linear) prevents collapse to zero</li>
                 <li>✅ <strong>Bound state:</strong> Total energy is negative (stable)</li>
                 <li>✅ <strong>Correct physics:</strong> Single composite wavefunction, not three separate quarks</li>
             </ul>
-            <p><strong>Key insight:</strong> The coupling energy term E<sub>coupling</sub> = -αkA (linear in amplitude) creates a stable minimum at finite A.</p>
+            <p><strong>Key insight:</strong> The coupling energy is linear in amplitude A (not A² or A⁴), creating a stable minimum at finite A when balanced against curvature energy (∝ A⁴).</p>
         </div>
         '''
     
