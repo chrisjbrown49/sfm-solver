@@ -20,37 +20,24 @@ from sfm_solver.multiparticle.color_verification import (
     verify_phase_emergence,
 )
 
-# Composite baryon solver (CORRECT physics - single wavefunction)
+# Composite baryon solver (single wavefunction - correct physics)
 from sfm_solver.multiparticle.composite_baryon import (
     CompositeBaryonSolver,
     CompositeBaryonState,
+    PROTON_QUARKS,
+    NEUTRON_QUARKS,
 )
 
-# Legacy baryon solver (deprecated - three separate wavefunctions)
-from sfm_solver.multiparticle.baryon import (
-    BaryonSolver as LegacyBaryonSolver,
-    BaryonState as LegacyBaryonState,
-    solve_baryon_system,
-)
-
-# Use composite solver as the default BaryonSolver
-BaryonSolver = CompositeBaryonSolver
-BaryonState = CompositeBaryonState
-
-# Composite meson solver (CORRECT physics - single wavefunction like baryons)
+# Composite meson solver (single wavefunction - correct physics)
 from sfm_solver.multiparticle.composite_meson import (
     CompositeMesonSolver,
     CompositeMesonState,
+    MESON_CONFIGS,
 )
 
-# Legacy meson solver (eigenvalue-based)
-from sfm_solver.multiparticle.meson import (
-    MesonSolver as LegacyMesonSolver,
-    MesonState as LegacyMesonState,
-    solve_meson_system,
-)
-
-# Use composite solver as the default MesonSolver
+# Aliases for convenience
+BaryonSolver = CompositeBaryonSolver
+BaryonState = CompositeBaryonState
 MesonSolver = CompositeMesonSolver
 MesonState = CompositeMesonState
 
@@ -62,24 +49,18 @@ __all__ = [
     'verify_color_neutrality',
     'verify_phase_emergence',
     
-    # Baryon solver (composite - correct physics)
-    'BaryonSolver',  # Alias for CompositeBaryonSolver
-    'BaryonState',   # Alias for CompositeBaryonState
+    # Baryon solver
+    'BaryonSolver',
+    'BaryonState',
     'CompositeBaryonSolver',
     'CompositeBaryonState',
+    'PROTON_QUARKS',
+    'NEUTRON_QUARKS',
     
-    # Meson solver (composite - correct physics)
-    'MesonSolver',   # Alias for CompositeMesonSolver
-    'MesonState',    # Alias for CompositeMesonState
+    # Meson solver
+    'MesonSolver',
+    'MesonState',
     'CompositeMesonSolver',
     'CompositeMesonState',
-    
-    # Legacy (deprecated)
-    'LegacyBaryonSolver',
-    'LegacyBaryonState',
-    'solve_baryon_system',
-    'LegacyMesonSolver',
-    'LegacyMesonState',
-    'solve_meson_system',
+    'MESON_CONFIGS',
 ]
-
