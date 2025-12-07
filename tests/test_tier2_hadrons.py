@@ -467,8 +467,8 @@ class TestTier2MesonSolver:
         """Meson should have small net winding (opposite windings)."""
         state = meson_solver.solve(max_iter=3000, dt=0.001, verbose=False)
         # Net winding = k_quark + k_antiquark, for ud̄: 5 + (-3) = 2
-        assert abs(state.net_winding) < 5, \
-            f"Meson net winding should be small, got {state.net_winding}"
+        assert abs(state.k_meson) < 5, \
+            f"Meson net winding should be small, got {state.k_meson}"
 
 
 # =============================================================================
@@ -555,10 +555,13 @@ class TestTier2MesonMass:
     @pytest.mark.meson
     def test_pion_destructive_interference(self, pion_state):
         """Pion should show destructive interference from opposite windings."""
-        # The interference factor should be < 1 (destructive)
-        # For perfect destructive interference, factor → 0
-        assert pion_state.interference_factor < 1.0, \
-            f"Pion should have destructive interference, got factor {pion_state.interference_factor}"
+        # k_eff should be much smaller than k_coupling (bare sum)
+        # k_coupling = |k_q| + |k_qbar| = 8 for pion
+        # k_eff emerges from wavefunction gradient and shows interference
+        # For destructive interference, k_eff << k_coupling
+        interference_ratio = pion_state.k_eff / pion_state.k_coupling
+        assert interference_ratio < 0.5, \
+            f"Pion k_eff should show destructive interference, got k_eff/k_coupling = {interference_ratio:.2f}"
     
     @pytest.mark.tier2
     @pytest.mark.meson
