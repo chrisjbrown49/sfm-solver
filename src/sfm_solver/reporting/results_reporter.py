@@ -537,10 +537,26 @@ class ResultsReporter:
             np_diff_val = f"{np_diff_pred.predicted:.2f} MeV" if np_diff_pred else "~1.3 MeV"
             lines.append(f"| n-p mass diff | {np_diff_val} | 1.29 MeV | {'✅' if np_diff_passed else '❌'} | From Coulomb energy |")
             
+            # Pion mass prediction
+            pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
+            pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+            pion_pred = get_tier2_pred("Pion_Mass")
+            pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
+            lines.append(f"| Pion (π⁺) mass | {pion_val} | 139.6 MeV | {'✅' if pion_passed else '⏳'} | Meson (ud̄) |")
+            
+            # J/ψ mass prediction
+            jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
+            jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
+            jpsi_pred = get_tier2_pred("JPsi_Mass")
+            jpsi_val = f"{jpsi_pred.predicted:.1f} MeV" if jpsi_pred else "—"
+            lines.append(f"| J/ψ mass | {jpsi_val} | 3096.9 MeV | {'✅' if jpsi_passed else '⏳'} | Charmonium (cc̄) |")
+            
+            lines.append("")
+            lines.append("*Note: Υ (bottomonium) family predictions deferred to future work.*")
             lines.append("")
             
-            # Summary - count all 9 predictions
-            predictions_shown = 9
+            # Summary - count all predictions
+            predictions_shown = 11
             predictions_passed = sum([
                 1 if color_passed else 0,
                 1 if phase_passed else 0,
@@ -551,6 +567,8 @@ class ResultsReporter:
                 1 if mass_passed else 0,
                 1 if neutron_passed else 0,
                 1 if np_diff_passed else 0,
+                1 if pion_passed else 0,
+                1 if jpsi_passed else 0,
             ])
             lines.append(f"**Summary:** {predictions_passed}/{predictions_shown} Tier 2 predictions passing.")
             lines.append("")
@@ -726,6 +744,15 @@ class ResultsReporter:
         np_diff_tests = [t for t in tier2_tests if 'np_mass_difference' in t.name.lower()]
         np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
         lines.append(f"| 9 | **n-p mass diff = 1.29 MeV** | {'✅ PASSING' if np_diff_passed else '❌ NOT PASSING'} | From Coulomb energy |")
+        
+        pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
+        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+        lines.append(f"| 10 | **Pion (π⁺) mass = 139.6 MeV** | {'✅ PASSING' if pion_passed else '⏳ PENDING'} | Meson (ud̄) |")
+        
+        jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
+        jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
+        lines.append(f"| 11 | **J/ψ mass = 3096.9 MeV** | {'✅ PASSING' if jpsi_passed else '⏳ PENDING'} | Charmonium (cc̄) |")
+        lines.append(f"| 12 | Υ(1S) mass = 9460 MeV | ⏳ FUTURE | Bottomonium (bb̄) |")
         lines.append("")
         
         # =====================================================================

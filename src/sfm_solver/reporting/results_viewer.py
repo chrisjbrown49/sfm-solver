@@ -738,8 +738,20 @@ class HTMLResultsViewer:
         np_diff_pred = get_tier2_pred("NP_Mass_Diff")
         np_diff_val = f"{np_diff_pred.predicted:.2f} MeV" if np_diff_pred else "~1.3 MeV"
         
-        # Count all 9 predictions
-        predictions_shown = 9
+        # Pion mass prediction
+        pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
+        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+        pion_pred = get_tier2_pred("Pion_Mass")
+        pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
+        
+        # J/ψ mass prediction
+        jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
+        jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
+        jpsi_pred = get_tier2_pred("JPsi_Mass")
+        jpsi_val = f"{jpsi_pred.predicted:.1f} MeV" if jpsi_pred else "—"
+        
+        # Count all 11 predictions (+ Υ as future = 12 total shown)
+        predictions_shown = 11
         predictions_passed = sum([
             1 if color_passed else 0,
             1 if phase_passed else 0,
@@ -750,6 +762,8 @@ class HTMLResultsViewer:
             1 if mass_passed else 0,
             1 if neutron_passed else 0,
             1 if np_diff_passed else 0,
+            1 if pion_passed else 0,
+            1 if jpsi_passed else 0,
         ])
         all_passed = predictions_passed == predictions_shown
         
@@ -823,10 +837,30 @@ class HTMLResultsViewer:
                 <td class="{'status-pass' if np_diff_passed else 'status-fail'}">{'✅' if np_diff_passed else '❌'}</td>
                 <td style="font-size: 0.85em;"><strong>From Coulomb energy</strong></td>
             </tr>
+            <tr>
+                <td><strong>Pion (π⁺) mass</strong></td>
+                <td><strong>{pion_val}</strong></td>
+                <td><strong>139.6 MeV</strong></td>
+                <td class="{'status-pass' if pion_passed else 'status-pending'}">{'✅' if pion_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;"><strong>Meson (ud̄)</strong></td>
+            </tr>
+            <tr>
+                <td><strong>J/ψ mass</strong></td>
+                <td><strong>{jpsi_val}</strong></td>
+                <td><strong>3096.9 MeV</strong></td>
+                <td class="{'status-pass' if jpsi_passed else 'status-pending'}">{'✅' if jpsi_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;"><strong>Charmonium (cc̄)</strong></td>
+            </tr>
+            <tr>
+                <td>Υ(1S) mass</td>
+                <td>—</td>
+                <td>9460 MeV</td>
+                <td class="status-pending">⏳</td>
+                <td style="font-size: 0.85em;">Bottomonium (bb̄) - Future</td>
+            </tr>
         </table>
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-top: 10px;">
-            <em>Note: Neutron-proton mass difference emerges from different quark configurations (uud vs udd) 
-            and their Coulomb energy contributions - no Standard Model "quark masses" needed!</em>
+            <em>Note: Meson masses emerge from quark-antiquark bound states. Υ (bottomonium) family deferred to future work.</em>
         </p>'''
     
     def _generate_coupled_solver_section(self, summary: RunSummary) -> str:
@@ -1222,8 +1256,14 @@ class HTMLResultsViewer:
         np_diff_tests = [t for t in tier2_tests if 'np_mass_difference' in t.name.lower()]
         np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
         
+        pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
+        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+        
+        jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
+        jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
+        
         return f'''
-        <h4>Tier 2 Requirements Checklist (Baryons)</h4>
+        <h4>Tier 2 Requirements Checklist (Baryons & Mesons)</h4>
         <table>
             <tr><th>#</th><th>Requirement</th><th>Status</th><th>Evidence</th></tr>
             <tr>
@@ -1279,6 +1319,24 @@ class HTMLResultsViewer:
                 <td><strong>n-p mass diff = 1.29 MeV</strong></td>
                 <td class="{'status-pass' if np_diff_passed else 'status-fail'}">{'✅ PASSING' if np_diff_passed else '❌ NOT PASSING'}</td>
                 <td>From Coulomb energy</td>
+            </tr>
+            <tr>
+                <td>10</td>
+                <td><strong>Pion (π⁺) mass = 139.6 MeV</strong></td>
+                <td class="{'status-pass' if pion_passed else 'status-pending'}">{'✅ PASSING' if pion_passed else '⏳ PENDING'}</td>
+                <td>Meson (ud̄)</td>
+            </tr>
+            <tr>
+                <td>11</td>
+                <td><strong>J/ψ mass = 3096.9 MeV</strong></td>
+                <td class="{'status-pass' if jpsi_passed else 'status-pending'}">{'✅ PASSING' if jpsi_passed else '⏳ PENDING'}</td>
+                <td>Charmonium (cc̄)</td>
+            </tr>
+            <tr>
+                <td>12</td>
+                <td>Υ(1S) mass = 9460 MeV</td>
+                <td class="status-pending">⏳ FUTURE</td>
+                <td>Bottomonium (bb̄)</td>
             </tr>
         </table>
         

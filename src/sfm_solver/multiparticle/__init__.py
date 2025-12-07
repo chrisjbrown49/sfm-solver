@@ -37,11 +37,22 @@ from sfm_solver.multiparticle.baryon import (
 BaryonSolver = CompositeBaryonSolver
 BaryonState = CompositeBaryonState
 
+# Composite meson solver (CORRECT physics - single wavefunction like baryons)
+from sfm_solver.multiparticle.composite_meson import (
+    CompositeMesonSolver,
+    CompositeMesonState,
+)
+
+# Legacy meson solver (eigenvalue-based)
 from sfm_solver.multiparticle.meson import (
-    MesonSolver,
-    MesonState,
+    MesonSolver as LegacyMesonSolver,
+    MesonState as LegacyMesonState,
     solve_meson_system,
 )
+
+# Use composite solver as the default MesonSolver
+MesonSolver = CompositeMesonSolver
+MesonState = CompositeMesonState
 
 
 __all__ = [
@@ -57,14 +68,18 @@ __all__ = [
     'CompositeBaryonSolver',
     'CompositeBaryonState',
     
+    # Meson solver (composite - correct physics)
+    'MesonSolver',   # Alias for CompositeMesonSolver
+    'MesonState',    # Alias for CompositeMesonState
+    'CompositeMesonSolver',
+    'CompositeMesonState',
+    
     # Legacy (deprecated)
     'LegacyBaryonSolver',
     'LegacyBaryonState',
     'solve_baryon_system',
-    
-    # Meson solver
-    'MesonSolver',
-    'MesonState',
+    'LegacyMesonSolver',
+    'LegacyMesonState',
     'solve_meson_system',
 ]
 

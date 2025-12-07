@@ -1,20 +1,22 @@
 """
 Meson Solver for SFM.
 
-Solves the quark-antiquark bound state problem for mesons (pion, kaon, etc.).
+Solves the quark-antiquark bound state problem for mesons (pion, kaon, etc.)
+and heavy quarkonia (J/ψ, Υ).
 
 Key physics:
 - Mesons consist of quark (k=+3) + antiquark (k=-3)
 - Net winding = 0 (neutral in the topological sense)
 - Geometrically protected against annihilation
 - Metastable due to opposite circulations
+- Mass from total binding energy (like baryons)
 
 Mathematical formulation:
     [-ℏ²/(2m_σR²) ∂²/∂σ² + V(σ)]χ_q + g₁|χ_q + χ_q̄|²χ_q = μ_q χ_q
     [-ℏ²/(2m_σR²) ∂²/∂σ² + V(σ)]χ_q̄ + g₁|χ_q + χ_q̄|²χ_q̄ = μ_q̄ χ_q̄
 
-The quark-antiquark system has reduced nonlinear energy compared to
-quark-quark because the circulations partially cancel.
+Heavy quarkonia (cc̄, bb̄) have additional binding from heavier quark masses
+which affects the effective potential depth and binding energy.
 """
 
 import numpy as np
@@ -62,6 +64,11 @@ class MesonState:
     
     # Metadata
     quark_content: str = "ud̄"  # Default pion
+    meson_type: str = "pion_plus"  # Meson configuration name
+    
+    def predicted_mass_gev(self, scale_factor: float) -> float:
+        """Calculate meson mass in GeV using energy calibration."""
+        return scale_factor * abs(self.energy_total)
 
 
 class MesonSolver:
@@ -79,14 +86,25 @@ class MesonSolver:
     # In a meson, they can be in same well (more tightly bound)
     # or opposite wells (less tightly bound)
     
-    # Meson configurations
+    # Meson configurations with mass targets (GeV)
     MESON_CONFIGS = {
-        'pion_plus': {'content': 'ud̄', 'quark': 'u', 'antiquark': 'd'},
-        'pion_zero': {'content': 'uū/dd̄', 'quark': 'u', 'antiquark': 'u'},
-        'pion_minus': {'content': 'dū', 'quark': 'd', 'antiquark': 'u'},
-        'kaon_plus': {'content': 'us̄', 'quark': 'u', 'antiquark': 's'},
-        'kaon_zero': {'content': 'ds̄', 'quark': 'd', 'antiquark': 's'},
-        'eta': {'content': 'uū+dd̄', 'quark': 'u', 'antiquark': 'u'},
+        # Light mesons
+        'pion_plus': {'content': 'ud̄', 'quark': 'u', 'antiquark': 'd', 'mass_gev': 0.139570},
+        'pion_zero': {'content': 'uū/dd̄', 'quark': 'u', 'antiquark': 'u', 'mass_gev': 0.134977},
+        'pion_minus': {'content': 'dū', 'quark': 'd', 'antiquark': 'u', 'mass_gev': 0.139570},
+        'kaon_plus': {'content': 'us̄', 'quark': 'u', 'antiquark': 's', 'mass_gev': 0.493677},
+        'kaon_zero': {'content': 'ds̄', 'quark': 'd', 'antiquark': 's', 'mass_gev': 0.497611},
+        'eta': {'content': 'uū+dd̄', 'quark': 'u', 'antiquark': 'u', 'mass_gev': 0.547862},
+        # Heavy quarkonia
+        'jpsi': {'content': 'cc̄', 'quark': 'c', 'antiquark': 'c', 'mass_gev': 3.096900, 'heavy': True},
+        'upsilon_1s': {'content': 'bb̄', 'quark': 'b', 'antiquark': 'b', 'mass_gev': 9.46030, 'heavy': True},
+    }
+    
+    # Effective "heaviness" factors for quark flavors (affects binding)
+    # These scale the effective potential depth for heavy quarkonia
+    QUARK_HEAVINESS = {
+        'u': 1.0, 'd': 1.0, 's': 1.2,  # Light quarks
+        'c': 3.5, 'b': 10.0,  # Heavy quarks
     }
     
     def __init__(
@@ -372,12 +390,17 @@ class MesonSolver:
             converged=converged,
             iterations=iteration + 1,
             final_residual=residual,
-            quark_content=config.get('content', 'qq̄')
+            quark_content=config.get('content', 'qq̄'),
+            meson_type=meson_config
         )
     
     def solve_pion(self, **kwargs) -> MesonState:
         """Convenience method to solve for pion (ud̄)."""
         return self.solve(meson_config='pion_plus', **kwargs)
+    
+    def solve_jpsi(self, **kwargs) -> MesonState:
+        """Convenience method to solve for J/ψ (cc̄)."""
+        return self.solve(meson_config='jpsi', **kwargs)
     
     def calculate_mass(
         self,
@@ -390,6 +413,21 @@ class MesonSolver:
         m_meson = β × (A_q² + A_q̄²)
         """
         return beta * state.amplitude_squared_total
+    
+    def calculate_mass_from_energy(
+        self,
+        state: MesonState,
+        reference_mass_gev: float,
+        reference_energy: float
+    ) -> float:
+        """
+        Calculate meson mass using energy calibration (like baryons).
+        
+        m_meson = scale_factor × |E_total|
+        where scale_factor = m_reference / |E_reference|
+        """
+        scale_factor = reference_mass_gev / abs(reference_energy)
+        return scale_factor * abs(state.energy_total)
 
 
 def solve_meson_system(

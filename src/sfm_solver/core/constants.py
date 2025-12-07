@@ -74,6 +74,10 @@ NEUTRON_MASS_GEV: float = 0.939_565_421_99  # GeV (0.6 ppb precision)
 PION_CHARGED_MASS_GEV: float = 0.139_570_39  # GeV
 PION_NEUTRAL_MASS_GEV: float = 0.134_976_8  # GeV
 
+# Quarkonium masses in GeV (for Tier 2 validation)
+JPSI_MASS_GEV: float = 3.096_900  # J/ψ (cc̄) - charmonium ground state
+UPSILON_1S_MASS_GEV: float = 9.460_30  # Υ(1S) (bb̄) - bottomonium ground state (future)
+
 # =============================================================================
 # Natural Units Option
 # =============================================================================
