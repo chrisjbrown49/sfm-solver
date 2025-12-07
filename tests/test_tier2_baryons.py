@@ -35,6 +35,7 @@ from sfm_solver.multiparticle import (
     MesonSolver,
     solve_meson_system,
 )
+from sfm_solver.multiparticle.composite_baryon import PROTON_QUARKS, NEUTRON_QUARKS
 
 
 # Convert to MeV
@@ -153,13 +154,23 @@ class TestTier2BindingEnergy:
     """Test binding energy is negative (bound state)."""
     
     @pytest.mark.tier2
-    def test_total_energy_negative(self, baryon_solver):
+    def test_total_energy_negative(self, baryon_solver, add_prediction):
         """Total energy should be negative for bound state."""
         state = baryon_solver.solve(
             max_iter=2000,
             dt=0.001,
             initial_amplitude=1.0,
             verbose=False
+        )
+        
+        # Record binding energy prediction
+        add_prediction(
+            parameter="Tier2_Binding_Energy",
+            predicted=state.energy_total,
+            experimental=-1.0,  # Target: negative (bound)
+            unit="(dimensionless)",
+            target_accuracy=10.0,  # Just needs to be negative
+            notes="Total energy from composite baryon solver"
         )
         
         # Total energy should be negative (bound state)
@@ -190,13 +201,23 @@ class TestTier2ColorEmergence:
     """Test that color neutrality emerges from energy minimization."""
     
     @pytest.mark.tier2
-    def test_color_sum_near_zero(self, baryon_solver):
+    def test_color_sum_near_zero(self, baryon_solver, add_prediction):
         """Color sum |Σe^(iφᵢ)| should be near zero."""
         state = baryon_solver.solve(
             max_iter=3000,
             dt=0.001,
             initial_amplitude=1.0,
             verbose=False
+        )
+        
+        # Record the actual prediction
+        add_prediction(
+            parameter="Tier2_Color_Sum",
+            predicted=state.color_sum_magnitude,
+            experimental=0.0,  # Perfect neutrality
+            unit="",
+            target_accuracy=1.0,  # Within 0.01 absolute
+            notes="Color neutrality |Σe^(iφᵢ)| from baryon solver"
         )
         
         # Color sum should be very small (< 0.1)
@@ -217,13 +238,24 @@ class TestTier2ColorEmergence:
             f"Should be color neutral (sum={state.color_sum_magnitude})"
     
     @pytest.mark.tier2
-    def test_phase_differences_120_degrees(self, baryon_solver):
+    def test_phase_differences_120_degrees(self, baryon_solver, add_prediction):
         """Phase differences should be approximately 2π/3 (120°)."""
         state = baryon_solver.solve(
             max_iter=3000,
             dt=0.001,
             initial_amplitude=1.0,
             verbose=False
+        )
+        
+        # Record average phase difference
+        avg_phase_diff = np.mean(state.phase_differences)
+        add_prediction(
+            parameter="Tier2_Phase_Diff",
+            predicted=avg_phase_diff,
+            experimental=TARGET_PHASE_DIFF,  # 2π/3 ≈ 2.094
+            unit="rad",
+            target_accuracy=0.10,  # Within 10%
+            notes="Average phase difference between color charges"
         )
         
         # Both phase differences should be ~2.094 (= 2π/3)
@@ -321,7 +353,7 @@ class TestTier2BaryonMass:
     """Test baryon mass prediction via energy calibration."""
     
     @pytest.mark.tier2
-    def test_proton_mass_prediction(self, grid):
+    def test_proton_mass_prediction(self, grid, add_prediction):
         """Proton mass can be predicted via energy calibration."""
         # Use standard parameters
         potential = ThreeWellPotential(V0=10.0, V1=0.1)
@@ -337,6 +369,16 @@ class TestTier2BaryonMass:
         # Predict mass using calibration
         predicted_mass_GeV = scale_factor * E_total
         predicted_mass_MeV = predicted_mass_GeV * 1000
+        
+        # Record the prediction
+        add_prediction(
+            parameter="Tier2_Proton_Mass",
+            predicted=predicted_mass_MeV,
+            experimental=PROTON_MASS_MEV,
+            unit="MeV",
+            target_accuracy=0.01,  # Within 1% (by calibration should be exact)
+            notes="Proton mass via energy calibration"
+        )
         
         # Should match proton mass exactly (by calibration)
         assert abs(predicted_mass_MeV - PROTON_MASS_MEV) < 0.01, \
@@ -439,7 +481,8 @@ class TestTier2PhysicalConsistency:
         
         # Note: Total includes circulation energy which is computed separately
         computed_sum = (state.energy_kinetic + state.energy_potential + 
-                       state.energy_nonlinear + state.energy_coupling)
+                       state.energy_nonlinear + state.energy_coupling +
+                       state.energy_coulomb)
         
         # Allow for circulation energy contribution
         assert abs(state.energy_total - computed_sum) < abs(state.energy_total) * 0.5
@@ -487,3 +530,135 @@ class TestTier2ParameterSensitivity:
         # With coupling, amplitude should be substantial
         assert state.amplitude_squared > 0.1, \
             f"With coupling, amplitude should stabilize, got {state.amplitude_squared}"
+
+
+# =============================================================================
+# Test Class: Neutron-Proton Mass Difference (Key Tier 2 Prediction)
+# =============================================================================
+
+class TestTier2NeutronProtonMass:
+    """
+    Test neutron-proton mass difference prediction.
+    
+    In SFM, the n-p mass difference arises from:
+    - Different quark configurations: proton (uud) vs neutron (udd)
+    - Different charge patterns: u = +2/3, d = -1/3  
+    - Different Coulomb energy contributions
+    - Different interference patterns in |χ(σ)|²
+    - Different integrated amplitudes A²
+    - Different masses: m = β × A²
+    
+    Key insight: No Standard Model "quark masses" needed!
+    The mass difference emerges purely from SFM geometry.
+    """
+    
+    @pytest.fixture
+    def proton_neutron_states(self, grid, potential):
+        """Solve for both proton and neutron."""
+        solver = CompositeBaryonSolver(
+            grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3
+        )
+        state_p = solver.solve(quark_types=PROTON_QUARKS, max_iter=2000, dt=0.001)
+        state_n = solver.solve(quark_types=NEUTRON_QUARKS, max_iter=2000, dt=0.001)
+        return state_p, state_n
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon
+    def test_neutron_heavier_than_proton(self, proton_neutron_states):
+        """Neutron should be heavier than proton (correct sign)."""
+        state_p, state_n = proton_neutron_states
+        
+        # Using energy-based mass: m = scale × |E|
+        # Neutron should have larger |E| (more bound due to less Coulomb repulsion)
+        assert abs(state_n.energy_total) > abs(state_p.energy_total), \
+            "Neutron should have larger binding energy (mass)"
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon
+    def test_neutron_mass_prediction(self, proton_neutron_states, add_prediction):
+        """Neutron mass should be predicted within 5% of experimental value."""
+        state_p, state_n = proton_neutron_states
+        
+        # Calibrate using proton mass
+        scale_factor = PROTON_MASS_GEV / abs(state_p.energy_total)
+        m_neutron_pred = scale_factor * abs(state_n.energy_total)
+        m_neutron_pred_MeV = m_neutron_pred * 1000
+        
+        # Record the prediction
+        add_prediction(
+            parameter="Tier2_Neutron_Mass",
+            predicted=m_neutron_pred_MeV,
+            experimental=NEUTRON_MASS_MEV,
+            unit="MeV",
+            target_accuracy=0.05,  # Within 5%
+            notes="Neutron mass via quark types (udd) and energy calibration"
+        )
+        
+        # Should be within 5% of experimental neutron mass
+        assert_allclose(m_neutron_pred, NEUTRON_MASS_GEV, rtol=0.05,
+            err_msg=f"Predicted neutron mass {m_neutron_pred*1000:.2f} MeV, "
+                    f"expected {NEUTRON_MASS_GEV*1000:.2f} MeV")
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon
+    def test_np_mass_difference(self, proton_neutron_states, add_prediction):
+        """n-p mass difference should be approximately 1.29 MeV."""
+        state_p, state_n = proton_neutron_states
+        
+        # Calibrate using proton mass
+        scale_factor = PROTON_MASS_GEV / abs(state_p.energy_total)
+        m_p_pred = scale_factor * abs(state_p.energy_total)
+        m_n_pred = scale_factor * abs(state_n.energy_total)
+        
+        dm_pred = (m_n_pred - m_p_pred) * 1000  # MeV
+        dm_exp = NEUTRON_PROTON_DIFF_MEV  # 1.29 MeV
+        
+        # Record the prediction
+        add_prediction(
+            parameter="Tier2_NP_Mass_Diff",
+            predicted=dm_pred,
+            experimental=dm_exp,
+            unit="MeV",
+            target_accuracy=0.50,  # Within 50%
+            notes="n-p mass difference from Coulomb energy difference"
+        )
+        
+        # Should be within 50% of experimental value
+        # (This is a challenging prediction from first principles!)
+        assert abs(dm_pred - dm_exp) < dm_exp * 0.5, \
+            f"Predicted dm = {dm_pred:.2f} MeV, expected {dm_exp:.2f} MeV"
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon
+    def test_coulomb_energy_difference(self, proton_neutron_states):
+        """Neutron should have more negative Coulomb energy than proton."""
+        state_p, state_n = proton_neutron_states
+        
+        # Neutron (udd) has Coulomb sum = -1/3 (attractive)
+        # Proton (uud) has Coulomb sum = 0 (neutral)
+        # So neutron should have more negative Coulomb energy
+        assert state_n.energy_coulomb < state_p.energy_coulomb, \
+            f"Neutron E_coulomb ({state_n.energy_coulomb:.4e}) should be more " \
+            f"negative than proton ({state_p.energy_coulomb:.4e})"
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon  
+    def test_quark_types_recorded(self, proton_neutron_states):
+        """Quark types should be correctly recorded in state."""
+        state_p, state_n = proton_neutron_states
+        
+        assert state_p.quark_types == tuple(PROTON_QUARKS), \
+            f"Proton quark types should be {PROTON_QUARKS}, got {state_p.quark_types}"
+        assert state_n.quark_types == tuple(NEUTRON_QUARKS), \
+            f"Neutron quark types should be {NEUTRON_QUARKS}, got {state_n.quark_types}"
+    
+    @pytest.mark.tier2
+    @pytest.mark.baryon
+    def test_both_color_neutral(self, proton_neutron_states):
+        """Both proton and neutron should be color neutral."""
+        state_p, state_n = proton_neutron_states
+        
+        assert state_p.is_color_neutral, \
+            f"Proton color sum = {state_p.color_sum_magnitude}, should be < 0.1"
+        assert state_n.is_color_neutral, \
+            f"Neutron color sum = {state_n.color_sum_magnitude}, should be < 0.1"
