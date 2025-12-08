@@ -492,6 +492,12 @@ class HTMLResultsViewer:
                 </td>
             </tr>
             <tr>
+                <td>Tier 2b (Quarkonia)</td>
+                <td class="{'status-pass' if summary.tier2b_complete else 'status-pending'}">
+                    {'✅ Complete' if summary.tier2b_complete else '⏳ Pending'}
+                </td>
+            </tr>
+            <tr>
                 <td>Tier 3 (Weak Decay)</td>
                 <td class="{'status-pass' if summary.tier3_complete else 'status-pending'}">
                     {'✅ Complete' if summary.tier3_complete else '⏳ Pending'}
@@ -605,54 +611,94 @@ class HTMLResultsViewer:
         </table>'''
     
     def _generate_predictions_tables(self, reporter, mass_ratio_preds, charge_preds) -> str:
-        """Generate HTML for predictions tables."""
+        """Generate HTML for predictions tables organized into 5 categories."""
         html_parts = []
         
-        if mass_ratio_preds:
-            met = sum(1 for p in mass_ratio_preds if p.within_target)
+        # Helper to clean parameter names (remove Tier2_, Tier2b_ prefixes)
+        def clean_param_name(name: str) -> str:
+            if name.startswith('Tier2b_'):
+                return name[7:]
+            elif name.startswith('Tier2_'):
+                return name[6:]
+            return name
+        
+        # Categorize predictions
+        lepton_preds = [p for p in reporter.predictions 
+                        if ('m_' in p.parameter.lower() or 'ratio' in p.parameter.lower())
+                        and 'tier2b' not in p.parameter.lower()]
+        
+        quarkonia_preds = [p for p in reporter.predictions if 'tier2b' in p.parameter.lower()]
+        
+        charge_preds_filtered = [p for p in reporter.predictions 
+                                  if ('q' in p.parameter.lower() or 'charge' in p.parameter.lower())
+                                  and p not in quarkonia_preds]
+        
+        baryon_preds = [p for p in reporter.predictions 
+                        if ('color' in p.parameter.lower() or 'phase' in p.parameter.lower()
+                            or 'binding' in p.parameter.lower() or 'proton' in p.parameter.lower()
+                            or 'neutron' in p.parameter.lower() or 'np_mass' in p.parameter.lower())
+                        and p not in lepton_preds and p not in charge_preds_filtered]
+        
+        meson_preds = [p for p in reporter.predictions 
+                       if ('pion' in p.parameter.lower() or 'jpsi' in p.parameter.lower()
+                           or 'meson' in p.parameter.lower() or p in quarkonia_preds)
+                       and p not in baryon_preds]
+        
+        other_preds = [p for p in reporter.predictions 
+                       if p not in lepton_preds and p not in charge_preds_filtered 
+                       and p not in baryon_preds and p not in meson_preds]
+        
+        # 1. Lepton Predictions
+        if lepton_preds:
+            met = sum(1 for p in lepton_preds if p.within_target)
             html_parts.append(f'''
-        <h3>Mass Ratio Predictions <span class="{'status-pass' if met > 0 else 'status-fail'}">({met}/{len(mass_ratio_preds)} within target)</span></h3>
+        <h3>Lepton Predictions <span class="{'status-pass' if met == len(lepton_preds) else 'status-partial'}">({met}/{len(lepton_preds)} within target)</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Target</th><th>Status</th></tr>
             {''.join(f"""
             <tr>
-                <td>{p.parameter}</td>
+                <td>{clean_param_name(p.parameter)}</td>
                 <td>{p.predicted:.6g}</td>
                 <td>{p.experimental:.6g}</td>
                 <td>{p.percent_error:.1f}%</td>
                 <td>±{p.target_accuracy*100:.0f}%</td>
                 <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
-            </tr>""" for p in mass_ratio_preds)}
+            </tr>""" for p in lepton_preds)}
         </table>''')
         
-        if charge_preds:
-            met = sum(1 for p in charge_preds if p.within_target)
+        # 2. Charge Quantization Predictions
+        if charge_preds_filtered:
+            met = sum(1 for p in charge_preds_filtered if p.within_target)
             html_parts.append(f'''
-        <h3>Charge Quantization Predictions (Tier 1b) <span class="{'status-pass' if met == len(charge_preds) else 'status-fail'}">({met}/{len(charge_preds)})</span></h3>
+        <h3>Charge Quantization Predictions <span class="{'status-pass' if met == len(charge_preds_filtered) else 'status-fail'}">({met}/{len(charge_preds_filtered)})</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th></tr>
             {''.join(f"""
             <tr>
-                <td>{p.parameter}</td>
+                <td>{clean_param_name(p.parameter)}</td>
                 <td>{p.predicted:.4g}</td>
                 <td>{p.experimental:.4g}</td>
                 <td>{p.percent_error:.1f}%</td>
                 <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
-            </tr>""" for p in charge_preds)}
+            </tr>""" for p in charge_preds_filtered)}
         </table>''')
         
-        # Other predictions (g2/alpha, H-like attraction, etc.)
-        other_preds = [p for p in reporter.predictions 
-                       if p not in mass_ratio_preds and p not in charge_preds]
+        # 3. Baryon Predictions - from both recorded predictions and test analysis
+        html_parts.append(self._generate_baryon_predictions(reporter))
+        
+        # 4. Meson Predictions - consolidated from Tier 2 and Tier 2b
+        html_parts.append(self._generate_meson_predictions(reporter))
+        
+        # 5. Other Predictions
         if other_preds:
             met = sum(1 for p in other_preds if p.within_target)
             html_parts.append(f'''
-        <h3>Other Predictions (Tier 1b) <span class="{'status-pass' if met == len(other_preds) else 'status-fail'}">({met}/{len(other_preds)})</span></h3>
+        <h3>Other Predictions <span class="{'status-pass' if met == len(other_preds) else 'status-partial'}">({met}/{len(other_preds)})</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th><th>Notes</th></tr>
             {''.join(f"""
             <tr>
-                <td>{p.parameter}</td>
+                <td>{clean_param_name(p.parameter)}</td>
                 <td>{p.predicted:.4g}</td>
                 <td>{p.experimental:.4g}</td>
                 <td>{p.percent_error:.1f}%</td>
@@ -664,28 +710,28 @@ class HTMLResultsViewer:
         if not reporter.predictions:
             html_parts.append('<p style="color: var(--text-secondary);">No predictions recorded in this run.</p>')
         
-        # Add Tier 2 Baryon predictions from test results
-        html_parts.append(self._generate_tier2_predictions(reporter))
-        
         return ''.join(html_parts)
     
-    def _generate_tier2_predictions(self, reporter: ResultsReporter) -> str:
-        """Generate HTML for Tier 2 baryon predictions derived from test results."""
+    def _generate_baryon_predictions(self, reporter: ResultsReporter) -> str:
+        """Generate HTML for baryon predictions (Tier 2)."""
         summary = reporter._get_summary()
         
         # Helper to get prediction value from stored predictions
-        def get_tier2_pred(param_name: str):
+        def get_pred(param_name: str):
             for p in reporter.predictions:
                 if param_name.lower() in p.parameter.lower():
                     return p
             return None
         
-        # Get Tier 2 tests
+        # Get Tier 2 baryon tests (exclude mesons)
         tier2_tests = [t for t in reporter.test_results 
-                      if 'tier2' in t.name.lower() or 'baryon' in t.name.lower() 
-                      or 'color' in t.name.lower() or 'tier 2' in t.category.lower()
-                      or 'neutron' in t.name.lower() or 'pion' in t.name.lower()
-                      or 'jpsi' in t.name.lower() or 'meson' in t.name.lower()]
+                      if ('tier2' in t.name.lower() or 'baryon' in t.name.lower() 
+                          or 'color' in t.name.lower() or 'tier 2' in t.category.lower()
+                          or 'neutron' in t.name.lower())
+                      and 'tier2b' not in t.name.lower() and 'tier 2b' not in t.category.lower()
+                      and 'pion' not in t.name.lower() and 'jpsi' not in t.name.lower()
+                      and 'meson' not in t.name.lower() and 'charmonium' not in t.name.lower()
+                      and 'bottomonium' not in t.name.lower()]
         
         if not tier2_tests:
             return ''
@@ -709,51 +755,41 @@ class HTMLResultsViewer:
         winding_tests = [t for t in tier2_tests if 'winding' in t.name.lower()]
         winding_passed = all(t.passed for t in winding_tests) if winding_tests else summary.tier2_complete
         
-        # Proton mass prediction
         mass_tests = [t for t in tier2_tests if 'proton_mass' in t.name.lower() or 'mass_prediction' in t.name.lower()]
         mass_passed = all(t.passed for t in mass_tests) if mass_tests else summary.tier2_complete
         
-        # Neutron mass prediction (now implemented!)
         neutron_tests = [t for t in tier2_tests if 'neutron' in t.name.lower()]
         neutron_passed = all(t.passed for t in neutron_tests) if neutron_tests else False
         
-        # n-p mass difference
         np_diff_tests = [t for t in tier2_tests if 'np_mass_difference' in t.name.lower()]
         np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
         
-        # Get actual prediction values from stored predictions
-        color_pred = get_tier2_pred("Tier2_Color_Sum")
+        # Get actual prediction values and errors
+        color_pred = get_pred("Color_Sum")
         color_val = f"{color_pred.predicted:.4f}" if color_pred else "~0.0001"
+        color_err = f"{color_pred.percent_error:.1f}%" if color_pred else "—"
         
-        phase_pred = get_tier2_pred("Tier2_Phase_Diff")
+        phase_pred = get_pred("Phase_Diff")
         phase_val = f"{phase_pred.predicted:.4f} rad" if phase_pred else "2.094 rad"
+        phase_err = f"{phase_pred.percent_error:.2f}%" if phase_pred else "—"
         
-        binding_pred = get_tier2_pred("Tier2_Binding_Energy")
+        binding_pred = get_pred("Binding_Energy")
         binding_val = f"{binding_pred.predicted:.3f}" if binding_pred else "&lt; 0"
         
-        proton_pred = get_tier2_pred("Tier2_Proton_Mass")
+        proton_pred = get_pred("Proton_Mass")
         proton_val = f"{proton_pred.predicted:.2f} MeV" if proton_pred else "938.27 MeV"
+        proton_err = f"{proton_pred.percent_error:.2f}%" if proton_pred else "—"
         
-        neutron_pred = get_tier2_pred("Tier2_Neutron_Mass")
+        neutron_pred = get_pred("Neutron_Mass")
         neutron_val = f"{neutron_pred.predicted:.2f} MeV" if neutron_pred else "939.6 MeV"
+        neutron_err = f"{neutron_pred.percent_error:.3f}%" if neutron_pred else "—"
         
-        np_diff_pred = get_tier2_pred("Tier2_NP_Mass_Diff")
+        np_diff_pred = get_pred("NP_Mass_Diff")
         np_diff_val = f"{np_diff_pred.predicted:.2f} MeV" if np_diff_pred else "~1.3 MeV"
+        np_diff_err = f"{np_diff_pred.percent_error:.1f}%" if np_diff_pred else "—"
         
-        # Pion mass prediction
-        pion_tests = [t for t in tier2_tests if 'pion' in t.name.lower()]
-        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
-        pion_pred = get_tier2_pred("Tier2_Pion_Mass")
-        pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
-        
-        # J/ψ mass prediction
-        jpsi_tests = [t for t in tier2_tests if 'jpsi' in t.name.lower()]
-        jpsi_passed = all(t.passed for t in jpsi_tests) if jpsi_tests else False
-        jpsi_pred = get_tier2_pred("Tier2_JPsi_Mass")
-        jpsi_val = f"{jpsi_pred.predicted:.1f} MeV" if jpsi_pred else "—"
-        
-        # Count all 11 predictions (+ Υ as future = 12 total shown)
-        predictions_shown = 11
+        # Count baryon predictions (9 total)
+        predictions_shown = 9
         predictions_passed = sum([
             1 if color_passed else 0,
             1 if phase_passed else 0,
@@ -764,22 +800,21 @@ class HTMLResultsViewer:
             1 if mass_passed else 0,
             1 if neutron_passed else 0,
             1 if np_diff_passed else 0,
-            1 if pion_passed else 0,
-            1 if jpsi_passed else 0,
         ])
         all_passed = predictions_passed == predictions_shown
         
         return f'''
-        <h3>Tier 2 Baryon Predictions <span class="{'status-pass' if all_passed else 'status-partial'}">({predictions_passed}/{predictions_shown})</span></h3>
+        <h3>Baryon Predictions <span class="{'status-pass' if all_passed else 'status-partial'}">({predictions_passed}/{predictions_shown})</span></h3>
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
-            <em>Predictions derived from composite baryon solver tests</em>
+            <em>Predictions from composite baryon solver (Tier 2)</em>
         </p>
         <table>
-            <tr><th>Parameter</th><th>Predicted</th><th>Target</th><th>Status</th><th>Notes</th></tr>
+            <tr><th>Parameter</th><th>Predicted</th><th>Target</th><th>Error %</th><th>Status</th><th>Notes</th></tr>
             <tr>
                 <td>Color sum |Σe<sup>iφ</sup>|</td>
                 <td>{color_val}</td>
                 <td>&lt; 0.01</td>
+                <td>{color_err}</td>
                 <td class="{'status-pass' if color_passed else 'status-fail'}">{'✅' if color_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">Emergent color neutrality</td>
             </tr>
@@ -787,6 +822,7 @@ class HTMLResultsViewer:
                 <td>Phase differences Δφ</td>
                 <td>{phase_val}</td>
                 <td>2π/3 ≈ 2.094</td>
+                <td>{phase_err}</td>
                 <td class="{'status-pass' if phase_passed else 'status-fail'}">{'✅' if phase_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">120° separation</td>
             </tr>
@@ -794,6 +830,7 @@ class HTMLResultsViewer:
                 <td>Total energy E</td>
                 <td>{binding_val}</td>
                 <td>Negative</td>
+                <td>—</td>
                 <td class="{'status-pass' if binding_passed else 'status-fail'}">{'✅' if binding_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">Bound state</td>
             </tr>
@@ -801,6 +838,7 @@ class HTMLResultsViewer:
                 <td>Coupling energy E<sub>coupling</sub></td>
                 <td>&lt; 0</td>
                 <td>Negative</td>
+                <td>—</td>
                 <td class="{'status-pass' if coupling_passed else 'status-fail'}">{'✅' if coupling_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">E ∝ -A (linear) stabilizes</td>
             </tr>
@@ -808,6 +846,7 @@ class HTMLResultsViewer:
                 <td>Amplitude A²</td>
                 <td>&gt; 0.1</td>
                 <td>Finite</td>
+                <td>—</td>
                 <td class="{'status-pass' if amplitude_passed else 'status-fail'}">{'✅' if amplitude_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">Not collapsed to zero</td>
             </tr>
@@ -815,6 +854,7 @@ class HTMLResultsViewer:
                 <td>Winding number k</td>
                 <td>3</td>
                 <td>3</td>
+                <td>0%</td>
                 <td class="{'status-pass' if winding_passed else 'status-fail'}">{'✅' if winding_passed else '❌'}</td>
                 <td style="font-size: 0.85em;">Quark winding</td>
             </tr>
@@ -822,6 +862,7 @@ class HTMLResultsViewer:
                 <td><strong>Proton mass</strong></td>
                 <td><strong>{proton_val}</strong></td>
                 <td><strong>938.27 MeV</strong></td>
+                <td><strong>{proton_err}</strong></td>
                 <td class="{'status-pass' if mass_passed else 'status-fail'}">{'✅' if mass_passed else '❌'}</td>
                 <td style="font-size: 0.85em;"><strong>Energy calibration</strong></td>
             </tr>
@@ -829,6 +870,7 @@ class HTMLResultsViewer:
                 <td><strong>Neutron mass</strong></td>
                 <td><strong>{neutron_val}</strong></td>
                 <td><strong>939.57 MeV</strong></td>
+                <td><strong>{neutron_err}</strong></td>
                 <td class="{'status-pass' if neutron_passed else 'status-fail'}">{'✅' if neutron_passed else '❌'}</td>
                 <td style="font-size: 0.85em;"><strong>Via quark types (udd)</strong></td>
             </tr>
@@ -836,33 +878,156 @@ class HTMLResultsViewer:
                 <td><strong>n-p mass diff</strong></td>
                 <td><strong>{np_diff_val}</strong></td>
                 <td><strong>1.29 MeV</strong></td>
+                <td><strong>{np_diff_err}</strong></td>
                 <td class="{'status-pass' if np_diff_passed else 'status-fail'}">{'✅' if np_diff_passed else '❌'}</td>
                 <td style="font-size: 0.85em;"><strong>From Coulomb energy</strong></td>
             </tr>
+        </table>'''
+    
+    def _generate_meson_predictions(self, reporter: ResultsReporter) -> str:
+        """Generate HTML for all meson predictions (Tier 2 + Tier 2b)."""
+        summary = reporter._get_summary()
+        
+        # Helper to get prediction value
+        def get_pred(param_name: str):
+            for p in reporter.predictions:
+                if param_name.lower() in p.parameter.lower():
+                    return p
+            return None
+        
+        # Get meson tests
+        meson_tests = [t for t in reporter.test_results 
+                      if 'pion' in t.name.lower() or 'jpsi' in t.name.lower() 
+                      or 'meson' in t.name.lower() or 'tier2b' in t.name.lower() 
+                      or 'tier 2b' in t.category.lower()
+                      or 'charmonium' in t.name.lower() or 'bottomonium' in t.name.lower()]
+        
+        if not meson_tests:
+            return ''  # No meson tests run
+        
+        # Pion prediction
+        pion_tests = [t for t in meson_tests if 'pion' in t.name.lower()]
+        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+        pion_pred = get_pred("Pion_Mass")
+        pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
+        pion_err = f"{pion_pred.percent_error:.1f}%" if pion_pred else "—"
+        
+        # Charmonium predictions
+        jpsi_1s_pred = get_pred("JPsi_1S_Mass") or get_pred("JPsi_Mass")
+        jpsi_1s_val = f"{jpsi_1s_pred.predicted:.1f} MeV" if jpsi_1s_pred else "—"
+        jpsi_1s_err = f"{jpsi_1s_pred.percent_error:.1f}%" if jpsi_1s_pred else "—"
+        jpsi_1s_tests = [t for t in meson_tests if 'jpsi_1s' in t.name.lower() or 'jpsi_mass' in t.name.lower()]
+        jpsi_1s_passed = all(t.passed for t in jpsi_1s_tests) if jpsi_1s_tests else False
+        
+        psi_2s_pred = get_pred("Psi_2S_Mass")
+        psi_2s_val = f"{psi_2s_pred.predicted:.1f} MeV" if psi_2s_pred else "—"
+        psi_2s_err = f"{psi_2s_pred.percent_error:.1f}%" if psi_2s_pred else "—"
+        psi_2s_tests = [t for t in meson_tests if 'psi_2s' in t.name.lower()]
+        psi_2s_passed = all(t.passed for t in psi_2s_tests) if psi_2s_tests else False
+        
+        charm_ratio_pred = get_pred("Charm_2S_1S_Ratio")
+        charm_ratio_val = f"{charm_ratio_pred.predicted:.4f}" if charm_ratio_pred else "—"
+        charm_ratio_err = f"{charm_ratio_pred.percent_error:.1f}%" if charm_ratio_pred else "—"
+        charm_ratio_tests = [t for t in meson_tests if 'charmonium_2s_1s_ratio' in t.name.lower() or 'charm_2s_1s_ratio' in t.name.lower()]
+        charm_ratio_passed = all(t.passed for t in charm_ratio_tests) if charm_ratio_tests else False
+        
+        # Bottomonium predictions
+        upsilon_1s_pred = get_pred("Upsilon_1S_Mass")
+        upsilon_1s_val = f"{upsilon_1s_pred.predicted:.1f} MeV" if upsilon_1s_pred else "—"
+        upsilon_1s_err = f"{upsilon_1s_pred.percent_error:.1f}%" if upsilon_1s_pred else "—"
+        upsilon_1s_tests = [t for t in meson_tests if 'upsilon_1s_mass' in t.name.lower()]
+        upsilon_1s_passed = all(t.passed for t in upsilon_1s_tests) if upsilon_1s_tests else False
+        
+        upsilon_2s_pred = get_pred("Upsilon_2S_Mass")
+        upsilon_2s_val = f"{upsilon_2s_pred.predicted:.1f} MeV" if upsilon_2s_pred else "—"
+        upsilon_2s_err = f"{upsilon_2s_pred.percent_error:.1f}%" if upsilon_2s_pred else "—"
+        upsilon_2s_tests = [t for t in meson_tests if 'upsilon_2s_mass' in t.name.lower()]
+        upsilon_2s_passed = all(t.passed for t in upsilon_2s_tests) if upsilon_2s_tests else False
+        
+        bottom_ratio_pred = get_pred("Bottom_2S_1S_Ratio")
+        bottom_ratio_val = f"{bottom_ratio_pred.predicted:.4f}" if bottom_ratio_pred else "—"
+        bottom_ratio_err = f"{bottom_ratio_pred.percent_error:.1f}%" if bottom_ratio_pred else "—"
+        bottom_ratio_tests = [t for t in meson_tests if 'bottomonium_2s_1s_ratio' in t.name.lower() or 'bottom_2s_1s_ratio' in t.name.lower()]
+        bottom_ratio_passed = all(t.passed for t in bottom_ratio_tests) if bottom_ratio_tests else False
+        
+        # Count predictions (7 total: pion + 6 quarkonia)
+        predictions_passed = sum([
+            1 if pion_passed else 0,
+            1 if jpsi_1s_passed else 0,
+            1 if psi_2s_passed else 0,
+            1 if charm_ratio_passed else 0,
+            1 if upsilon_1s_passed else 0,
+            1 if upsilon_2s_passed else 0,
+            1 if bottom_ratio_passed else 0,
+        ])
+        predictions_shown = 7
+        
+        return f'''
+        <h3>Meson Predictions <span class="{'status-pass' if predictions_passed >= 5 else 'status-partial'}">({predictions_passed}/{predictions_shown})</span></h3>
+        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+            <em>All meson predictions including light mesons and heavy quarkonia (Tier 2 + Tier 2b)</em>
+        </p>
+        <table>
+            <tr><th>Parameter</th><th>Predicted</th><th>Target</th><th>Error %</th><th>Status</th><th>Notes</th></tr>
             <tr>
                 <td><strong>Pion (π⁺) mass</strong></td>
                 <td><strong>{pion_val}</strong></td>
                 <td><strong>139.6 MeV</strong></td>
+                <td><strong>{pion_err}</strong></td>
                 <td class="{'status-pass' if pion_passed else 'status-pending'}">{'✅' if pion_passed else '⏳'}</td>
-                <td style="font-size: 0.85em;"><strong>Meson (ud̄)</strong></td>
+                <td style="font-size: 0.85em;">Light meson (ud̄)</td>
             </tr>
             <tr>
-                <td><strong>J/ψ mass</strong></td>
-                <td><strong>{jpsi_val}</strong></td>
+                <td><strong>J/ψ(1S) mass</strong></td>
+                <td><strong>{jpsi_1s_val}</strong></td>
                 <td><strong>3096.9 MeV</strong></td>
-                <td class="{'status-pass' if jpsi_passed else 'status-pending'}">{'✅' if jpsi_passed else '⏳'}</td>
-                <td style="font-size: 0.85em;"><strong>Charmonium (cc̄)</strong></td>
+                <td><strong>{jpsi_1s_err}</strong></td>
+                <td class="{'status-pass' if jpsi_1s_passed else 'status-pending'}">{'✅' if jpsi_1s_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Charmonium (cc̄) ground state</td>
             </tr>
             <tr>
-                <td>Υ(1S) mass</td>
-                <td>—</td>
-                <td>9460 MeV</td>
-                <td class="status-pending">⏳</td>
-                <td style="font-size: 0.85em;">Bottomonium (bb̄) - Future</td>
+                <td><strong>ψ(2S) mass</strong></td>
+                <td><strong>{psi_2s_val}</strong></td>
+                <td><strong>3686.1 MeV</strong></td>
+                <td><strong>{psi_2s_err}</strong></td>
+                <td class="{'status-pass' if psi_2s_passed else 'status-pending'}">{'✅' if psi_2s_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Charmonium first radial excitation</td>
+            </tr>
+            <tr>
+                <td>ψ(2S)/J/ψ ratio</td>
+                <td>{charm_ratio_val}</td>
+                <td>1.190</td>
+                <td>{charm_ratio_err}</td>
+                <td class="{'status-pass' if charm_ratio_passed else 'status-pending'}">{'✅' if charm_ratio_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Charmonium radial ratio</td>
+            </tr>
+            <tr>
+                <td><strong>Υ(1S) mass</strong></td>
+                <td><strong>{upsilon_1s_val}</strong></td>
+                <td><strong>9460.3 MeV</strong></td>
+                <td><strong>{upsilon_1s_err}</strong></td>
+                <td class="{'status-pass' if upsilon_1s_passed else 'status-pending'}">{'✅' if upsilon_1s_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Bottomonium (bb̄) ground state</td>
+            </tr>
+            <tr>
+                <td><strong>Υ(2S) mass</strong></td>
+                <td><strong>{upsilon_2s_val}</strong></td>
+                <td><strong>10023.3 MeV</strong></td>
+                <td><strong>{upsilon_2s_err}</strong></td>
+                <td class="{'status-pass' if upsilon_2s_passed else 'status-pending'}">{'✅' if upsilon_2s_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Bottomonium first radial excitation</td>
+            </tr>
+            <tr>
+                <td>Υ(2S)/Υ(1S) ratio</td>
+                <td>{bottom_ratio_val}</td>
+                <td>1.060</td>
+                <td>{bottom_ratio_err}</td>
+                <td class="{'status-pass' if bottom_ratio_passed else 'status-pending'}">{'✅' if bottom_ratio_passed else '⏳'}</td>
+                <td style="font-size: 0.85em;">Bottomonium radial ratio</td>
             </tr>
         </table>
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-top: 10px;">
-            <em>Note: Meson masses emerge from quark-antiquark bound states. Υ (bottomonium) family deferred to future work.</em>
+            <em>Physics: Mesons use composite qq̄ wavefunction. Radial excitations scale Δx_n = Δx₀ × n_rad.</em>
         </p>'''
     
     def _generate_coupled_solver_section(self, summary: RunSummary) -> str:
@@ -1181,24 +1346,6 @@ class HTMLResultsViewer:
         </table>
         
         {self._generate_tier2_checklist_inline(reporter, summary)}
-        
-        <h4>What's Working vs What's Needed</h4>
-        <table>
-            <tr><th>Aspect</th><th>Status</th><th>Details</th></tr>
-            <tr><td>Spectral Grid</td><td class="status-pass">✅ Working</td><td>FFT-based differentiation</td></tr>
-            <tr><td>Three-Well Potential</td><td class="status-pass">✅ Working</td><td>V(σ) = V₀[1-cos(3σ)] + V₁[1-cos(6σ)]</td></tr>
-            <tr><td>Linear Eigensolver</td><td class="status-pass">✅ Working</td><td>Converges, correct eigenstates</td></tr>
-            <tr><td>Nonlinear Eigensolver</td><td class="status-pass">✅ Working</td><td>DIIS/Anderson mixing for stability</td></tr>
-            <tr><td>Radial Grid</td><td class="status-pass">✅ Working</td><td>Spherical spatial discretization</td></tr>
-            <tr><td>Coupled Hamiltonian</td><td class="status-pass">✅ Working</td><td>H_r ⊗ I_σ + I_r ⊗ H_σ - α∂²/∂r∂σ</td></tr>
-            <tr><td>Mass Formula m=βA²</td><td class="status-pass">✅ Working</td><td>Computes mass from amplitude</td></tr>
-            <tr><td>GP Solver</td><td class="status-pass">✅ Working</td><td>Non-normalized wavefunctions with N</td></tr>
-            <tr><td>SFM Amplitude Solver</td><td class="status-pass">✅ Working</td><td>Scaling law m(n) = m₀ × n^a × exp(b×n)</td></tr>
-            <tr><td>Amplitude Quantization</td><td class="status-pass">✅ Solved</td><td>Mass ratios reproduced exactly</td></tr>
-            <tr><td>Charge Quantization</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Q = e/k from winding number</td></tr>
-            <tr><td>EM Force Calculator</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Circulation term for attraction/repulsion</td></tr>
-            <tr><td>Coulomb Scaling</td><td class="{'status-pass' if summary.tier1b_complete else 'status-pending'}">{'✅ Working' if summary.tier1b_complete else '⏳ Pending'}</td><td>Energy scales as charge squared</td></tr>
-        </table>
         
         <div class="success-finding">
             <h4>✅ Amplitude Quantization: SOLVED</h4>

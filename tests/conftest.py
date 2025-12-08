@@ -78,6 +78,19 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "binding: marks tests for binding energy calculations"
     )
+    # Tier 2b specific markers (quarkonia radial excitations)
+    config.addinivalue_line(
+        "markers", "tier2b: marks tests as Tier 2b (quarkonia radial excitations)"
+    )
+    config.addinivalue_line(
+        "markers", "charmonium: marks tests for charmonium (cc-bar) family"
+    )
+    config.addinivalue_line(
+        "markers", "bottomonium: marks tests for bottomonium (bb-bar) family"
+    )
+    config.addinivalue_line(
+        "markers", "radial_excitation: marks tests for radial excitation physics"
+    )
 
 
 def pytest_runtest_setup(item):
@@ -128,6 +141,8 @@ def _get_test_category(item) -> str:
             return 'Tier 1b: EM Forces'
         elif marker.name == 'tier2':
             return 'Tier 2: Multi-quark'
+        elif marker.name == 'tier2b':
+            return 'Tier 2b: Quarkonia'
         elif marker.name == 'tier3':
             return 'Tier 3: Weak Decay'
         elif marker.name == 'coupled':
