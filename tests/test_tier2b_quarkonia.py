@@ -72,9 +72,14 @@ def potential():
 
 @pytest.fixture
 def meson_solver(grid, potential):
-    """Composite meson solver with radial excitation support.
+    """Composite meson solver with PHYSICS-BASED parameters (Tier 2b).
     
-    Radial physics: Δx_n = Δx_0 × n_rad (no empirical tuning needed!)
+    ALL PARAMETERS DERIVED FROM SFM PHYSICS:
+    - κ = G_eff (enhanced 5D gravity) - derived, not tuned
+    - gen_power = a_lepton × I_overlap - derived from interference
+    - g(n_rad) = radial enhancement - extension for radial excitations
+    
+    Radial physics: Δx_n = Δx_0 × n_rad
     The solver finds different equilibrium A for each Δx, creating mass splitting naturally.
     """
     return CompositeMesonSolver(
@@ -83,8 +88,6 @@ def meson_solver(grid, potential):
         g2=0.1,
         alpha=2.0,
         beta=1.0,
-        kappa=0.10,
-        gen_power=1.15,
     )
 
 
