@@ -4,11 +4,15 @@ SFM Solver - Single-Field Model Eigenvalue Solver
 A numerical solver for computing eigenvalues and eigenfunctions
 in the Single-Field Model framework.
 
-Includes:
+This top-level package exposes the core infrastructure used in the validated
+Tier 1 / Tier 1b / Tier 2 / Tier 2b pipelines:
 - Subspace-only eigensolvers (linear and nonlinear)
-- Coupled subspace-spacetime solver for mass hierarchy
-- Parameter fitting for coupling constant α
-- Mass ratio predictions
+- Three-well subspace potential
+- Core SFM parameters and grids
+
+Legacy and experimental components (GP solver, full coupled (r,σ) solver,
+spin-orbit effective potentials, α-fitting utilities, and their tests) have
+been moved to sfm_solver.legacy and are no longer part of the public API.
 """
 
 from sfm_solver.core import (
@@ -18,21 +22,16 @@ from sfm_solver.core import (
     SFMParameters,
     SpectralGrid,
 )
-from sfm_solver.potentials import ThreeWellPotential, EffectivePotential
+from sfm_solver.potentials import ThreeWellPotential
 from sfm_solver.eigensolver import (
-    LinearEigensolver, 
+    LinearEigensolver,
     NonlinearEigensolver,
-    CoupledEigensolver,
-    CoupledGrids,
-    CoupledSolution,
-    compute_mass_ratios,
+    SpectralOperators,
+    SFMAmplitudeSolver,
+    SFMAmplitudeState,
+    solve_sfm_lepton_masses,
 )
 from sfm_solver.spatial.radial import RadialGrid, RadialOperators
-from sfm_solver.fitting.alpha_fit import (
-    LeptonMassFitter,
-    fit_alpha_to_mass_ratio,
-    predict_tau_mass,
-)
 from sfm_solver.reporting import ResultsReporter
 
 __version__ = "0.1.0"
@@ -50,18 +49,14 @@ __all__ = [
     "RadialOperators",
     # Potentials
     "ThreeWellPotential",
-    "EffectivePotential",
     # Eigensolvers
     "LinearEigensolver",
     "NonlinearEigensolver",
-    "CoupledEigensolver",
-    "CoupledGrids",
-    "CoupledSolution",
-    "compute_mass_ratios",
-    # Fitting
-    "LeptonMassFitter",
-    "fit_alpha_to_mass_ratio",
-    "predict_tau_mass",
+    "SpectralOperators",
+    "SFMAmplitudeSolver",
+    "SFMAmplitudeState",
+    "solve_sfm_lepton_masses",
     # Reporting
     "ResultsReporter",
 ]
+

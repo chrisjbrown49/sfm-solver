@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from sfm_solver.spatial.radial import RadialGrid
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
-from sfm_solver.eigensolver.coupled_solver import CoupledGrids, CoupledHamiltonian
+from sfm_solver.legacy.coupled_solver import CoupledGrids, CoupledHamiltonian
 
 
 @dataclass

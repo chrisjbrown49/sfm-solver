@@ -28,8 +28,11 @@ from dataclasses import dataclass
 from sfm_solver.spatial.radial import RadialGrid
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
-from sfm_solver.eigensolver.coupled_solver import (
-    CoupledGrids, CoupledEigensolver, CoupledSolution, compute_mass_ratios
+from sfm_solver.legacy.coupled_solver import (
+    CoupledGrids,
+    CoupledEigensolver,
+    CoupledSolution,
+    compute_mass_ratios,
 )
 from sfm_solver.core.constants import (
     MUON_ELECTRON_RATIO, TAU_ELECTRON_RATIO,
