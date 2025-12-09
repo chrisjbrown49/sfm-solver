@@ -11,12 +11,15 @@ energy functional, see test_tier1_leptons.py which tests SFMLeptonSolver.
 
 This test file is kept for reference and backward compatibility only.
 See docs/Tier1_Lepton_Solver_Consistency_Plan.md for the transition details.
+
+NOTE: This file has been moved to the legacy folder and is no longer
+part of the main test suite.
 """
 
 import pytest
 import numpy as np
 
-from sfm_solver.eigensolver.sfm_amplitude_solver import (
+from sfm_solver.legacy.sfm_amplitude_solver import (
     SFMAmplitudeSolver,
     SFMAmplitudeState,
     solve_sfm_lepton_masses,
@@ -126,7 +129,7 @@ class TestFundamentalMassRatioPredictions:
     - m_τ/m_μ = 16.8167 (exact)
     """
     
-    def test_muon_electron_mass_ratio(self, add_prediction, add_solver_parameter):
+    def test_muon_electron_mass_ratio(self):
         """
         FUNDAMENTAL PREDICTION: m_μ/m_e = 206.768
         
@@ -139,9 +142,6 @@ class TestFundamentalMassRatioPredictions:
         solver = SFMAmplitudeSolver()
         a, b = solver.fit_scaling_parameters(verbose=False)
         
-        add_solver_parameter("SFM_power_a", f"{a:.6f}")
-        add_solver_parameter("SFM_exp_b", f"{b:.6f}")
-        
         # Solve spectrum
         states = solver.solve_lepton_spectrum(verbose=False)
         
@@ -150,21 +150,9 @@ class TestFundamentalMassRatioPredictions:
         
         ratio = m_mu / m_e if m_e > 0 else 0
         
-        add_solver_parameter("m_electron", f"{m_e:.6f}")
-        add_solver_parameter("m_muon", f"{m_mu:.6f}")
-        
-        add_prediction(
-            parameter="m_μ/m_e (SFM)",
-            predicted=ratio,
-            experimental=MUON_ELECTRON_RATIO,
-            unit="",
-            target_accuracy=0.01,  # 1% target for fundamental prediction
-            notes="SFM amplitude solver with scaling law"
-        )
-        
         assert ratio == pytest.approx(MUON_ELECTRON_RATIO, rel=0.01)
     
-    def test_tau_electron_mass_ratio(self, add_prediction, add_solver_parameter):
+    def test_tau_electron_mass_ratio(self):
         """
         FUNDAMENTAL PREDICTION: m_τ/m_e = 3477.23
         
@@ -180,20 +168,9 @@ class TestFundamentalMassRatioPredictions:
         
         ratio = m_tau / m_e if m_e > 0 else 0
         
-        add_solver_parameter("m_tau", f"{m_tau:.6f}")
-        
-        add_prediction(
-            parameter="m_τ/m_e (SFM)",
-            predicted=ratio,
-            experimental=TAU_ELECTRON_RATIO,
-            unit="",
-            target_accuracy=0.01,
-            notes="SFM amplitude solver with scaling law"
-        )
-        
         assert ratio == pytest.approx(TAU_ELECTRON_RATIO, rel=0.01)
     
-    def test_tau_muon_mass_ratio(self, add_prediction):
+    def test_tau_muon_mass_ratio(self):
         """
         FUNDAMENTAL PREDICTION: m_τ/m_μ = 16.8167
         
@@ -208,15 +185,6 @@ class TestFundamentalMassRatioPredictions:
         m_tau = states['tau'].mass
         
         ratio = m_tau / m_mu if m_mu > 0 else 0
-        
-        add_prediction(
-            parameter="m_τ/m_μ (SFM)",
-            predicted=ratio,
-            experimental=TAU_MUON_RATIO,
-            unit="",
-            target_accuracy=0.01,
-            notes="SFM amplitude solver - derived ratio"
-        )
         
         assert ratio == pytest.approx(TAU_MUON_RATIO, rel=0.01)
 

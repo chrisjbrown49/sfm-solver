@@ -1,9 +1,11 @@
 """
-Linear eigenvalue solver for the SFT Schrödinger equation.
+LEGACY: Linear eigenvalue solver for the SFT Schrödinger equation.
 
-Solves the linear eigenvalue problem:
-    H χ = E χ
-where H = T + V is the Hamiltonian with kinetic and potential terms.
+This module has been moved to legacy as it is no longer used by the
+physics-based solvers (SFMLeptonSolver, CompositeBaryon, CompositeMeson).
+
+For the current approach, see sfm_lepton_solver.py which uses energy
+functional minimization rather than direct eigenvalue solving.
 """
 
 import numpy as np

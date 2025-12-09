@@ -25,7 +25,7 @@ from scipy.optimize import minimize_scalar
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
-from sfm_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.legacy.linear import LinearEigensolver
 
 
 @dataclass 

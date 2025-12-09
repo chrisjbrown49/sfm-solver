@@ -20,6 +20,9 @@ from sfm_solver.core.constants import (
     MUON_ELECTRON_RATIO,
     TAU_ELECTRON_RATIO,
     TAU_MUON_RATIO,
+    ELECTRON_MASS_GEV,
+    MUON_MASS_GEV,
+    TAU_MASS_GEV,
 )
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.sfm_lepton_solver import (
@@ -169,7 +172,7 @@ class TestMassHierarchyEmergence:
         assert A2_mu > A2_e
         assert A2_tau > A2_mu
     
-    def test_mass_ratio_emergence(self, lepton_solver):
+    def test_mass_ratio_emergence(self, lepton_solver, add_prediction):
         """
         Test that mass ratios emerge from energy minimization.
         
@@ -189,21 +192,82 @@ class TestMassHierarchyEmergence:
         
         ratios = lepton_solver.compute_mass_ratios(results)
         
+        # Compute actual masses: m = βA² where β is calibrated from electron
+        # Electron mass is exact by calibration (0% error)
+        A2_e = results['electron'].amplitude_squared
+        A2_mu = results['muon'].amplitude_squared
+        A2_tau = results['tau'].amplitude_squared
+        
+        # Calculate predicted masses using m = (m_e / A²_e) × A²
+        m_e_pred = ELECTRON_MASS_GEV * 1000  # MeV (exact by calibration)
+        m_mu_pred = (ELECTRON_MASS_GEV / A2_e) * A2_mu * 1000  # MeV
+        m_tau_pred = (ELECTRON_MASS_GEV / A2_e) * A2_tau * 1000  # MeV
+        
+        # Add mass predictions
+        add_prediction(
+            parameter="m_e (Lepton Solver)",
+            predicted=m_e_pred,
+            experimental=ELECTRON_MASS_GEV * 1000,
+            unit="MeV",
+            target_accuracy=0.001,
+            notes="Exact by β calibration"
+        )
+        add_prediction(
+            parameter="m_μ (Lepton Solver)",
+            predicted=m_mu_pred,
+            experimental=MUON_MASS_GEV * 1000,
+            unit="MeV",
+            target_accuracy=0.10,
+            notes="Predicted from m = βA²"
+        )
+        add_prediction(
+            parameter="m_τ (Lepton Solver)",
+            predicted=m_tau_pred,
+            experimental=TAU_MASS_GEV * 1000,
+            unit="MeV",
+            target_accuracy=0.10,
+            notes="Predicted from m = βA²"
+        )
+        
         # Test with 10% tolerance - physics produces accurate ratios
         tolerance = 0.10
         
         # m_μ/m_e should be close to 206.77
         target_mu_e = 206.77
+        add_prediction(
+            parameter="m_μ/m_e (Lepton Solver)",
+            predicted=ratios['mu_e'],
+            experimental=target_mu_e,
+            unit="",
+            target_accuracy=0.10,
+            notes="Emergent from four-term energy functional"
+        )
         assert abs(ratios['mu_e'] - target_mu_e) / target_mu_e < tolerance, \
             f"m_μ/m_e = {ratios['mu_e']:.2f}, expected {target_mu_e:.2f} (±{tolerance*100:.0f}%)"
         
         # m_τ/m_e should be close to 3477.15
         target_tau_e = 3477.15
+        add_prediction(
+            parameter="m_τ/m_e (Lepton Solver)",
+            predicted=ratios['tau_e'],
+            experimental=target_tau_e,
+            unit="",
+            target_accuracy=0.10,
+            notes="Emergent from four-term energy functional"
+        )
         assert abs(ratios['tau_e'] - target_tau_e) / target_tau_e < tolerance, \
             f"m_τ/m_e = {ratios['tau_e']:.2f}, expected {target_tau_e:.2f} (±{tolerance*100:.0f}%)"
         
         # m_τ/m_μ should be close to 16.82
         target_tau_mu = 16.82
+        add_prediction(
+            parameter="m_τ/m_μ (Lepton Solver)",
+            predicted=ratios['tau_mu'],
+            experimental=target_tau_mu,
+            unit="",
+            target_accuracy=0.10,
+            notes="Derived consistency check"
+        )
         assert abs(ratios['tau_mu'] - target_tau_mu) / target_tau_mu < tolerance, \
             f"m_τ/m_μ = {ratios['tau_mu']:.2f}, expected {target_tau_mu:.2f} (±{tolerance*100:.0f}%)"
     

@@ -1,5 +1,11 @@
 """
-Nonlinear self-consistent eigenvalue solver.
+LEGACY: Nonlinear self-consistent eigenvalue solver.
+
+This module has been moved to legacy as it is no longer used by the
+physics-based solvers (SFMLeptonSolver, CompositeBaryon, CompositeMeson).
+
+For the current approach, see sfm_lepton_solver.py which uses energy
+functional minimization rather than direct eigenvalue solving.
 
 Solves the nonlinear eigenvalue problem:
     (H_0 + g|χ|²) χ = E χ
@@ -23,7 +29,7 @@ from dataclasses import dataclass
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
-from sfm_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.legacy.linear import LinearEigensolver
 
 
 @dataclass

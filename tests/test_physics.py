@@ -16,7 +16,7 @@ from sfm_solver.core.constants import (
     HBAR, C,
 )
 from sfm_solver.potentials.three_well import ThreeWellPotential
-from sfm_solver.eigensolver.linear import LinearEigensolver
+from sfm_solver.legacy.linear import LinearEigensolver
 from sfm_solver.forces.electromagnetic import (
     calculate_circulation,
     calculate_winding_number,

@@ -6,13 +6,15 @@ in the Single-Field Model framework.
 
 This top-level package exposes the core infrastructure used in the validated
 Tier 1 / Tier 1b / Tier 2 / Tier 2b pipelines:
+- Physics-based lepton solver (SFMLeptonSolver)
 - Subspace-only eigensolvers (linear and nonlinear)
 - Three-well subspace potential
 - Core SFM parameters and grids
 
-Legacy and experimental components (GP solver, full coupled (r,σ) solver,
-spin-orbit effective potentials, α-fitting utilities, and their tests) have
-been moved to sfm_solver.legacy and are no longer part of the public API.
+Legacy and experimental components (fitted amplitude solver, GP solver, 
+full coupled (r,σ) solver, spin-orbit effective potentials, α-fitting 
+utilities, and their tests) have been moved to sfm_solver.legacy and are 
+no longer part of the public API.
 """
 
 from sfm_solver.core import (
@@ -24,12 +26,10 @@ from sfm_solver.core import (
 )
 from sfm_solver.potentials import ThreeWellPotential
 from sfm_solver.eigensolver import (
-    LinearEigensolver,
-    NonlinearEigensolver,
     SpectralOperators,
-    SFMAmplitudeSolver,
-    SFMAmplitudeState,
-    solve_sfm_lepton_masses,
+    SFMLeptonSolver,
+    SFMLeptonState,
+    solve_lepton_masses,
 )
 from sfm_solver.spatial.radial import RadialGrid, RadialOperators
 from sfm_solver.reporting import ResultsReporter
@@ -49,13 +49,12 @@ __all__ = [
     "RadialOperators",
     # Potentials
     "ThreeWellPotential",
-    # Eigensolvers
-    "LinearEigensolver",
-    "NonlinearEigensolver",
+    # Core infrastructure
     "SpectralOperators",
-    "SFMAmplitudeSolver",
-    "SFMAmplitudeState",
-    "solve_sfm_lepton_masses",
+    # Physics-based lepton solver
+    "SFMLeptonSolver",
+    "SFMLeptonState",
+    "solve_lepton_masses",
     # Reporting
     "ResultsReporter",
 ]
