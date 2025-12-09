@@ -1,18 +1,19 @@
 """
-SFM Amplitude Solver with Full Subspace-Spacetime Coupling.
+LEGACY SFM Amplitude Solver - Uses Fitted Scaling Law.
 
-This solver implements the complete self-consistency loop for amplitude quantization:
-1. Subspace amplitude A -> mass m = beta * A^2
-2. Mass m -> spatial solution with mode n
-3. Coupling H_coupling = -alpha * d^2/dr/dsigma -> feeds back to A
-4. Self-consistent solutions give quantized amplitudes
+DEPRECATED: This solver uses a fitted scaling law where parameters (a, b) are
+numerically determined to match experimental mass ratios. While this achieves
+exact predictions, it does NOT represent the true SFM physics-based approach.
 
-The mass scaling law that matches experimental lepton ratios is:
+For the recommended physics-based approach, use sfm_lepton_solver.SFMLeptonSolver
+which uses the four-term energy functional where mass ratios EMERGE from
+energy minimization with NO fitted parameters.
+
+Legacy approach (this file):
     m(n) = m_0 * n^a * exp(b*n)
+    with a ~ 8.72 and b ~ -0.71 (fitted to experimental data)
     
-with a ~ 8.72 and b ~ -0.71, giving:
-    m_mu/m_e = 206.77
-    m_tau/m_e = 3477.23
+See docs/Tier1_Lepton_Solver_Consistency_Plan.md for the transition details.
 """
 
 import numpy as np

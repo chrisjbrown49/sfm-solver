@@ -27,6 +27,7 @@ from typing import Tuple, Optional, List
 from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
@@ -87,7 +88,12 @@ class CompositeBaryonSolver:
     PROTON (uud) vs NEUTRON (udd):
     - Different quark charges → different Coulomb energies
     - Different interference patterns → different A²
-    - Different masses: m = βA²
+    - Different masses: m = β×A² (use SFM_CONSTANTS.beta for consistency)
+    
+    NOTE ON β:
+    The baryon solver computes the amplitude A² through energy minimization.
+    To convert to mass, use: m = SFM_CONSTANTS.beta × A²
+    This ensures consistency with the global β from the Beautiful Equation.
     """
     
     WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]

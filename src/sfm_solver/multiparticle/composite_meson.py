@@ -38,10 +38,11 @@ KEY PHYSICS:
 
 import numpy as np
 from numpy.typing import NDArray
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
@@ -189,11 +190,12 @@ class CompositeMesonSolver:
         g1: float = 0.1,
         g2: float = 0.1,
         alpha: float = 2.0,           # Subspace-spacetime coupling strength
-        beta: float = 1.0,            # Mass coupling (m = β × A²)
+        beta: Optional[float] = None, # Mass coupling (m = β × A²) - uses SFM_CONSTANTS if None
         delta_x: float = 1.0,         # Base spatial localization (ground state, n_rad=1)
         m_eff: float = 1.0,
         hbar: float = 1.0,
         c: float = 1.0,               # Speed of light
+        kappa: Optional[float] = None, # Enhanced gravity - uses SFM_CONSTANTS if None
     ):
         """
         Initialize meson solver with PHYSICS-BASED parameter derivation.
@@ -202,14 +204,18 @@ class CompositeMesonSolver:
         
         1. κ = G_eff = G₄D/L₀ (enhanced 5D gravity at subspace scale)
            - From Section 3 of "A Beautiful Balance": gravity enhanced by ~10⁴⁵ at L₀
-           - In solver units (normalized), κ = 0.10
+           - Uses SFM_CONSTANTS.kappa_normalized for consistency across tiers
         
-        2. gen_power = a_lepton × I_overlap (derived dynamically)
+        2. β = mass coupling from SFM_CONSTANTS
+           - Single global β enforced across all solvers
+           - Calibrated from electron via Beautiful Equation
+        
+        3. gen_power = a_lepton × I_overlap (derived dynamically)
            - a_lepton = 8.72 from lepton characteristic equation
            - I_overlap = k_eff / k_coupling (computed from wavefunction)
            - This is computed during energy minimization, NOT preset
         
-        3. Radial physics from WKB for linear confinement:
+        4. Radial physics from WKB for linear confinement:
            - Δx_n = Δx_0 × n_rad^(2/3) (size scaling)
            - g(n_rad, n_gen) = 1 + (n_rad^(1/3) - 1) / n_gen^2 (gradient enhancement)
            - Both emerge from the SAME WKB analysis!
@@ -224,17 +230,26 @@ class CompositeMesonSolver:
         self.g1 = g1
         self.g2 = g2
         self.alpha = alpha
-        self.beta = beta
         self.delta_x = delta_x  # Base Δx for n_rad=1 ground state
         self.m_eff = m_eff
         self.hbar = hbar
         self.c = c
         
+        # === β FROM GLOBAL CONSTANTS (single source of truth) ===
+        # Use provided value or fall back to SFM_CONSTANTS for consistency
+        if beta is not None:
+            self.beta = beta
+        else:
+            # Use normalized beta for solver internal units
+            self.beta = SFM_CONSTANTS.beta_normalized
+        
         # === κ DERIVED FROM ENHANCED 5D GRAVITY ===
         # κ = G_eff = G₄D/L₀ where L₀ = ℏ/(βc) from Beautiful Equation
-        # In solver units (normalized), κ = 0.10
-        # This is NOT a tuning parameter - it's derived from G_eff
-        self.kappa = 0.10
+        # Use provided value or fall back to SFM_CONSTANTS for consistency
+        if kappa is not None:
+            self.kappa = kappa
+        else:
+            self.kappa = SFM_CONSTANTS.kappa_normalized
         
         self.operators = SpectralOperators(grid, m_eff, hbar)
         self._V_grid = potential(grid.sigma)

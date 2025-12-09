@@ -1,11 +1,16 @@
 """
-Tests for SFM Amplitude Solver - Fundamental Mass Ratio Predictions.
+Tests for LEGACY SFM Amplitude Solver (uses fitted scaling law).
 
-These tests validate the SFM amplitude solver which uses the scaling law
-m(n) = m₀ × n^a × exp(b×n) derived from the coupled subspace-spacetime physics.
+DEPRECATED: This module tests the legacy amplitude solver which uses a fitted
+scaling law m(n) = m₀ × n^a × exp(b×n). While this achieves exact mass ratios
+(because parameters are fit to data), it does not represent the true SFM
+physics-based approach.
 
-This is where the FUNDAMENTAL physics predictions are recorded.
-See docs/Amplitude_Quantization_Solution.md for the theory.
+For the physics-based approach where mass ratios EMERGE from the four-term
+energy functional, see test_tier1_leptons.py which tests SFMLeptonSolver.
+
+This test file is kept for reference and backward compatibility only.
+See docs/Tier1_Lepton_Solver_Consistency_Plan.md for the transition details.
 """
 
 import pytest
