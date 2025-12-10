@@ -9,18 +9,23 @@ EM forces emerge from the circulation term:
 Key physics:
 - Like charges (same winding): Circulations add → high energy → repulsion
 - Opposite charges (opposite winding): Circulations cancel → low energy → attraction
-- Charge quantization: Q = ±e/k where k is the winding number
+- Charge quantization: Q emerges from SIGNED winding number k
+
+SIGN CONVENTION:
+- Positive winding (+k) → Positive charge (positron, up quark, anti-down)
+- Negative winding (-k) → Negative charge (electron, down quark, anti-up)
 
 Tier 1b Success Criteria:
 1. Like charges repel, opposite charges attract
 2. EM energy follows Coulomb-like scaling with separation
-3. Charge quantization Q = e/k holds for k = 1, 3, 5
+3. SIGNED charge quantization: Q = -1 (k=-1), -1/3 (k=-3), +2/3 (k=+5)
 4. Fine structure constant α can be related to g₂
 5. Multi-particle systems show correct net force behavior
 """
 
 import pytest
 import numpy as np
+from numpy.typing import NDArray
 from numpy.testing import assert_allclose
 
 from sfm_solver.core.grid import SpectralGrid
@@ -33,7 +38,52 @@ from sfm_solver.forces.electromagnetic import (
     calculate_nonlinear_energy,
     calculate_total_interaction_energy,
     calculate_envelope_asymmetry,
+    calculate_charge_from_wavefunction,
+    EXPECTED_LEPTON_CHARGE,
+    EXPECTED_QUARK_CHARGE,
+    EXPECTED_WINDING,
 )
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def create_localized_winding_mode(
+    grid: SpectralGrid, 
+    k: int,  # SIGNED! k=-3 for down quark, k=+5 for up quark
+    well_index: int = 0, 
+    width: float = 0.5
+) -> NDArray[np.complexfloating]:
+    """
+    Create a winding mode localized in one well of the 3-well structure.
+    
+    IMPORTANT: k is SIGNED!
+    - k > 0: positive winding → positive charge (e.g., up quark k=+5)
+    - k < 0: negative winding → negative charge (e.g., down quark k=-3)
+    
+    Used for testing emergent charge calculations for quark-like modes.
+    
+    Args:
+        grid: SpectralGrid instance.
+        k: SIGNED winding number.
+        well_index: Which well to localize in (0, 1, or 2).
+        width: Gaussian envelope width.
+        
+    Returns:
+        Localized wavefunction with specified winding.
+    """
+    well_positions = [0.0, 2*np.pi/3, 4*np.pi/3]
+    center = well_positions[well_index]
+    
+    # Gaussian envelope centered at well
+    dist = np.angle(np.exp(1j * (grid.sigma - center)))
+    envelope = np.exp(-0.5 * (dist / width)**2)
+    
+    # Add SIGNED winding - this determines charge sign!
+    chi = envelope * np.exp(1j * k * grid.sigma)
+    
+    return chi
 
 
 # =============================================================================
@@ -41,63 +91,136 @@ from sfm_solver.forces.electromagnetic import (
 # =============================================================================
 
 class TestTier1bChargeQuantization:
-    """Test that winding numbers produce correct charge values."""
+    """Test that SIGNED winding numbers produce correct SIGNED charge values."""
     
-    def test_lepton_charge_k1(self, add_prediction):
+    def test_positron_charge_k_positive_1(self, add_prediction):
         """
-        FUNDAMENTAL: k=1 gives unit charge Q = e.
+        FUNDAMENTAL: k=+1 gives POSITIVE unit charge Q = +e.
         
-        Leptons (e, μ, τ) have winding number k=1.
+        Positrons have positive winding k=+1 → positive charge.
         """
         grid = SpectralGrid(N=128)
         calculator = EMForceCalculator(grid)
         
-        Q = calculator.charge_from_winding(k=1)
+        Q = calculator.charge_from_winding(k=+1)
         
         add_prediction(
-            parameter="Q/e for k=1 (lepton)",
+            parameter="Q/e for k=+1 (positron)",
             predicted=Q,
-            experimental=1.0,
+            experimental=+1.0,
             target_accuracy=0.001,
-            notes="Lepton charge quantization"
+            notes="Positron charge: positive winding → positive charge"
         )
         
-        assert_allclose(Q, 1.0, rtol=1e-10)
+        assert_allclose(Q, +1.0, rtol=1e-10)
     
-    def test_down_quark_charge_k3(self, add_prediction):
+    def test_electron_charge_k_negative_1(self, add_prediction):
         """
-        FUNDAMENTAL: k=3 gives charge Q = e/3.
+        FUNDAMENTAL: k=-1 gives NEGATIVE unit charge Q = -e.
         
-        Down-type quarks (d, s, b) have winding number k=3.
+        Electrons have NEGATIVE winding k=-1 → NEGATIVE charge.
         """
         grid = SpectralGrid(N=128)
         calculator = EMForceCalculator(grid)
         
-        Q = calculator.charge_from_winding(k=3)
+        Q = calculator.charge_from_winding(k=-1)
         
         add_prediction(
-            parameter="Q/e for k=3 (down quark)",
+            parameter="Q/e for k=-1 (electron)",
             predicted=Q,
-            experimental=1/3,
+            experimental=-1.0,
             target_accuracy=0.001,
-            notes="Down quark charge quantization"
+            notes="Electron charge: NEGATIVE winding → NEGATIVE charge"
         )
         
-        assert_allclose(Q, 1/3, rtol=1e-10)
+        assert_allclose(Q, -1.0, rtol=1e-10)
     
-    def test_up_quark_charge_k5(self):
+    def test_down_quark_charge_k_negative_3(self, add_prediction):
         """
-        k=5 gives charge Q = e/5.
+        FUNDAMENTAL: k=-3 gives NEGATIVE charge Q = -e/3.
         
-        Note: Up quarks have Q = 2e/3 which requires a different mechanism
-        (possibly k=3 with 2 units of winding, or composite structure).
+        Down-type quarks (d, s, b) have NEGATIVE winding k=-3 → NEGATIVE charge.
         """
         grid = SpectralGrid(N=128)
         calculator = EMForceCalculator(grid)
         
-        Q = calculator.charge_from_winding(k=5)
+        Q = calculator.charge_from_winding(k=-3)
         
-        assert_allclose(Q, 1/5, rtol=1e-10)
+        add_prediction(
+            parameter="Q/e for k=-3 (down quark)",
+            predicted=Q,
+            experimental=-1/3,
+            target_accuracy=0.001,
+            notes="Down quark charge: NEGATIVE winding → NEGATIVE charge -1/3"
+        )
+        
+        assert_allclose(Q, -1/3, rtol=1e-10)
+    
+    def test_anti_down_quark_charge_k_positive_3(self, add_prediction):
+        """
+        k=+3 gives POSITIVE charge Q = +e/3.
+        
+        Anti-down quarks have POSITIVE winding k=+3 → POSITIVE charge.
+        """
+        grid = SpectralGrid(N=128)
+        calculator = EMForceCalculator(grid)
+        
+        Q = calculator.charge_from_winding(k=+3)
+        
+        add_prediction(
+            parameter="Q/e for k=+3 (anti-down quark)",
+            predicted=Q,
+            experimental=+1/3,
+            target_accuracy=0.001,
+            notes="Anti-down quark charge: POSITIVE winding → POSITIVE charge +1/3"
+        )
+        
+        assert_allclose(Q, +1/3, rtol=1e-10)
+    
+    def test_up_quark_charge_k_positive_5(self, add_prediction):
+        """
+        FUNDAMENTAL: k=+5 gives POSITIVE charge Q = +2e/3.
+        
+        Up-type quarks (u, c, t) have POSITIVE winding k=+5.
+        With 3-fold symmetry: Q = sign(k) × (|k| mod 3)/3 = +1 × 2/3 = +2/3.
+        
+        Reference: Research Note - Origin of Electromagnetic Force
+        """
+        grid = SpectralGrid(N=128)
+        calculator = EMForceCalculator(grid)
+        
+        Q = calculator.charge_from_winding(k=+5)
+        
+        add_prediction(
+            parameter="Q/e for k=+5 (up quark)",
+            predicted=Q,
+            experimental=+2/3,
+            target_accuracy=0.001,
+            notes="Up quark charge: POSITIVE winding k=+5, (5 mod 3)/3 = 2/3"
+        )
+        
+        assert_allclose(Q, +2/3, rtol=1e-10)
+    
+    def test_anti_up_quark_charge_k_negative_5(self, add_prediction):
+        """
+        k=-5 gives NEGATIVE charge Q = -2e/3.
+        
+        Anti-up quarks have NEGATIVE winding k=-5 → NEGATIVE charge.
+        """
+        grid = SpectralGrid(N=128)
+        calculator = EMForceCalculator(grid)
+        
+        Q = calculator.charge_from_winding(k=-5)
+        
+        add_prediction(
+            parameter="Q/e for k=-5 (anti-up quark)",
+            predicted=Q,
+            experimental=-2/3,
+            target_accuracy=0.001,
+            notes="Anti-up quark charge: NEGATIVE winding → NEGATIVE charge -2/3"
+        )
+        
+        assert_allclose(Q, -2/3, rtol=1e-10)
     
     def test_neutral_k0(self):
         """k=0 gives zero charge (neutral particle)."""
@@ -108,16 +231,150 @@ class TestTier1bChargeQuantization:
         
         assert Q == 0.0
     
-    def test_negative_winding_same_magnitude(self):
-        """Negative winding gives same magnitude charge."""
+    def test_sign_determines_charge_sign(self):
+        """
+        Verify that the SIGN of k determines the SIGN of charge.
+        
+        - Positive k → Positive Q
+        - Negative k → Negative Q
+        - Same |k| → Same |Q|
+        """
         grid = SpectralGrid(N=128)
         calculator = EMForceCalculator(grid)
         
-        Q_plus = calculator.charge_from_winding(k=1)
-        Q_minus = calculator.charge_from_winding(k=-1)
+        # Test for leptons (k=±1)
+        Q_positron = calculator.charge_from_winding(k=+1)
+        Q_electron = calculator.charge_from_winding(k=-1)
         
-        # Same magnitude (sign handled separately in SFM)
-        assert abs(Q_plus) == abs(Q_minus)
+        assert Q_positron > 0, "Positive k should give positive charge"
+        assert Q_electron < 0, "Negative k should give negative charge"
+        assert abs(Q_positron) == abs(Q_electron), "Same magnitude for ±k"
+        
+        # Test for quarks (k=±3, k=±5)
+        Q_anti_down = calculator.charge_from_winding(k=+3)  # anti-d
+        Q_down = calculator.charge_from_winding(k=-3)       # d
+        
+        assert Q_anti_down > 0, "Positive k=+3 should give positive charge"
+        assert Q_down < 0, "Negative k=-3 should give negative charge"
+        assert abs(Q_anti_down) == abs(Q_down), "Same magnitude for ±3"
+        
+        Q_up = calculator.charge_from_winding(k=+5)        # u
+        Q_anti_up = calculator.charge_from_winding(k=-5)   # anti-u
+        
+        assert Q_up > 0, "Positive k=+5 should give positive charge"
+        assert Q_anti_up < 0, "Negative k=-5 should give negative charge"
+        assert abs(Q_up) == abs(Q_anti_up), "Same magnitude for ±5"
+
+
+# =============================================================================
+# Test Class: Emergent Charge from Wavefunction
+# =============================================================================
+
+class TestTier1bEmergentCharge:
+    """
+    Test that charge emerges from wavefunction circulation integral.
+    
+    These tests validate that calculate_charge_from_wavefunction() correctly
+    extracts charge from actual wavefunctions. The charge predictions are
+    already registered by TestTier1bChargeQuantization, so these tests
+    focus on validating the wavefunction-based calculation.
+    """
+    
+    def test_emergent_charge_lepton_delocalized(self):
+        """
+        Delocalized k=±1 modes should give unit charge (lepton-like).
+        
+        For pure winding modes spread over full circle, charge = ±1.
+        """
+        grid = SpectralGrid(N=256)
+        
+        # Create delocalized positron mode (k=+1)
+        chi_positron = grid.create_winding_mode(k=+1)
+        Q_positron = calculate_charge_from_wavefunction(chi_positron, grid)
+        
+        # Create delocalized electron mode (k=-1)  
+        chi_electron = grid.create_winding_mode(k=-1)
+        Q_electron = calculate_charge_from_wavefunction(chi_electron, grid)
+        
+        # Positron should have positive charge
+        assert Q_positron > 0, "Positive winding should give positive charge"
+        assert_allclose(abs(Q_positron), 1.0, rtol=0.1)
+        
+        # Electron should have negative charge
+        assert Q_electron < 0, "Negative winding should give negative charge"
+        assert_allclose(abs(Q_electron), 1.0, rtol=0.1)
+    
+    def test_emergent_charge_up_quark_localized(self):
+        """
+        Localized k=+5 mode should give charge +2/3 (up quark).
+        
+        When localized in a single well (quark-like), the 3-fold symmetry
+        gives: Q = sign(k) × (|k| mod 3)/3 = +1 × 2/3 = +2/3.
+        """
+        grid = SpectralGrid(N=256)
+        
+        # Create localized up quark mode (k=+5)
+        chi_up = create_localized_winding_mode(grid, k=+5, well_index=0, width=0.4)
+        Q_up = calculate_charge_from_wavefunction(chi_up, grid)
+        
+        # Up quark should have positive charge ~2/3
+        assert Q_up > 0, "Up quark (k=+5) should have positive charge"
+        assert_allclose(Q_up, +2/3, rtol=0.15)
+    
+    def test_emergent_charge_down_quark_localized(self):
+        """
+        Localized k=-3 mode should give charge -1/3 (down quark).
+        
+        CRITICAL: Down quark has NEGATIVE winding → NEGATIVE charge!
+        """
+        grid = SpectralGrid(N=256)
+        
+        # Create localized down quark mode (k=-3, NEGATIVE!)
+        chi_down = create_localized_winding_mode(grid, k=-3, well_index=0, width=0.4)
+        Q_down = calculate_charge_from_wavefunction(chi_down, grid)
+        
+        # Down quark should have NEGATIVE charge ~-1/3
+        assert Q_down < 0, "Down quark (k=-3) should have NEGATIVE charge"
+        assert_allclose(Q_down, -1/3, rtol=0.15)
+    
+    def test_emergent_vs_theoretical_agreement(self):
+        """
+        Verify that emergent charge from wavefunction matches theoretical prediction.
+        
+        This is the key validation: charge should EMERGE from the wavefunction,
+        and the emergent value should match the theoretical formula.
+        """
+        grid = SpectralGrid(N=256)
+        calculator = EMForceCalculator(grid)
+        
+        test_cases = [
+            (+1, +1.0, "positron"),      # k=+1 → Q=+1
+            (-1, -1.0, "electron"),      # k=-1 → Q=-1
+            (+5, +2/3, "up quark"),      # k=+5 → Q=+2/3
+            (-5, -2/3, "anti-up"),       # k=-5 → Q=-2/3
+            (+3, +1/3, "anti-down"),     # k=+3 → Q=+1/3
+            (-3, -1/3, "down quark"),    # k=-3 → Q=-1/3
+        ]
+        
+        for k, expected_Q, name in test_cases:
+            # Theoretical prediction from k
+            Q_theoretical = calculator.charge_from_winding(k=k)
+            
+            # Verify theoretical matches expected
+            assert_allclose(Q_theoretical, expected_Q, rtol=1e-10,
+                           err_msg=f"Theoretical charge for {name} (k={k})")
+            
+            # For localized modes, also verify emergent charge
+            if abs(k) > 1:  # Quark-like
+                chi = create_localized_winding_mode(grid, k=k, well_index=0, width=0.4)
+            else:  # Lepton-like
+                chi = grid.create_winding_mode(k=k)
+            
+            Q_emergent = calculate_charge_from_wavefunction(chi, grid)
+            
+            # Sign should always match
+            assert np.sign(Q_emergent) == np.sign(expected_Q), \
+                f"Sign mismatch for {name}: emergent={Q_emergent}, expected={expected_Q}"
 
 
 # =============================================================================

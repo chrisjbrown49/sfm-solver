@@ -47,13 +47,46 @@ from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
-# Quark winding numbers - DERIVED from charge relationship Q = k/3
-# Up-type quarks: Q = +2/3 → k = 5 (with 3-fold symmetry, 5 mod 3 = 2 → 2/3)
-# Down-type quarks: Q = -1/3 → k = 3 (with phase, gives -1/3)
-QUARK_WINDING = {
+# =============================================================================
+# Quark Winding Numbers - SIGNED values for charge calculation
+# =============================================================================
+# Sign convention: positive winding → positive charge, negative winding → negative charge
+#
+# Up-type quarks (u, c, t): Q = +2/3
+#   - Positive charge requires POSITIVE winding
+#   - |k| = 5, and (5 mod 3)/3 = 2/3 for magnitude
+#   - k = +5 gives Q = +2/3 ✓
+#
+# Down-type quarks (d, s, b): Q = -1/3
+#   - Negative charge requires NEGATIVE winding
+#   - |k| = 3, and 1/3 for magnitude  
+#   - k = -3 gives Q = -1/3 ✓
+#
+# IMPORTANT: Antiquarks have OPPOSITE winding sign:
+#   - anti-u: k = -5 → Q = -2/3
+#   - anti-d: k = +3 → Q = +1/3
+
+# Winding MAGNITUDES (sign applied based on particle vs antiparticle)
+QUARK_WINDING_MAGNITUDE = {
     'u': 5, 'd': 3,
     'c': 5, 's': 3,
     'b': 5, 't': 3,
+}
+
+# SIGNED winding for particles (quarks, not antiquarks)
+# Up-type: positive winding → positive charge
+# Down-type: NEGATIVE winding → negative charge
+QUARK_WINDING = {
+    'u': +5, 'd': -3,  # Note: d has NEGATIVE winding for negative charge!
+    'c': +5, 's': -3,
+    'b': +5, 't': -3,
+}
+
+# Expected SIGNED charges (for validation)
+EXPECTED_QUARK_CHARGES = {
+    'u': +2/3, 'd': -1/3,
+    'c': +2/3, 's': -1/3,
+    'b': +2/3, 't': -1/3,
 }
 
 # Quark spatial mode number - FROM SFM framework (same as leptons)
@@ -334,24 +367,37 @@ class CompositeMesonSolver:
     
     def _get_quark_params(self, quark: str, antiquark: str) -> Tuple[int, int, int, int, int, int, int]:
         """
-        Get winding numbers and spatial mode numbers.
+        Get SIGNED winding numbers and spatial mode numbers.
         
-        KEY INSIGHT: Antiparticles have opposite circulation (charge) but same
-        magnitude kinetic energy and coupling strength.
+        SIGN CONVENTION:
+        - Quarks use their natural winding: u has k=+5 (positive charge), d has k=-3 (negative)
+        - Antiquarks have OPPOSITE winding sign: anti-u has k=-5, anti-d has k=+3
+        
+        KEY INSIGHT: The sign of k determines the sign of the charge:
+        - Positive k → Positive charge
+        - Negative k → Negative charge
         
         Returns:
-            k_q: Quark winding (positive)
-            k_qbar: Antiquark winding (negative)
+            k_q: Quark winding (SIGNED: +5 for u, -3 for d)
+            k_qbar: Antiquark winding (opposite sign: -5 for anti-u, +3 for anti-d)
             k_net: Net winding = k_q + k_qbar (for circulation/charge)
             k_sq_total: k_q² + k_qbar² (for kinetic energy, never zero)
             k_coupling: |k_q| + |k_qbar| (for coupling energy, never zero)
             n_q: Quark spatial mode (1, 2, 3 for generations)
             n_qbar: Antiquark spatial mode
         """
-        k_q = QUARK_WINDING.get(quark, 3)
-        k_qbar = -QUARK_WINDING.get(antiquark, 3)  # Antiquark has negative winding
+        # Get SIGNED quark winding (u: +5, d: -3)
+        k_q = QUARK_WINDING.get(quark, -3)  # Default to down-type if unknown
         
-        # For circulation/charge: signed sum (can be zero for cc̄, bb̄)
+        # Antiquark has OPPOSITE winding sign
+        # If quark has k, antiquark has -k
+        k_antiquark_base = QUARK_WINDING.get(antiquark, -3)
+        k_qbar = -k_antiquark_base  # Flip sign for antiquark
+        
+        # For circulation/charge: signed sum
+        # Examples:
+        #   π⁺ (ud̄): k_u(+5) + k_anti-d(-(-3)) = +5 + 3 = +8 → net positive
+        #   J/ψ (cc̄): k_c(+5) + k_anti-c(-5) = 0 → neutral
         k_net = k_q + k_qbar
         
         # For kinetic energy: sum of squares (never zero)

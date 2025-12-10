@@ -31,15 +31,34 @@ from sfm_solver.core.sfm_global import SFM_CONSTANTS
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
-# Quark charges (in units of e)
-QUARK_CHARGES = {
-    'u': 2/3,   # up quark: +2/3
-    'd': -1/3,  # down quark: -1/3
+# =============================================================================
+# Quark Properties - EXPECTED values for validation
+# =============================================================================
+# These are the Standard Model values that the emergent charges should match.
+# The actual charges used in calculations should ideally be computed from
+# the wavefunction circulation integral (see electromagnetic.py).
+
+# Expected SIGNED quark charges (in units of e) for validation
+EXPECTED_QUARK_CHARGES = {
+    'u': +2/3,   # up quark: POSITIVE 2/3 (from k = +5, (5 mod 3)/3 = 2/3)
+    'd': -1/3,   # down quark: NEGATIVE 1/3 (from k = -3, -1/3)
 }
 
+# Expected SIGNED winding numbers
+# Sign convention: positive k → positive charge, negative k → negative charge
+EXPECTED_QUARK_WINDINGS = {
+    'u': +5,     # up quark: positive winding → positive charge +2e/3
+    'd': -3,     # down quark: NEGATIVE winding → negative charge -e/3
+}
+
+# Current implementation uses these values directly for Coulomb energy.
+# TODO: In future, compute charges from wavefunction circulation integral
+# using calculate_charge_from_wavefunction from electromagnetic.py
+QUARK_CHARGES = EXPECTED_QUARK_CHARGES  # Alias for backward compatibility
+
 # Standard baryon configurations
-PROTON_QUARKS = ['u', 'u', 'd']   # uud → charge +1
-NEUTRON_QUARKS = ['u', 'd', 'd']  # udd → charge 0
+PROTON_QUARKS = ['u', 'u', 'd']   # uud → total charge = +2/3 + 2/3 - 1/3 = +1
+NEUTRON_QUARKS = ['u', 'd', 'd']  # udd → total charge = +2/3 - 1/3 - 1/3 = 0
 
 
 @dataclass

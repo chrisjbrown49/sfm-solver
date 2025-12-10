@@ -463,12 +463,28 @@ class TestTier2MesonSolver:
         assert state.converged, "Meson solver should converge"
     
     @pytest.mark.tier2
-    def test_meson_net_winding_small(self, meson_solver):
-        """Meson should have small net winding (opposite windings)."""
+    def test_meson_net_winding_correct(self, meson_solver):
+        """
+        Meson net winding should match quark content.
+        
+        SIGN CONVENTION:
+        - u quark: k = +5 (positive charge +2/3)
+        - d quark: k = -3 (negative charge -1/3)
+        - d̄ (anti-down): k = -(-3) = +3 (positive charge +1/3)
+        
+        For π⁺ (ud̄):
+        k_net = k_u + k_d̄ = +5 + 3 = +8
+        Total charge = +2/3 + 1/3 = +1 ✓
+        
+        The net winding being positive reflects the positive charge of π⁺.
+        """
         state = meson_solver.solve(max_iter=3000, dt=0.001, verbose=False)
-        # Net winding = k_quark + k_antiquark, for ud̄: 5 + (-3) = 2
-        assert abs(state.k_meson) < 5, \
-            f"Meson net winding should be small, got {state.k_meson}"
+        
+        # For pion (ud̄): k_net = +5 + 3 = 8
+        # This gives total charge = +2/3 + 1/3 = +1 (correct for π⁺)
+        expected_k_net = 5 + 3  # u (+5) + anti-d (+3) = +8
+        assert state.k_meson == expected_k_net, \
+            f"Pion net winding should be {expected_k_net}, got {state.k_meson}"
 
 
 # =============================================================================

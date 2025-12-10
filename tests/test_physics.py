@@ -74,34 +74,39 @@ class TestSFMParameters:
 
 
 class TestChargeQuantization:
-    """Test that winding numbers give correct charges."""
+    """Test that SIGNED winding numbers give correct SIGNED charges."""
     
     def test_lepton_charge(self):
-        """Test k=1 gives unit charge."""
+        """Test k=+1 gives +e (positron), k=-1 gives -e (electron)."""
         grid = SpectralGrid(N=64)
         calculator = EMForceCalculator(grid)
         
-        Q = calculator.charge_from_winding(k=1)
-        assert_allclose(Q, 1.0)  # Q = e/k = e for k=1
+        Q_positron = calculator.charge_from_winding(k=+1)
+        Q_electron = calculator.charge_from_winding(k=-1)
+        assert_allclose(Q_positron, +1.0)  # Positron: Q = +e
+        assert_allclose(Q_electron, -1.0)  # Electron: Q = -e
     
     def test_down_quark_charge(self):
-        """Test k=3 gives 1/3 charge."""
+        """Test k=-3 gives -1/3 (down quark), k=+3 gives +1/3 (anti-down)."""
         grid = SpectralGrid(N=64)
         calculator = EMForceCalculator(grid)
         
-        Q = calculator.charge_from_winding(k=3)
-        assert_allclose(Q, 1/3)  # Q = e/3
+        Q_down = calculator.charge_from_winding(k=-3)
+        Q_anti_down = calculator.charge_from_winding(k=+3)
+        assert_allclose(Q_down, -1/3)       # Down quark: Q = -e/3
+        assert_allclose(Q_anti_down, +1/3)  # Anti-down: Q = +e/3
     
     def test_up_quark_charge(self):
-        """Test k=5 gives 2/5 charge (which is 2/3 × 3/5)."""
+        """Test k=+5 gives +2/3 (up quark) via 3-fold symmetry."""
         grid = SpectralGrid(N=64)
         calculator = EMForceCalculator(grid)
         
-        # Note: The actual formula gives Q = e/k
-        # For up quark with k=5: Q = e/5 = 0.2e
-        # The 2/3 charge comes from considering 2 quark contributions
-        Q = calculator.charge_from_winding(k=5)
-        assert_allclose(Q, 1/5)
+        # Up quark: k=+5, Q = +sign(k) × (|k| mod 3)/3 = +1 × 2/3 = +2/3
+        # This uses the 3-fold symmetry of the subspace potential
+        Q_up = calculator.charge_from_winding(k=+5)
+        Q_anti_up = calculator.charge_from_winding(k=-5)
+        assert_allclose(Q_up, +2/3)       # Up quark: Q = +2e/3
+        assert_allclose(Q_anti_up, -2/3)  # Anti-up: Q = -2e/3
 
 
 class TestEMForces:

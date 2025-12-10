@@ -801,7 +801,7 @@ class ResultsReporter:
         
         charge_tests = [t for t in tier1b_tests if 'charge' in t.name.lower()]
         charge_passed = all(t.passed for t in charge_tests) if charge_tests else summary.tier1b_complete
-        lines.append(f"| 1 | Charge quantization Q = e/k | {'✅ PASSING' if charge_passed else '❌ NOT PASSING'} | Q/e = 1 (k=1), 1/3 (k=3) |")
+        lines.append(f"| 1 | Charge quantization (SIGNED) | {'✅ PASSING' if charge_passed else '❌ NOT PASSING'} | Q = -1 (k=-1), -1/3 (k=-3), +2/3 (k=+5) |")
         
         circulation_tests = [t for t in tier1b_tests if 'circulation' in t.name.lower()]
         circulation_passed = all(t.passed for t in circulation_tests) if circulation_tests else summary.tier1b_complete

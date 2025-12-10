@@ -1391,9 +1391,9 @@ class HTMLResultsViewer:
             <tr><th>#</th><th>Requirement</th><th>Status</th><th>Evidence</th></tr>
             <tr>
                 <td>1</td>
-                <td>Charge quantization Q = e/k</td>
+                <td>Charge quantization (SIGNED)</td>
                 <td class="{'status-pass' if charge_quant_passed or charge_preds_passed else 'status-fail'}">{'✅ PASSING' if charge_quant_passed or charge_preds_passed else '❌ NOT PASSING'}</td>
-                <td>Q/e = 1 (k=1), 1/3 (k=3)</td>
+                <td>Q = -1 (k=-1), -1/3 (k=-3), +2/3 (k=+5)</td>
             </tr>
             <tr>
                 <td>2</td>
