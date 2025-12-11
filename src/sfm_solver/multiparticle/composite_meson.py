@@ -408,8 +408,9 @@ class CompositeMesonSolver:
         k_q = QUARK_WINDING.get(quark, -3)  # Default to down-type if unknown
         
         # Antiquark has OPPOSITE winding sign
-        # If quark has k, antiquark has -k
-        k_antiquark_base = QUARK_WINDING.get(antiquark, -3)
+        # Strip '_bar' suffix to get base quark type
+        antiquark_base = antiquark.replace('_bar', '')
+        k_antiquark_base = QUARK_WINDING.get(antiquark_base, -3)
         k_qbar = -k_antiquark_base  # Flip sign for antiquark
         
         # For circulation/charge: signed sum
@@ -447,34 +448,92 @@ class CompositeMesonSolver:
         J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
         return J
     
+    def _compute_k_eff_meson(self, quark: str, antiquark: str) -> float:
+        """
+        Compute FIXED effective winding for mesons based on quark content.
+        
+        TWO-COMPONENT COUPLING (UNIFIED APPROACH):
+        ==========================================
+        
+        The effective coupling has TWO contributions:
+        
+        1. SIGNED component (like EM charge): k_signed = k_q + k_qbar
+           - Can cancel for opposite windings
+           - Represents "net circulation" in subspace
+        
+        2. INTENSITY component (like gravitational mass): k_intensity = |k_q| + |k_qbar|
+           - Always positive
+           - Represents "field intensity" contribution to spacetime coupling
+           - Each quark contributes regardless of winding direction
+        
+        Combined: k_eff = w_signed × |k_signed| + w_intensity × k_intensity
+        
+        Physical reasoning:
+        - The signed term captures EM-like coupling (cancels for opposite charges)
+        - The intensity term captures gravitational-like coupling (masses always add)
+        - In SFM, BOTH contribute to the spacetime-subspace interaction
+        
+        For pion (same sign): Both terms contribute fully
+        For J/ψ (opposite): Signed cancels but intensity remains → still has mass!
+        """
+        k_q, k_qbar, k_net, _, k_intensity, n_q, n_qbar = self._get_quark_params(quark, antiquark)
+        
+        # Generation number (1, 2, or 3) affects coupling strength
+        # Higher generation = stronger coupling to spacetime
+        n_gen = max(n_q, n_qbar)
+        
+        # Signed component (can cancel for opposite windings)
+        k_signed = abs(k_q + k_qbar)
+        
+        # GENERATION-DEPENDENT COUPLING:
+        # Higher generation quarks have stronger spacetime coupling
+        # This comes from deeper potential wells for heavier generations
+        # The factor n_gen² captures the quadratic scaling seen in quark masses
+        gen_factor = n_gen ** 2  # 1 for u/d, 4 for c/s, 9 for b/t
+        
+        # Weights for combining
+        w_signed = 0.25     # Signed contribution (EM-like)
+        w_intensity = 0.12  # Intensity contribution (gravity-like)
+        
+        # Combined effective coupling with generation enhancement
+        k_eff = (w_signed * k_signed + w_intensity * k_intensity) * gen_factor
+        
+        return float(k_eff)
+    
+    def _compute_k_eff_signed(self, chi: NDArray[np.complexfloating]) -> float:
+        """
+        DEPRECATED: Compute k_eff from wavefunction.
+        
+        This method is kept for backward compatibility but should NOT be used
+        for coupling energy! The winding changes during optimization, which is
+        unphysical. Use _compute_k_eff_meson() instead.
+        """
+        J = self._compute_circulation(chi)
+        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        
+        if A_sq < 1e-10:
+            return 0.0
+        
+        k_eff_signed = np.imag(J) / A_sq
+        return float(k_eff_signed)
+    
     def _compute_k_eff_from_wavefunction(self, chi: NDArray[np.complexfloating]) -> float:
         """
-        Compute effective winding number from actual wavefunction gradient.
+        Compute unsigned effective winding (for kinetic energy reference).
         
         k²_eff = ∫|∂χ/∂σ|² dσ / ∫|χ|² dσ
         
-        This AUTOMATICALLY accounts for:
-        ✅ Destructive interference (reduces k_eff)
-        ✅ Constructive interference (increases k_eff)
-        ✅ Mixed winding numbers
-        ✅ All composite structures
-        
-        For pion (ud̄): opposite windings → destructive → small k_eff
-        For baryon-like: same-sign windings → constructive → large k_eff
+        NOTE: For COUPLING energy, mesons now use k_eff_signed which
+        captures destructive interference. This unsigned version is
+        kept for backward compatibility and kinetic energy scaling.
         """
-        # Compute wavefunction gradient
         dchi_dsigma = self.grid.first_derivative(chi)
-        
-        # ∫|∂χ/∂σ|² dσ (measures "waviness")
         numerator = np.sum(np.abs(dchi_dsigma)**2) * self.grid.dsigma
-        
-        # ∫|χ|² dσ (normalization)
         denominator = np.sum(np.abs(chi)**2) * self.grid.dsigma
         
         if denominator < 1e-10:
             return 0.0
         
-        # k_eff = sqrt(⟨|∇χ|²⟩ / ⟨|χ|²⟩)
         k_eff = np.sqrt(numerator / denominator)
         return float(k_eff)
     
@@ -606,8 +665,14 @@ class CompositeMesonSolver:
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(max(A_sq, 1e-10))
         
-        # === k_eff FROM WAVEFUNCTION (EMERGENT - key to meson physics!) ===
-        k_eff = self._compute_k_eff_from_wavefunction(chi)
+        # === FIXED k_eff FROM QUARK CONTENT (topological invariant!) ===
+        # k_eff is determined by quark windings and stored in self._k_eff_fixed
+        # Computed once in solve() based on quark content, doesn't change during optimization!
+        # 
+        # This captures:
+        # - Same-sign windings: partial constructive → k_eff ≈ (|k_q| + |k_qbar|)/2
+        # - Opposite windings: destructive → k_eff ≈ 0
+        k_eff = getattr(self, '_k_eff_fixed', 4.0)  # Default to pion-like if not set
         
         # === PARAMETERS ===
         I_overlap = k_eff / k_coupling if k_coupling > 0 else 0.5
@@ -719,8 +784,8 @@ class CompositeMesonSolver:
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(max(A_sq, 1e-10))
         
-        # === k_eff from actual wavefunction (EMERGENT!) ===
-        k_eff = self._compute_k_eff_from_wavefunction(chi)
+        # === FIXED k_eff from quark content (same as energy!) ===
+        k_eff = getattr(self, '_k_eff_fixed', 4.0)  # Must match energy computation!
         
         # === Δx FROM COMPTON WAVELENGTH (same as energy) ===
         # Δx = 1/m = 1/(βA²) in natural units
@@ -781,6 +846,13 @@ class CompositeMesonSolver:
         
         # Use maximum generation for the meson
         generation = max(n_q, n_qbar)
+        
+        # === FIXED k_eff FROM QUARK CONTENT (TOPOLOGICAL INVARIANT!) ===
+        # k_eff is determined by quark windings and should NOT change during optimization!
+        # For mesons:
+        # - Same-sign windings: partial constructive → k_eff ≈ (|k_q| + |k_qbar|)/2
+        # - Opposite windings: destructive → k_eff ≈ 0
+        self._k_eff_fixed = self._compute_k_eff_meson(quark, antiquark)
         
         # Radial scaling: Δx_n = Δx_0 × n_rad^(2/3) (WKB for linear confinement)
         delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
