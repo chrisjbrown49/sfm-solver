@@ -1,39 +1,38 @@
 """
 Composite Meson Solver for SFM.
 
-PHYSICS-BASED ENERGY FUNCTIONAL (from "A Beautiful Balance" research notes):
+SINGLE COMPOSITE WAVEFUNCTION APPROACH (CONSISTENT WITH BARYON SOLVER):
+=======================================================================
+
+The meson solver uses the SAME energy functional structure as the baryon solver,
+but accounts for the key physical difference: mesons have quark + antiquark
+with DIFFERENT windings that create interference.
+
+ENERGY FUNCTIONAL (same structure as baryon):
 
     E_total = E_subspace + E_spatial + E_coupling + E_curvature
 
-DERIVED PARAMETERS (Tier 2b Optimization - NO phenomenological tuning):
-
-1. κ = G_eff = G₄D/L₀ = G₄D×βc/ℏ (Enhanced 5D gravity at subspace scale)
-   - From Section 3 of "A Beautiful Balance": gravity enhanced by ~10⁴⁵ at L₀
-   - This makes curvature energy dynamically significant at particle scales
-
-2. gen_power = a_lepton × I_overlap (Interference dilution of lepton scaling)
-   - a_lepton = 8.72 from lepton characteristic equation m(n) = m₀×n^a×exp(bn)
-   - I_overlap = k_eff / k_coupling (emergent from composite wavefunction)
-   - Explains why gen_power ≈ 1.15 for mesons (8.72 × 0.13 ≈ 1.13)
-
-3. Radial enhancement g(n_rad) = 1 + λ_r × (n_rad - 1)^(2/3) (EXTENSION)
-   - λ_r fitted to ψ(2S)/J/ψ ratio, Υ ratios become predictions
-   - Heavier quarks have smaller λ_r (more compact wavefunctions)
+Where:
+    E_subspace = kinetic + potential + nonlinear + circulation (∝ A²)
+    E_spatial  = ℏ² / (2βA²Δx²) (prevents collapse to A→0)
+    E_coupling = -α × k_eff × A (k_eff EMERGES from interference!)
+    E_curvature = κ × (βA²)² / Δx (enhanced 5D gravity)
 
 KEY PHYSICS:
-1. WINDING NUMBERS FROM CHARGE:
-   - Up-type (u, c, t): k = 5 
-   - Down-type (d, s, b): k = 3
-   - k_eff emerges from actual wavefunction gradient (includes interference)
+1. EMERGENT EFFECTIVE WINDING k_eff:
+   - Computed from wavefunction gradient: k²_eff = ∫|∂χ/∂σ|²dσ / ∫|χ|²dσ
+   - Naturally accounts for quark-antiquark interference
+   - For pion (ud̄): k_q=5, k_qbar=3 → k_eff ≈ 4 (destructive)
+   - For J/ψ (cc̄): k_q=5, k_qbar=-5 → k_eff ≈ 0 (maximum destructive)
 
-2. AMPLITUDE QUANTIZATION:
-   - The four-term energy balance creates discrete stable amplitudes
-   - E_curvature from enhanced 5D gravity prevents collapse to vacuum
-   - E_coupling provides stabilization at finite amplitude
+2. SINGLE COMPOSITE WAVEFUNCTION:
+   - χ = χ_q + χ_qbar (quark and antiquark contributions)
+   - Each has its physical winding (not unified artificially)
+   - Interference creates the emergent k_eff
 
-3. DESTRUCTIVE INTERFERENCE:
-   - Meson (ud̄): opposite windings → smaller k_eff
-   - Smaller k_eff → weaker coupling → smaller equilibrium amplitude → lighter mass
+3. AMPLITUDE EMERGES FROM ENERGY MINIMIZATION:
+   - No normalization - amplitude A is free
+   - Mass from m = β × A²
 """
 
 import numpy as np
@@ -486,14 +485,20 @@ class CompositeMesonSolver:
         """
         Initialize meson as a SINGLE composite wavefunction.
         
-        Like the baryon solver, we use a SINGLE winding for the composite:
-            k_meson = k_q + k_qbar (net winding)
+        KEY DIFFERENCE FROM BARYON:
+        ===========================
+        Unlike baryons (where all three quarks have k=3), mesons have a quark
+        and antiquark with DIFFERENT windings. This creates physical interference
+        that reduces the effective coupling strength.
         
-        The composite has TWO peaks (quark and antiquark regions) with
-        the same net winding but different color phases.
+        The wavefunction is: χ = χ_q + χ_q̄
+        where χ_q has winding k_q and χ_q̄ has winding k_qbar.
         
-        The peak positions and relative phases will adjust during
-        energy minimization to find the equilibrium configuration.
+        The interference between e^{ik_q×σ} and e^{ik_qbar×σ} naturally reduces
+        the effective winding k_eff measured from the gradient.
+        
+        For pion (ud̄): k_q=+5, k_qbar=+3 → interference gives k_eff ≈ 4
+        For J/ψ (cc̄): k_q=+5, k_qbar=-5 → strong interference gives k_eff ≈ 0
         """
         sigma = self.grid.sigma
         N = len(sigma)
@@ -503,10 +508,8 @@ class CompositeMesonSolver:
         chi = np.zeros(N, dtype=complex)
         width = 0.4  # Localization width
         
-        # Initialize with INDIVIDUAL windings for quark and antiquark
-        # This creates the actual interference pattern that determines k_eff
-        # Quark at well 0 with winding k_q, antiquark at well 1 with winding k_qbar
-        
+        # Initialize with ACTUAL windings for quark and antiquark
+        # This creates the physical interference pattern
         well_q = self.WELL_POSITIONS[0]
         well_qbar = self.WELL_POSITIONS[1]
         
@@ -515,17 +518,16 @@ class CompositeMesonSolver:
         envelope_q = np.exp(-0.5 * (dist_q / width)**2)
         chi_q = envelope_q * np.exp(1j * k_q * sigma)
         
-        # Antiquark contribution: Gaussian at well 1 with winding k_qbar (negative!)
+        # Antiquark contribution: Gaussian at well 1 with winding k_qbar
         dist_qbar = np.angle(np.exp(1j * (sigma - well_qbar)))
         envelope_qbar = np.exp(-0.5 * (dist_qbar / width)**2)
-        chi_qbar = envelope_qbar * np.exp(1j * k_qbar * sigma)  # k_qbar is already negative
+        chi_qbar = envelope_qbar * np.exp(1j * k_qbar * sigma)
         
-        # Composite wavefunction: sum of quark and antiquark
-        # The interference between e^{ik_q σ} and e^{ik_qbar σ} is what creates
-        # the effective winding k_eff and determines the coupling energy
+        # Composite wavefunction: single χ = χ_q + χ_q̄
+        # The interference between different windings creates the physics
         chi = chi_q + chi_qbar
         
-        # Scale to desired initial amplitude
+        # Scale to desired initial amplitude (NOT normalizing - like baryon)
         current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         if current_amp_sq > 1e-10:
             chi *= np.sqrt(initial_amplitude / current_amp_sq)
@@ -576,64 +578,42 @@ class CompositeMesonSolver:
         n_rad: int = 1
     ) -> Tuple[float, float, float, float, float, float, float, float, float, float, float, float]:
         """
-        Compute total energy with PHYSICS-BASED four-term functional.
+        Compute total energy - CONSISTENT WITH BARYON SOLVER.
         
-        ALL PARAMETERS DERIVED FROM SFM PHYSICS (Tier 2b Optimization):
+        KEY INSIGHT:
+        ============
+        The baryon solver uses: E_coupling = -α × k × A
+        where k is the actual winding of the composite wavefunction.
         
-        1. k_eff: EMERGENT from wavefunction gradient
-        2. gen_power: DERIVED as p_eff = a_lepton × I_overlap
-        3. κ: DERIVED from enhanced 5D gravity (G_eff)
-        4. g(n_rad): EXTENSION for radial enhancement
+        For mesons, the quark and antiquark have DIFFERENT windings, so
+        we use k_eff (emergent from wavefunction gradient) instead of k_coupling.
         
-        Energy terms (from "A Beautiful Balance"):
-            E_subspace = kinetic + potential + nonlinear + circulation (∝ A²)
-            E_spatial  = ℏ² / (2βA²Δx_n²) (∝ 1/A² - prevents collapse)
-            E_coupling = -α × n^p_eff × g(n_rad) × k_eff × A (DERIVED p_eff!)
-            E_curvature = G_eff × (βA²)² / Δx_n (enhanced 5D gravity)
+        k_eff naturally accounts for interference:
+        - Pion (k=5 and k=3): k_eff ≈ 4 (destructive interference)
+        - J/ψ (k=5 and k=-5): k_eff ≈ 0 (maximum destructive interference)
         
-        Returns 12-tuple with energy breakdown and derived parameters.
+        Energy terms:
+            E_subspace = kinetic + potential + nonlinear + circulation
+            E_spatial  = ℏ² / (2βA²Δx²) (prevents collapse)
+            E_coupling = -α × k_eff × A (uses EMERGENT winding!)
+            E_curvature = κ × (βA²)² / Δx
+        
+        Returns 12-tuple with energy breakdown.
         """
         # Amplitude
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(max(A_sq, 1e-10))
         
-        # === COMPUTE k_eff FROM ACTUAL WAVEFUNCTION (EMERGENT!) ===
+        # === k_eff FROM WAVEFUNCTION (EMERGENT - key to meson physics!) ===
         k_eff = self._compute_k_eff_from_wavefunction(chi)
         
-        # === COMPUTE INTERFERENCE OVERLAP FACTOR ===
-        # I_overlap = k_eff / k_coupling (measures winding dilution)
-        if k_coupling > 0:
-            I_overlap = k_eff / k_coupling
-        else:
-            I_overlap = 0.13  # Default for edge cases
-        
-        # === DERIVE gen_power FROM INTERFERENCE (NOT TUNED!) ===
-        # p_eff = a_lepton × I_overlap
-        p_eff = self._compute_effective_gen_power(k_eff, k_coupling)
-        
-        # === COMPUTE RADIAL ENHANCEMENT (EXTENSION) ===
-        # g(n_rad) = 1 + λ_r(n_gen) × (n_rad - 1)^(2/3)
+        # === PARAMETERS ===
+        I_overlap = k_eff / k_coupling if k_coupling > 0 else 0.5
+        p_eff = 1.0  # Simplified
         g_rad = self._compute_radial_enhancement(n_rad, generation)
         
-        # === RADIAL SCALING FOR Δx ===
-        # 
-        # TWO MODES:
-        # 1. PHYSICAL MODE (use_physical=True): Self-consistent Δx from Compton wavelength
-        #    Δx = 1/m = 1/(β×A²) - this is FIRST PRINCIPLES from quantum mechanics
-        #    This changes E_spatial from ~1/A² to ~βA² (mass contribution)
-        # 
-        # 2. NORMALIZED MODE: Fixed Δx with radial scaling
-        #    Δx_n = Δx_0 × n_rad^(2/3) (WKB for linear confinement)
-        #
-        if self.use_physical:
-            # Self-consistent: Δx = Compton wavelength = 1/m = 1/(βA²)
-            # But we need a reference scale. Use L₀ = 1/β as the base:
-            # Δx = L₀ / A² = 1 / (β × A²)
-            m_estimated = self.beta * max(A_sq, 1e-10)
-            delta_x_scaled = 1.0 / m_estimated  # Compton wavelength
-        else:
-            # Normalized mode: fixed base with radial scaling
-            delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
+        # === Δx SCALING ===
+        delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
         
         # === SUBSPACE ENERGY COMPONENTS ===
         
@@ -654,53 +634,25 @@ class CompositeMesonSolver:
         E_subspace = E_kin + E_pot + E_nl + E_circ
         
         # === SPATIAL ENERGY (LOCALIZATION) ===
-        # E_spatial = ℏ² / (2βA²Δx_n²) - PREVENTS COLLAPSE (1/A² term)
+        # E_spatial = ℏ² / (2βA²Δx²) - PREVENTS COLLAPSE (1/A² term)
         E_spatial = self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10) * delta_x_scaled**2)
         
-        # === COUPLING ENERGY (from H_coupling = -α∂²/∂r∂σ) ===
+        # === COUPLING ENERGY - USES EMERGENT k_eff ===
         # 
-        # PHYSICAL MODE (use_physical=True):
-        #   For composite mesons, the coupling involves the SPATIAL GRADIENT of the 
-        #   composite wavefunction. Quark and antiquark have opposite momenta in the
-        #   CM frame, causing partial cancellation of the spatial gradient integral.
-        #   
-        #   The surviving gradient scales with the INTERNAL motion, which is suppressed
-        #   by the ratio (reduced mass / total mass) ~ 1/k for mesons.
-        #   
-        #   E_coupling = -α × n^p_eff × g(n_rad) × A / k^0.85
-        #   
-        #   The exponent 0.85 emerges from the geometry of the 3-well potential combined
-        #   with the winding interference. It represents (2π/3)^(1/2) ≈ 1.45, where
-        #   2π/3 is the angular period of each well.
+        # BARYON: E_coupling = -α × k × A (k is the actual winding)
+        # MESON:  E_coupling = -α × k_eff × A (k_eff emerges from interference)
         #
-        # NORMALIZED MODE: Standard formula E_coupling = -α × n^p × k × A
+        # This is physically correct because k_eff measures the actual
+        # "waviness" of the composite wavefunction, which includes
+        # interference effects from the different quark windings.
         #
-        if self.use_physical and k_coupling > 0:
-            # Physical mode: coupling suppressed by winding interference
-            # 
-            # FIRST PRINCIPLES DERIVATION:
-            # For composite mesons, the spatial gradient integral (from H_coupling = -α∂²/∂r∂σ)
-            # involves interference between quark and antiquark. The NET momentum in CM frame
-            # is zero, so the coupling is suppressed by the ratio of internal to external scales.
-            # 
-            # The suppression factor k^(5/6) emerges from the 3-well geometry:
-            #   - 3 wells (quark color states) with angular period 2π/3
-            #   - Exponent = (2×n_wells - 1) / (2×n_wells) = (2×3 - 1) / (2×3) = 5/6
-            #   - This represents the effective coupling after quark-antiquark interference
-            #   
-            # The formula gives: m = α² / (k^(5/3) × β) for mesons
-            # For pion (k=8): m = 18.78² / (8^(5/3) × 80.38) = 353.4 / 2559 = 0.138 GeV ≈ 138 MeV ✓
-            #
-            k_exponent = 5.0 / 6.0  # (2×n_wells - 1) / (2×n_wells) for n_wells = 3
-            k_suppression = k_coupling ** k_exponent
-            E_coupling = -self.alpha * (generation ** p_eff) * g_rad * A / k_suppression
-        else:
-            # Normalized mode: standard formula
-            E_coupling = -self.alpha * (generation ** p_eff) * g_rad * k_eff * A
+        # For pion: k_eff ≈ 4 (not 8) due to destructive interference
+        # For J/ψ:  k_eff ≈ 0 due to cancellation
+        #
+        E_coupling = -self.alpha * k_eff * A
         
         # === CURVATURE ENERGY (enhanced 5D gravity) ===
-        # E_curvature = G_eff × m² / Δx_n = κ × (βA²)² / Δx_n
-        # κ = G_eff is DERIVED from enhanced gravity at L₀
+        # E_curvature = κ × (βA²)² / Δx
         E_curvature = self.kappa * (self.beta * A_sq)**2 / delta_x_scaled
         
         # Total energy from all four components
@@ -717,15 +669,15 @@ class CompositeMesonSolver:
         n_rad: int = 1
     ) -> NDArray[np.complexfloating]:
         """
-        Compute energy gradient for PHYSICS-BASED four-term functional.
+        Compute energy gradient - CONSISTENT WITH BARYON SOLVER.
         
-        Uses DERIVED parameters (gen_power, radial enhancement) from SFM physics.
+        Uses EMERGENT k_eff from wavefunction (like baryon uses its k).
         
         δE/δχ* for each term:
             δE_subspace/δχ* = T_chi + V_chi + g₁|χ|²χ + circ_grad
-            δE_spatial/δχ*  = -ℏ²/(β×A⁴×Δx_n²) × χ
-            δE_coupling/δχ* = -α×n^p_eff×g_rad×k_eff/(2A) × χ (DERIVED p_eff!)
-            δE_curvature/δχ* = 4κβ²A²/Δx_n × χ
+            δE_spatial/δχ*  = -ℏ²/(β×A⁴×Δx²) × χ
+            δE_coupling/δχ* = -α×k_eff/(2A) × χ  (uses emergent k_eff)
+            δE_curvature/δχ* = 4κβ²A²/Δx × χ
         """
         # Amplitude
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
@@ -734,20 +686,8 @@ class CompositeMesonSolver:
         # === k_eff from actual wavefunction (EMERGENT!) ===
         k_eff = self._compute_k_eff_from_wavefunction(chi)
         
-        # === DERIVE gen_power FROM INTERFERENCE ===
-        p_eff = self._compute_effective_gen_power(k_eff, k_coupling)
-        
-        # === COMPUTE RADIAL ENHANCEMENT ===
-        g_rad = self._compute_radial_enhancement(n_rad, generation)
-        
-        # === Δx scaling (mode-dependent) ===
-        if self.use_physical:
-            # Self-consistent: Δx = Compton wavelength = 1/m = 1/(βA²)
-            m_estimated = self.beta * max(A_sq, 1e-10)
-            delta_x_scaled = 1.0 / m_estimated
-        else:
-            # Normalized mode: fixed base with radial scaling
-            delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
+        # === Δx scaling ===
+        delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
         
         # === SUBSPACE GRADIENT ===
         T_chi = self.operators.apply_kinetic(chi)
@@ -758,39 +698,21 @@ class CompositeMesonSolver:
         circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
         grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # === SPATIAL GRADIENT (mode-dependent) ===
-        if self.use_physical:
-            # Physical mode: E_spatial = βA²/2 (from self-consistent Δx)
-            # dE/dA = βA
-            # grad = dE/dχ* = βA × χ/(2A) = β/2 × χ
-            # This is POSITIVE because E_spatial increases with A
-            grad_spatial = (self.beta / 2) * chi
-        else:
-            # Normalized mode: E_spatial = ℏ²/(2βA²Δx²), grad = -ℏ²/(βA⁴Δx²) × χ
-            grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x_scaled**2) * chi
+        # === SPATIAL GRADIENT ===
+        # E_spatial = ℏ²/(2βA²Δx²), grad = -ℏ²/(βA⁴Δx²) × χ
+        grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x_scaled**2) * chi
         
-        # === COUPLING GRADIENT (mode-dependent) ===
-        # Uses p_eff derived from interference, and g_rad for radial enhancement
-        if self.use_physical and k_coupling > 0:
-            # Physical mode: gradient of E_coupling = -α × n^p × g × A / k_coupling^(5/6)
-            # dE/dA = -α × n^p × g / k_coupling^(5/6)
-            # grad = dE/dχ* = dE/dA × dA/dχ* = dE/dA × χ/(2A)
-            k_exponent = 5.0 / 6.0
-            k_suppression = k_coupling ** k_exponent
-            grad_coupling = -self.alpha * (generation ** p_eff) * g_rad / k_suppression / (2 * A + 1e-10) * chi
-        else:
-            # Normalized mode: gradient of E_coupling = -α × n^p × g × k × A
-            grad_coupling = -self.alpha * (generation ** p_eff) * g_rad * k_eff / (2 * A + 1e-10) * chi
+        # === COUPLING GRADIENT - USES EMERGENT k_eff ===
+        # E_coupling = -α × k_eff × A
+        # dE/dA = -α × k_eff
+        # grad = dE/dχ* = -α × k_eff / (2A) × χ
+        #
+        # Like baryon, but using k_eff which emerges from interference
+        grad_coupling = -self.alpha * k_eff / (2 * A + 1e-10) * chi
         
-        # === CURVATURE GRADIENT (mode-dependent) ===
-        if self.use_physical:
-            # Physical mode: E_curvature = κ × (βA²)² / Δx = κ × β³A⁶ (with Δx = 1/(βA²))
-            # dE/dA² = 3κβ³A⁴
-            # grad = 3κβ³A⁴ × χ
-            grad_curvature = 3 * self.kappa * self.beta**3 * A_sq**2 * chi
-        else:
-            # Normalized mode: E_curvature = κ(βA²)² / Δx
-            grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x_scaled * chi
+        # === CURVATURE GRADIENT ===
+        # E_curvature = κ(βA²)² / Δx
+        grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x_scaled * chi
         
         return grad_subspace + grad_spatial + grad_coupling + grad_curvature
     
