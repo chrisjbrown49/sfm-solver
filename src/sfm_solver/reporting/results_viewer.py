@@ -341,6 +341,28 @@ class HTMLResultsViewer:
             font-size: 1.1em;
         }}
         
+        .warning-finding {{
+            background: linear-gradient(135deg, rgba(210, 153, 34, 0.15), rgba(210, 153, 34, 0.05));
+            border: 1px solid rgba(210, 153, 34, 0.4);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }}
+        
+        .warning-finding h4 {{
+            color: var(--accent-yellow);
+            margin-top: 0;
+        }}
+        
+        .warning-finding ul {{
+            margin: 10px 0;
+            padding-left: 25px;
+        }}
+        
+        .warning-finding li {{
+            margin: 5px 0;
+        }}
+        
         code {{
             font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace;
             background: var(--bg-primary);
@@ -1121,65 +1143,73 @@ class HTMLResultsViewer:
         if not meson_tests:
             return ''  # No meson tests run
         
-        # Pion prediction
-        pion_tests = [t for t in meson_tests if 'pion' in t.name.lower()]
-        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
+        # Pion prediction - use prediction.within_target for accuracy check
         pion_pred = get_pred("Pion_Mass")
         pion_val = f"{pion_pred.predicted:.1f} MeV" if pion_pred else "—"
         pion_err = f"{pion_pred.percent_error:.1f}%" if pion_pred else "—"
+        pion_within_target = pion_pred.within_target if pion_pred else False
         
         # Charmonium predictions
         jpsi_1s_pred = get_pred("JPsi_1S_Mass") or get_pred("JPsi_Mass")
         jpsi_1s_val = f"{jpsi_1s_pred.predicted:.1f} MeV" if jpsi_1s_pred else "—"
         jpsi_1s_err = f"{jpsi_1s_pred.percent_error:.1f}%" if jpsi_1s_pred else "—"
-        jpsi_1s_tests = [t for t in meson_tests if 'jpsi_1s' in t.name.lower() or 'jpsi_mass' in t.name.lower()]
-        jpsi_1s_passed = all(t.passed for t in jpsi_1s_tests) if jpsi_1s_tests else False
+        jpsi_1s_within_target = jpsi_1s_pred.within_target if jpsi_1s_pred else False
         
         psi_2s_pred = get_pred("Psi_2S_Mass")
         psi_2s_val = f"{psi_2s_pred.predicted:.1f} MeV" if psi_2s_pred else "—"
         psi_2s_err = f"{psi_2s_pred.percent_error:.1f}%" if psi_2s_pred else "—"
-        psi_2s_tests = [t for t in meson_tests if 'psi_2s' in t.name.lower()]
-        psi_2s_passed = all(t.passed for t in psi_2s_tests) if psi_2s_tests else False
+        psi_2s_within_target = psi_2s_pred.within_target if psi_2s_pred else False
         
         charm_ratio_pred = get_pred("Charm_2S_1S_Ratio")
         charm_ratio_val = f"{charm_ratio_pred.predicted:.4f}" if charm_ratio_pred else "—"
         charm_ratio_err = f"{charm_ratio_pred.percent_error:.1f}%" if charm_ratio_pred else "—"
-        charm_ratio_tests = [t for t in meson_tests if 'charmonium_2s_1s_ratio' in t.name.lower() or 'charm_2s_1s_ratio' in t.name.lower()]
-        charm_ratio_passed = all(t.passed for t in charm_ratio_tests) if charm_ratio_tests else False
+        charm_ratio_within_target = charm_ratio_pred.within_target if charm_ratio_pred else False
         
         # Bottomonium predictions
         upsilon_1s_pred = get_pred("Upsilon_1S_Mass")
         upsilon_1s_val = f"{upsilon_1s_pred.predicted:.1f} MeV" if upsilon_1s_pred else "—"
         upsilon_1s_err = f"{upsilon_1s_pred.percent_error:.1f}%" if upsilon_1s_pred else "—"
-        upsilon_1s_tests = [t for t in meson_tests if 'upsilon_1s_mass' in t.name.lower()]
-        upsilon_1s_passed = all(t.passed for t in upsilon_1s_tests) if upsilon_1s_tests else False
+        upsilon_1s_within_target = upsilon_1s_pred.within_target if upsilon_1s_pred else False
         
         upsilon_2s_pred = get_pred("Upsilon_2S_Mass")
         upsilon_2s_val = f"{upsilon_2s_pred.predicted:.1f} MeV" if upsilon_2s_pred else "—"
         upsilon_2s_err = f"{upsilon_2s_pred.percent_error:.1f}%" if upsilon_2s_pred else "—"
-        upsilon_2s_tests = [t for t in meson_tests if 'upsilon_2s_mass' in t.name.lower()]
-        upsilon_2s_passed = all(t.passed for t in upsilon_2s_tests) if upsilon_2s_tests else False
+        upsilon_2s_within_target = upsilon_2s_pred.within_target if upsilon_2s_pred else False
         
         bottom_ratio_pred = get_pred("Bottom_2S_1S_Ratio")
         bottom_ratio_val = f"{bottom_ratio_pred.predicted:.4f}" if bottom_ratio_pred else "—"
         bottom_ratio_err = f"{bottom_ratio_pred.percent_error:.1f}%" if bottom_ratio_pred else "—"
-        bottom_ratio_tests = [t for t in meson_tests if 'bottomonium_2s_1s_ratio' in t.name.lower() or 'bottom_2s_1s_ratio' in t.name.lower()]
-        bottom_ratio_passed = all(t.passed for t in bottom_ratio_tests) if bottom_ratio_tests else False
+        bottom_ratio_within_target = bottom_ratio_pred.within_target if bottom_ratio_pred else False
         
-        # Count predictions (7 total: pion + 6 quarkonia)
-        predictions_passed = sum([
-            1 if pion_passed else 0,
-            1 if jpsi_1s_passed else 0,
-            1 if psi_2s_passed else 0,
-            1 if charm_ratio_passed else 0,
-            1 if upsilon_1s_passed else 0,
-            1 if upsilon_2s_passed else 0,
-            1 if bottom_ratio_passed else 0,
+        # Count predictions within target (7 total: pion + 6 quarkonia)
+        # Status based on prediction.within_target, NOT test pass/fail
+        predictions_met = sum([
+            1 if pion_within_target else 0,
+            1 if jpsi_1s_within_target else 0,
+            1 if psi_2s_within_target else 0,
+            1 if charm_ratio_within_target else 0,
+            1 if upsilon_1s_within_target else 0,
+            1 if upsilon_2s_within_target else 0,
+            1 if bottom_ratio_within_target else 0,
         ])
         predictions_shown = 7
         
+        # Helper to get status class and icon based on within_target
+        def status_class(within_target, has_pred):
+            if not has_pred:
+                return 'status-pending', '⏳'  # No prediction yet
+            return ('status-pass', '✅') if within_target else ('status-fail', '❌')
+        
+        pion_status = status_class(pion_within_target, pion_pred)
+        jpsi_1s_status = status_class(jpsi_1s_within_target, jpsi_1s_pred)
+        psi_2s_status = status_class(psi_2s_within_target, psi_2s_pred)
+        charm_ratio_status = status_class(charm_ratio_within_target, charm_ratio_pred)
+        upsilon_1s_status = status_class(upsilon_1s_within_target, upsilon_1s_pred)
+        upsilon_2s_status = status_class(upsilon_2s_within_target, upsilon_2s_pred)
+        bottom_ratio_status = status_class(bottom_ratio_within_target, bottom_ratio_pred)
+        
         return f'''
-        <h3>Meson Predictions <span class="{'status-pass' if predictions_passed >= 5 else 'status-partial'}">({predictions_passed}/{predictions_shown})</span></h3>
+        <h3>Meson Predictions <span class="{'status-pass' if predictions_met >= 5 else 'status-partial'}">({predictions_met}/{predictions_shown})</span></h3>
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
             <em>All meson predictions including light mesons and heavy quarkonia (Tier 2 + Tier 2b)</em>
         </p>
@@ -1190,7 +1220,7 @@ class HTMLResultsViewer:
                 <td><strong>{pion_val}</strong></td>
                 <td><strong>139.6 MeV</strong></td>
                 <td><strong>{pion_err}</strong></td>
-                <td class="{'status-pass' if pion_passed else 'status-pending'}">{'✅' if pion_passed else '⏳'}</td>
+                <td class="{pion_status[0]}">{pion_status[1]}</td>
                 <td style="font-size: 0.85em;">Light meson (ud̄)</td>
             </tr>
             <tr>
@@ -1198,7 +1228,7 @@ class HTMLResultsViewer:
                 <td><strong>{jpsi_1s_val}</strong></td>
                 <td><strong>3096.9 MeV</strong></td>
                 <td><strong>{jpsi_1s_err}</strong></td>
-                <td class="{'status-pass' if jpsi_1s_passed else 'status-pending'}">{'✅' if jpsi_1s_passed else '⏳'}</td>
+                <td class="{jpsi_1s_status[0]}">{jpsi_1s_status[1]}</td>
                 <td style="font-size: 0.85em;">Charmonium (cc̄) ground state</td>
             </tr>
             <tr>
@@ -1206,7 +1236,7 @@ class HTMLResultsViewer:
                 <td><strong>{psi_2s_val}</strong></td>
                 <td><strong>3686.1 MeV</strong></td>
                 <td><strong>{psi_2s_err}</strong></td>
-                <td class="{'status-pass' if psi_2s_passed else 'status-pending'}">{'✅' if psi_2s_passed else '⏳'}</td>
+                <td class="{psi_2s_status[0]}">{psi_2s_status[1]}</td>
                 <td style="font-size: 0.85em;">Charmonium first radial excitation</td>
             </tr>
             <tr>
@@ -1214,7 +1244,7 @@ class HTMLResultsViewer:
                 <td>{charm_ratio_val}</td>
                 <td>1.190</td>
                 <td>{charm_ratio_err}</td>
-                <td class="{'status-pass' if charm_ratio_passed else 'status-pending'}">{'✅' if charm_ratio_passed else '⏳'}</td>
+                <td class="{charm_ratio_status[0]}">{charm_ratio_status[1]}</td>
                 <td style="font-size: 0.85em;">Charmonium radial ratio</td>
             </tr>
             <tr>
@@ -1222,7 +1252,7 @@ class HTMLResultsViewer:
                 <td><strong>{upsilon_1s_val}</strong></td>
                 <td><strong>9460.3 MeV</strong></td>
                 <td><strong>{upsilon_1s_err}</strong></td>
-                <td class="{'status-pass' if upsilon_1s_passed else 'status-pending'}">{'✅' if upsilon_1s_passed else '⏳'}</td>
+                <td class="{upsilon_1s_status[0]}">{upsilon_1s_status[1]}</td>
                 <td style="font-size: 0.85em;">Bottomonium (bb̄) ground state</td>
             </tr>
             <tr>
@@ -1230,7 +1260,7 @@ class HTMLResultsViewer:
                 <td><strong>{upsilon_2s_val}</strong></td>
                 <td><strong>10023.3 MeV</strong></td>
                 <td><strong>{upsilon_2s_err}</strong></td>
-                <td class="{'status-pass' if upsilon_2s_passed else 'status-pending'}">{'✅' if upsilon_2s_passed else '⏳'}</td>
+                <td class="{upsilon_2s_status[0]}">{upsilon_2s_status[1]}</td>
                 <td style="font-size: 0.85em;">Bottomonium first radial excitation</td>
             </tr>
             <tr>
@@ -1238,7 +1268,7 @@ class HTMLResultsViewer:
                 <td>{bottom_ratio_val}</td>
                 <td>1.060</td>
                 <td>{bottom_ratio_err}</td>
-                <td class="{'status-pass' if bottom_ratio_passed else 'status-pending'}">{'✅' if bottom_ratio_passed else '⏳'}</td>
+                <td class="{bottom_ratio_status[0]}">{bottom_ratio_status[1]}</td>
                 <td style="font-size: 0.85em;">Bottomonium radial ratio</td>
             </tr>
         </table>
@@ -1704,33 +1734,24 @@ class HTMLResultsViewer:
         np_diff_tests = [t for t in tier2_tests if 'np_mass_difference' in t.name.lower()]
         np_diff_passed = all(t.passed for t in np_diff_tests) if np_diff_tests else neutron_passed
         
-        # Analyze Tier 2b meson tests
-        tier2b_tests = [t for t in reporter.test_results 
-                       if 'tier2b' in t.name.lower() or 'tier 2b' in t.category.lower()
-                       or 'meson' in t.name.lower() or 'pion' in t.name.lower()
-                       or 'jpsi' in t.name.lower() or 'charmonium' in t.name.lower()
-                       or 'bottomonium' not in t.name.lower()]
+        # Analyze Tier 2b meson PREDICTIONS (use within_target, not test passed)
+        # Helper to get prediction by name
+        def get_pred_status(param_patterns):
+            """Get prediction within_target status by parameter name patterns."""
+            for p in reporter.predictions:
+                for pattern in param_patterns:
+                    if pattern.lower() in p.parameter.lower():
+                        return p.within_target
+            return False  # No prediction found
         
-        pion_tests = [t for t in tier2b_tests if 'pion' in t.name.lower()]
-        pion_passed = all(t.passed for t in pion_tests) if pion_tests else False
-        
-        jpsi_1s_tests = [t for t in tier2b_tests if 'jpsi_1s' in t.name.lower() or 'jpsi_mass' in t.name.lower()]
-        jpsi_1s_passed = all(t.passed for t in jpsi_1s_tests) if jpsi_1s_tests else False
-        
-        psi_2s_tests = [t for t in tier2b_tests if 'psi_2s' in t.name.lower()]
-        psi_2s_passed = all(t.passed for t in psi_2s_tests) if psi_2s_tests else False
-        
-        charm_ratio_tests = [t for t in tier2b_tests if 'charmonium_2s_1s' in t.name.lower() or 'charm_ratio' in t.name.lower()]
-        charm_ratio_passed = all(t.passed for t in charm_ratio_tests) if charm_ratio_tests else False
-        
-        upsilon_1s_tests = [t for t in tier2b_tests if 'upsilon_1s' in t.name.lower()]
-        upsilon_1s_passed = all(t.passed for t in upsilon_1s_tests) if upsilon_1s_tests else False
-        
-        upsilon_2s_tests = [t for t in tier2b_tests if 'upsilon_2s' in t.name.lower()]
-        upsilon_2s_passed = all(t.passed for t in upsilon_2s_tests) if upsilon_2s_tests else False
-        
-        bottom_ratio_tests = [t for t in tier2b_tests if 'bottomonium_2s_1s' in t.name.lower() or 'bottom_ratio' in t.name.lower()]
-        bottom_ratio_passed = all(t.passed for t in bottom_ratio_tests) if bottom_ratio_tests else False
+        # Use PREDICTION accuracy, not test pass/fail
+        pion_passed = get_pred_status(['Pion_Mass', 'Tier2_Pion'])
+        jpsi_1s_passed = get_pred_status(['JPsi_1S_Mass', 'JPsi_Mass', 'Tier2_JPsi'])
+        psi_2s_passed = get_pred_status(['Psi_2S_Mass'])
+        charm_ratio_passed = get_pred_status(['Charm_2S_1S_Ratio'])
+        upsilon_1s_passed = get_pred_status(['Upsilon_1S_Mass'])
+        upsilon_2s_passed = get_pred_status(['Upsilon_2S_Mass'])
+        bottom_ratio_passed = get_pred_status(['Bottom_2S_1S_Ratio'])
         
         # Count passed requirements
         tier2_passed = sum([color_passed, color_passed, color_passed, binding_passed, 
@@ -1806,38 +1827,38 @@ class HTMLResultsViewer:
             <tr><th>#</th><th>Requirement</th><th>Status</th><th>Evidence</th></tr>
             <tr>
                 <td>1</td>
-                <td><strong>Pion (π⁺) mass ≈ 139.6 MeV</strong></td>
-                <td class="{'status-pass' if pion_passed else 'status-pending'}">{'✅ PASSING' if pion_passed else '⏳ PENDING'}</td>
+                <td><strong>Pion (π⁺) mass ≈ 139.6 MeV (±5%)</strong></td>
+                <td class="{'status-pass' if pion_passed else 'status-fail'}">{'✅ PASSING' if pion_passed else '❌ NOT MET'}</td>
                 <td>Light meson (ud̄)</td>
             </tr>
             <tr>
                 <td>2</td>
-                <td><strong>J/ψ(1S) mass ≈ 3097 MeV</strong></td>
-                <td class="{'status-pass' if jpsi_1s_passed else 'status-pending'}">{'✅ PASSING' if jpsi_1s_passed else '⏳ PENDING'}</td>
+                <td><strong>J/ψ(1S) mass ≈ 3097 MeV (±5%)</strong></td>
+                <td class="{'status-pass' if jpsi_1s_passed else 'status-fail'}">{'✅ PASSING' if jpsi_1s_passed else '❌ NOT MET'}</td>
                 <td>Charmonium ground state (cc̄)</td>
             </tr>
             <tr>
                 <td>3</td>
-                <td><strong>ψ(2S) mass ≈ 3686 MeV</strong></td>
-                <td class="{'status-pass' if psi_2s_passed else 'status-pending'}">{'✅ PASSING' if psi_2s_passed else '⏳ PENDING'}</td>
+                <td><strong>ψ(2S) mass ≈ 3686 MeV (±5%)</strong></td>
+                <td class="{'status-pass' if psi_2s_passed else 'status-fail'}">{'✅ PASSING' if psi_2s_passed else '❌ NOT MET'}</td>
                 <td>Charmonium first radial excitation</td>
             </tr>
             <tr>
                 <td>4</td>
                 <td>ψ(2S)/J/ψ ratio ≈ 1.19 (±5%)</td>
-                <td class="{'status-pass' if charm_ratio_passed else 'status-pending'}">{'✅ PASSING' if charm_ratio_passed else '⏳ PENDING'}</td>
+                <td class="{'status-pass' if charm_ratio_passed else 'status-fail'}">{'✅ PASSING' if charm_ratio_passed else '❌ NOT MET'}</td>
                 <td>Charmonium mass ratio</td>
             </tr>
             <tr>
                 <td>5</td>
-                <td><strong>Υ(1S) mass ≈ 9460 MeV</strong></td>
-                <td class="{'status-pass' if upsilon_1s_passed else 'status-pending'}">{'✅ PASSING' if upsilon_1s_passed else '⏳ PENDING'}</td>
+                <td><strong>Υ(1S) mass ≈ 9460 MeV (±5%)</strong></td>
+                <td class="{'status-pass' if upsilon_1s_passed else 'status-fail'}">{'✅ PASSING' if upsilon_1s_passed else '❌ NOT MET'}</td>
                 <td>Bottomonium ground state (bb̄)</td>
             </tr>
             <tr>
                 <td>6</td>
-                <td><strong>Υ(2S) mass ≈ 10023 MeV</strong></td>
-                <td class="{'status-pass' if upsilon_2s_passed else 'status-pending'}">{'✅ PASSING' if upsilon_2s_passed else '⏳ PENDING'}</td>
+                <td><strong>Υ(2S) mass ≈ 10023 MeV (±5%)</strong></td>
+                <td class="{'status-pass' if upsilon_2s_passed else 'status-fail'}">{'✅ PASSING' if upsilon_2s_passed else '❌ NOT MET'}</td>
                 <td>Bottomonium first radial excitation</td>
             </tr>
             <tr>
@@ -1897,21 +1918,49 @@ class HTMLResultsViewer:
         </div>
         ''')
         
-        # Tier 2b Meson success box
+        # Tier 2b Meson status box (dynamic based on actual predictions)
         if summary.tier2b_complete:
-            html_parts.append('''
-        <div class="success-finding">
-            <h4>✅ Tier 2b Mesons: VERIFIED</h4>
-            <p>The composite meson wavefunction with radial excitations successfully demonstrates:</p>
+            # Helper to get prediction by name
+            def get_pred_status(param_patterns):
+                """Get prediction within_target status by parameter name patterns."""
+                for p in reporter.predictions:
+                    for pattern in param_patterns:
+                        if pattern.lower() in p.parameter.lower():
+                            return p.within_target
+                return False  # No prediction found
+            
+            # Get actual prediction status using within_target
+            pion_passed = get_pred_status(['Pion_Mass', 'Tier2_Pion'])
+            jpsi_1s_passed = get_pred_status(['JPsi_1S_Mass', 'JPsi_Mass', 'Tier2_JPsi'])
+            psi_2s_passed = get_pred_status(['Psi_2S_Mass'])
+            charm_ratio_passed = get_pred_status(['Charm_2S_1S_Ratio'])
+            upsilon_1s_passed = get_pred_status(['Upsilon_1S_Mass'])
+            upsilon_2s_passed = get_pred_status(['Upsilon_2S_Mass'])
+            bottom_ratio_passed = get_pred_status(['Bottom_2S_1S_Ratio'])
+            
+            meson_predictions_met = sum([pion_passed, jpsi_1s_passed, psi_2s_passed, 
+                                        charm_ratio_passed, upsilon_1s_passed, 
+                                        upsilon_2s_passed, bottom_ratio_passed])
+            meson_box_class = 'success-finding' if meson_predictions_met >= 5 else 'warning-finding'
+            meson_title = '✅ Tier 2b Mesons: VERIFIED' if meson_predictions_met >= 5 else '⚠️ Tier 2b Mesons: NEEDS WORK'
+            
+            # Dynamic status for each prediction
+            pion_status = '✅' if pion_passed else '❌'
+            jpsi_status = '✅' if jpsi_1s_passed else '❌'
+            ratio_status = '✅' if charm_ratio_passed else '❌'
+            
+            html_parts.append(f'''
+        <div class="{meson_box_class}">
+            <h4>{meson_title}</h4>
+            <p>Meson predictions: {meson_predictions_met}/7 within 5% target</p>
             <ul>
-                <li>✅ <strong>Light mesons:</strong> Pion (π⁺) mass prediction within 5% of 139.6 MeV</li>
-                <li>✅ <strong>Charmonium:</strong> J/ψ(1S) and ψ(2S) masses with correct ordering</li>
-                <li>✅ <strong>Bottomonium:</strong> Υ(1S) and Υ(2S) masses with correct ordering</li>
-                <li>✅ <strong>Mass ratios:</strong> ψ(2S)/J/ψ ≈ 1.24 (4.4% error), Υ(2S)/Υ(1S) ≈ 1.07 (1.1% error)</li>
+                <li>{pion_status} <strong>Light mesons:</strong> Pion (π⁺) mass prediction {'within' if pion_passed else 'NOT within'} 5% of 139.6 MeV</li>
+                <li>{jpsi_status} <strong>Charmonium:</strong> J/ψ(1S) and ψ(2S) masses {'within' if jpsi_1s_passed else 'NOT within'} 5% target</li>
+                <li>{ratio_status} <strong>Mass ratios:</strong> Radial excitation ratios</li>
                 <li>✅ <strong>Physics-based scaling:</strong> Δx_n = Δx₀ × n^(2/3) from WKB analysis</li>
-                <li>✅ <strong>No empirical tuning:</strong> All exponents derived from linear confinement physics</li>
+                <li>✅ <strong>First-principles:</strong> m = β × A² with β = M_W</li>
             </ul>
-            <p><strong>Key insight:</strong> Radial excitations scale via WKB-derived formulas: size scaling (n^2/3) from ⟨r⟩ ∝ n^(2/3) and gradient enhancement g(n) = 1 + (n^(1/3) - 1)/n_gen² from ⟨T⟩ ∝ n^(2/3).</p>
+            <p><strong>Note:</strong> Predictions use first-principles physical mode. Large errors indicate theoretical work needed on energy functional.</p>
         </div>
         ''')
         

@@ -193,7 +193,7 @@ class TestTier2bCharmonium:
             predicted=m_jpsi_pred_mev,
             experimental=JPSI_MASS_MEV,
             unit="MeV",
-            target_accuracy=0.50,  # Physical mode predictions still being refined
+            target_accuracy=0.05,  # 5% target - first principles prediction
             notes="Charmonium ground state (1S) - first-principles prediction"
         )
         
@@ -217,7 +217,7 @@ class TestTier2bCharmonium:
             predicted=m_psi2s_pred_mev,
             experimental=PSI_2S_MASS_MEV,
             unit="MeV",
-            target_accuracy=0.50,  # Physical mode predictions still being refined
+            target_accuracy=0.05,  # 5% target - first principles prediction
             notes="Charmonium first radial excitation (2S) - first-principles prediction"
         )
         
@@ -329,7 +329,7 @@ class TestTier2bBottomonium:
             predicted=m_upsilon_pred_mev,
             experimental=UPSILON_1S_MASS_MEV,
             unit="MeV",
-            target_accuracy=0.50,  # Physical mode predictions still being refined
+            target_accuracy=0.05,  # 5% target - first principles prediction
             notes="Bottomonium ground state (1S) - first-principles prediction"
         )
         
@@ -350,7 +350,7 @@ class TestTier2bBottomonium:
             predicted=m_upsilon2s_pred_mev,
             experimental=UPSILON_2S_MASS_MEV,
             unit="MeV",
-            target_accuracy=0.10,
+            target_accuracy=0.05,  # 5% target - first principles prediction
             notes="Bottomonium first radial excitation (2S)"
         )
         

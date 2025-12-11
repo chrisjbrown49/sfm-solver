@@ -1409,7 +1409,7 @@ class TestTier1bPionMassSplitting:
             parameter="Tier1b_Pion_Mass_Splitting",
             predicted=delta_m_predicted_mev,
             experimental=self.PION_MASS_SPLITTING_MEV,
-            target_accuracy=0.50,  # 50% target initially
+            target_accuracy=0.05,  # 5% target - first principles prediction
             unit="MeV",
             notes="π⁺ - π⁰ mass difference from EM circulation energy"
         )

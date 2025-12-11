@@ -73,33 +73,30 @@ def potential():
 
 @pytest.fixture
 def baryon_solver(grid, potential):
-    """Standard composite baryon solver with coupling energy.
+    """Standard composite baryon solver in PHYSICAL MODE.
     
-    Note: Uses normalized mode with g1=0.1, g2=0.1 which the solver was calibrated with.
-    New code using physical mode will use SFM_CONSTANTS derived values.
+    Physical mode uses first-principles parameters from SFM_CONSTANTS.
     """
     return CompositeBaryonSolver(
-        grid, potential, 
-        g1=0.1,      # Calibrated nonlinear coupling
-        g2=0.1,      # Calibrated circulation coupling
-        alpha=2.0,   # Coupling that stabilizes amplitude
+        grid, potential,
         k=3,         # Winding number for quarks
-        use_physical=True,  # Use physical mode (first-principles)
+        use_physical=True,  # First-principles physical mode (required)
     )
 
 
 @pytest.fixture
 def meson_solver(grid, potential):
-    """Standard composite meson solver with destructive interference physics.
+    """Standard composite meson solver in PHYSICAL MODE.
     
-    Note: Uses normalized mode with g1=0.1, g2=0.1 which the solver was calibrated with.
+    Physical mode uses first-principles parameters:
+    - β = M_W (from W boson self-consistency)  
+    - Self-consistent Δx = 1/m (Compton wavelength)
+    - k^(5/6) coupling suppression (3-well geometry)
+    - α_EM derived from SFM geometry
     """
     return CompositeMesonSolver(
-        grid, potential, 
-        g1=0.1, 
-        g2=0.1, 
-        alpha=2.0,
-        use_physical=True,  # Use physical mode (first-principles)
+        grid, potential,
+        use_physical=True,  # First-principles physical mode (required)
     )
 
 
@@ -521,18 +518,22 @@ class TestTier2MesonMass:
     - Pion (π⁺): 139.6 MeV (ud̄)
     - J/ψ: 3096.9 MeV (cc̄) - charmonium
     
-    Uses CompositeMesonSolver with coupling energy E_coupling = -α|k|A,
-    matching the baryon solver approach.
+    Uses CompositeMesonSolver in PHYSICAL MODE with first-principles
+    mass formula: m = β × A²
     """
     
     @pytest.fixture
     def meson_solver(self, grid, potential):
-        """Create composite meson solver with destructive interference.
+        """Create composite meson solver in physical mode.
         
-        Note: Uses normalized mode with calibrated parameters.
+        Physical mode uses:
+        - β = M_W (from W boson self-consistency)
+        - Self-consistent Δx = 1/m (Compton wavelength)
+        - k^(5/6) coupling suppression (3-well geometry)
         """
         return CompositeMesonSolver(
-            grid, potential, g1=0.1, g2=0.1, alpha=2.0, use_physical=False
+            grid, potential,
+            use_physical=True  # First-principles physical mode
         )
     
     @pytest.fixture
@@ -545,36 +546,28 @@ class TestTier2MesonMass:
         """Solve for J/ψ (cc̄)."""
         return meson_solver.solve(meson_type='jpsi', max_iter=3000, dt=0.001, verbose=False)
     
-    @pytest.fixture
-    def baryon_calibration(self, grid, potential):
-        """Get baryon scale factor from proton for cross-calibration."""
-        solver = CompositeBaryonSolver(grid, potential, g1=0.1, g2=0.1, alpha=2.0, k=3)
-        state = solver.solve(max_iter=2000, dt=0.001, verbose=False)
-        scale_factor = PROTON_MASS_GEV / abs(state.energy_total)
-        return scale_factor, state
-    
     @pytest.mark.tier2
     @pytest.mark.meson
-    def test_pion_mass_prediction(self, pion_state, baryon_calibration, add_prediction):
-        """Pion mass prediction using baryon calibration."""
-        scale_factor, _ = baryon_calibration
+    def test_pion_mass_prediction(self, pion_state, add_prediction):
+        """Pion mass prediction using first-principles m = β × A²."""
+        from sfm_solver.core.sfm_global import SFM_CONSTANTS
         
-        # Pion mass from energy (using same calibration as baryons)
-        m_pion_pred_gev = scale_factor * abs(pion_state.energy_total)
+        # Physical mode: m = β × A² (first principles)
+        m_pion_pred_gev = SFM_CONSTANTS.beta_physical * pion_state.amplitude_squared
         m_pion_pred_mev = m_pion_pred_gev * 1000
         
-        # Record the prediction
+        # Record the prediction with strict 5% target
         add_prediction(
             parameter="Tier2_Pion_Mass",
             predicted=m_pion_pred_mev,
             experimental=PION_MASS_MEV,
             unit="MeV",
-            target_accuracy=0.50,  # Within 50% for meson sector
-            notes="Pion (ud̄) mass via energy calibration"
+            target_accuracy=0.05,  # 5% target - first principles prediction
+            notes="Pion (ud̄) mass via m = β × A²"
         )
         
-        # Pion should be lighter than proton (roughly 1/7)
-        assert m_pion_pred_mev < 1000, f"Pion should be light, got {m_pion_pred_mev:.1f} MeV"
+        # Pion should be in reasonable range
+        assert 50 < m_pion_pred_mev < 500, f"Pion mass should be ~140 MeV, got {m_pion_pred_mev:.1f} MeV"
     
     @pytest.mark.tier2
     @pytest.mark.meson
@@ -618,28 +611,27 @@ class TestTier2MesonMass:
     
     @pytest.mark.tier2
     @pytest.mark.meson
-    def test_jpsi_mass_prediction(self, jpsi_state, baryon_calibration, add_prediction):
-        """J/ψ mass prediction (charmonium cc̄) using baryon calibration."""
-        scale_factor, _ = baryon_calibration
+    def test_jpsi_mass_prediction(self, jpsi_state, add_prediction):
+        """J/ψ mass prediction (charmonium cc̄) using first-principles m = β × A²."""
+        from sfm_solver.core.sfm_global import SFM_CONSTANTS
         
-        # J/ψ mass from energy
-        m_jpsi_pred_gev = scale_factor * abs(jpsi_state.energy_total)
+        # Physical mode: m = β × A² (first principles)
+        m_jpsi_pred_gev = SFM_CONSTANTS.beta_physical * jpsi_state.amplitude_squared
         m_jpsi_pred_mev = m_jpsi_pred_gev * 1000
         
-        # Record the prediction
-        # Note: Without full 5D solver, heavy quarkonium prediction is incomplete
-        # The spatial mode number (n) for charm quarks would come from coupled solution
+        # Record the prediction with strict 5% target
         add_prediction(
             parameter="Tier2_JPsi_Mass",
             predicted=m_jpsi_pred_mev,
             experimental=JPSI_MASS_MEV,
             unit="MeV",
-            target_accuracy=1.0,  # Relaxed - needs full 5D solution
-            notes="J/ψ (cc̄) - requires coupled 5D solver for full prediction"
+            target_accuracy=0.05,  # 5% target - first principles prediction
+            notes="J/ψ (cc̄) mass via m = β × A²"
         )
         
-        # At minimum, J/ψ should have non-zero mass
-        assert m_jpsi_pred_mev > 0, f"J/ψ should have positive mass"
+        # J/ψ should have positive, finite mass
+        assert m_jpsi_pred_mev > 0, f"J/ψ mass should be positive, got {m_jpsi_pred_mev:.1f} MeV"
+        assert np.isfinite(m_jpsi_pred_mev), f"J/ψ mass should be finite"
 
 
 # =============================================================================
