@@ -72,13 +72,18 @@ class CompositeBaryonState:
     # Amplitude (NOT normalized to 1!)
     amplitude_squared: float  # A² = ∫|χ|² dσ - determines mass
     
-    # Energy components
+    # Energy components (UNIFIED four-term functional + Coulomb)
     energy_total: float
+    energy_subspace: float     # Kinetic + potential + nonlinear + circulation
+    energy_spatial: float      # Localization: ℏ²/(2βA²Δx²)
+    energy_coupling: float     # -α×k×A term that stabilizes amplitude
+    energy_curvature: float    # Enhanced 5D gravity: κ×(βA²)²/Δx
+    energy_coulomb: float      # Charge-dependent Coulomb energy
+    
+    # Legacy energy breakdown (for compatibility)
     energy_kinetic: float
     energy_potential: float
     energy_nonlinear: float
-    energy_coupling: float  # -α×k×A term that stabilizes amplitude
-    energy_coulomb: float   # Charge-dependent Coulomb energy
     
     # Color structure
     phases: Tuple[float, float, float]
@@ -126,6 +131,7 @@ class CompositeBaryonSolver:
         alpha: Optional[float] = None,  # Subspace-spacetime coupling (None = use mode default)
         beta: Optional[float] = None,   # Mass coupling (None = use mode default)
         kappa: Optional[float] = None,  # Enhanced gravity (None = use mode default)
+        delta_x: float = 1.0,         # Spatial localization scale (same as meson)
         k: int = 3,
         m_eff: float = 1.0,
         hbar: float = 1.0,
@@ -140,7 +146,8 @@ class CompositeBaryonSolver:
         
         1. PHYSICAL MODE (default, use_physical=True or None):
            Uses first-principles parameters from SFM theory.
-           - α (alpha) = SFM_CONSTANTS.alpha_coupling_for_winding(9) ≈ 169 GeV
+           - α (alpha) = SFM_CONSTANTS.alpha_coupling_base ≈ 18.8 GeV
+             (SAME as meson - winding appears ONLY in E_coupling = -α × k × A)
            - β (beta) = SFM_CONSTANTS.beta_physical = M_W ≈ 80.4 GeV
            - κ (kappa) = SFM_CONSTANTS.kappa_physical ≈ 0.012 GeV⁻¹
            - Amplitudes EMERGE from energy minimization
@@ -177,8 +184,10 @@ class CompositeBaryonSolver:
         # Set mode-dependent parameters
         if use_physical:
             # PHYSICAL MODE: Use first-principles values from SFM theory
-            # For baryons, k_total ~ 9 (sum of |k| for uud: |5|+|5|+|3|=13, or k_eff ~ 9)
-            self.alpha = alpha if alpha is not None else SFM_CONSTANTS.alpha_coupling_for_winding(9)
+            # UNIFIED APPROACH: Same α for ALL particles (baryon, meson, lepton)
+            # Winding k appears ONLY in E_coupling = -α × k × A
+            # This ensures A² ratios match mass ratios for universal m = β × A²
+            self.alpha = alpha if alpha is not None else SFM_CONSTANTS.alpha_coupling_base
             self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
             self.kappa = kappa if kappa is not None else SFM_CONSTANTS.kappa_physical
         else:
@@ -190,6 +199,7 @@ class CompositeBaryonSolver:
         self.k = k
         self.m_eff = m_eff
         self.hbar = hbar
+        self.delta_x = delta_x  # Spatial localization scale
         self.coulomb_strength = coulomb_strength  # EM coupling
         
         self.operators = SpectralOperators(grid, m_eff, hbar)
@@ -269,18 +279,21 @@ class CompositeBaryonSolver:
         
         return self.coulomb_strength * E_coulomb
     
-    def _compute_energy(self, chi: NDArray[np.complexfloating]) -> Tuple[float, float, float, float, float, float]:
+    def _compute_energy(self, chi: NDArray[np.complexfloating]) -> Tuple[float, float, float, float, float, float, float, float, float]:
         """
-        Compute total energy: E = E_kinetic + E_potential + E_nonlinear + E_coupling + E_coulomb
+        Compute total energy using UNIFIED four-term functional (same as meson).
         
-        CRITICAL: E_coupling scales as -A (linear in amplitude), which stabilizes
-        the system against collapse to zero amplitude.
+        E_total = E_subspace + E_spatial + E_coupling + E_curvature + E_coulomb
+        
+        This ensures consistent A² ratios with mesons for universal m = β × A².
         
         NO normalization constraints!
         """
         # Amplitude
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        A = np.sqrt(A_sq)
+        A = np.sqrt(max(A_sq, 1e-10))
+        
+        # === SUBSPACE ENERGY COMPONENTS ===
         
         # Kinetic: ∫(ℏ²/2m)|∇χ|² dσ
         T_chi = self.operators.apply_kinetic(chi)
@@ -292,22 +305,79 @@ class CompositeBaryonSolver:
         # Nonlinear: (g₁/2)∫|χ|⁴ dσ
         E_nl = (self.g1 / 2) * np.sum(np.abs(chi)**4) * self.grid.dsigma
         
-        # Circulation (EM-like): g₂|J|² where J = ∫χ*∂χ/∂σ dσ ≈ ik × A²
-        # For three quarks with k=3, J ≈ 3ik × A²
+        # Circulation (EM-like): g₂|J|² where J = ∫χ*∂χ/∂σ dσ
         dchi = self.grid.first_derivative(chi)
         J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
         E_circ = self.g2 * np.abs(J)**2
         
-        # Coupling energy: -α × k × A (NEGATIVE - provides stability!)
-        # For baryons, this represents the subspace-spacetime coupling
-        # that creates the bound state
-        E_coupling = -self.alpha * self.k * A
+        E_subspace = E_kin + E_pot + E_nl + E_circ
         
-        # Coulomb energy (charge-dependent)
+        # === QUARK WINDINGS FOR PROTON (uud) ===
+        # u quark: k = 5, d quark: k = 3
+        # For proton: k1=5 (u), k2=5 (u), k3=3 (d)
+        k1, k2, k3 = 5, 5, 3  # TODO: Make configurable per baryon type
+        
+        # === E_COUPLING: Sum of individual quark windings (ADDITIVE) ===
+        # Each quark independently couples spacetime gradients to subspace gradients
+        # E_coupling = -α × Σ|k_i| × A
+        k_coupling = abs(k1) + abs(k2) + abs(k3)  # For proton: 5+5+3 = 13
+        
+        # === Δx FROM COMPTON WAVELENGTH (first-principles QM) ===
+        # Reference: Implementation Note - The Beautiful Balance.html, Section 5
+        #
+        # Δx = λ_C = ℏ/(mc) = 1/m = 1/(βA²)  [natural units]
+        #
+        # This is the fundamental quantum mechanical scale for a particle.
+        # The Compton wavelength represents the minimum localization scale.
+        #
+        # NOTE: We do NOT use the virial formula Δx ~ 1/A⁶ which gives
+        # unphysical results (impossible mass/size tension).
+        #
+        # KEY INSIGHT: k-dependence emerges NATURALLY because:
+        # - E_coupling = -α × k_coupling × g_geom × A (k appears ONLY here)
+        # - Different k_coupling → different equilibrium A
+        # - Different A → different Δx = 1/(βA²)
+        #
+        # κ is a CALIBRATED fundamental parameter, NOT derived from Newton's G!
+        
+        # Mass from universal formula
+        m = self.beta * max(A_sq, 1e-10)
+        
+        # Compton wavelength as spatial extent
+        delta_x = self.hbar / m  # = 1/m in natural units (hbar=1)
+        
+        # === V_eff FOR BARYONS (geometry-dependent) ===
+        # Reference: Implementation Note, Section 5.2
+        # Baryons: V_eff = 0.85 × V₀ (three peaks average over full circle)
+        V_EFF_BARYON_FACTOR = 0.85
+        
+        # === GEOMETRIC FACTOR FOR BARYONS ===
+        # Reference: Implementation Note, Section 6.2
+        # Triangular color phase geometry enhances coupling by √3
+        GEOMETRIC_FACTOR_BARYON = np.sqrt(3)
+        
+        # === SPATIAL ENERGY (LOCALIZATION) ===
+        # E_spatial = ℏ² / (2βA²Δx²) - prevents collapse to A→0
+        # With Δx = 1/(βA²), this becomes E_spatial = (βA²)/2 = m/2
+        E_spatial = self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10) * delta_x**2)
+        
+        # === COUPLING ENERGY (uses SUM of windings + √3 geometric factor) ===
+        # E_coupling = -α × k_coupling × √3 × A
+        # Reference: Implementation Note, Section 6.2
+        # - k_coupling is the ONLY place where winding appears!
+        # - √3 comes from triangular color phase geometry (baryons only)
+        # - The Δx dependence on k emerges naturally through A
+        E_coupling = -self.alpha * k_coupling * GEOMETRIC_FACTOR_BARYON * A
+        
+        # === CURVATURE ENERGY (κ is calibrated fundamental parameter) ===
+        # E_curvature = κ × (βA²)² / Δx = κ × m² × m = κ × m³ = κ × β³ × A⁶
+        E_curvature = self.kappa * (self.beta * A_sq)**2 / delta_x
+        
+        # === COULOMB ENERGY (charge-dependent, baryon-specific) ===
         E_coulomb = self._compute_coulomb_energy(chi)
         
-        E_total = E_kin + E_pot + E_nl + E_circ + E_coupling + E_coulomb
-        return E_total, E_kin, E_pot, E_nl, E_coupling, E_coulomb
+        E_total = E_subspace + E_spatial + E_coupling + E_curvature + E_coulomb
+        return E_total, E_subspace, E_spatial, E_coupling, E_curvature, E_coulomb, E_kin, E_pot, E_nl
     
     def _compute_coulomb_gradient(self, chi: NDArray[np.complexfloating]) -> NDArray[np.complexfloating]:
         """
@@ -343,36 +413,54 @@ class CompositeBaryonSolver:
     
     def _compute_gradient(self, chi: NDArray[np.complexfloating]) -> NDArray[np.complexfloating]:
         """
-        Compute energy gradient: δE/δχ* 
+        Compute energy gradient: δE/δχ* using UNIFIED four-term functional.
         
-        Includes all terms:
-        - Kinetic: δE_kin/δχ* = T χ
-        - Potential: δE_pot/δχ* = V χ  
-        - Nonlinear: δE_nl/δχ* = g₁|χ|²χ
-        - Circulation: δE_circ/δχ* = g₂ × 2Re[J*∂/∂σ]χ (more complex)
-        - Coupling: δE_coup/δχ* = -α×k/(2A) × χ
-        - Coulomb: δE_coul/δχ* (charge-dependent)
+        Same structure as meson for consistent A² ratios.
         """
-        # Kinetic + Potential + Nonlinear (standard terms)
+        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        A = np.sqrt(max(A_sq, 1e-10))
+        
+        # === SUBSPACE GRADIENT ===
         T_chi = self.operators.apply_kinetic(chi)
         V_chi = self._V_grid * chi
         NL_chi = self.g1 * np.abs(chi)**2 * chi
         
-        # Circulation gradient (g₂|J|² where J = ∫χ*∂χ/∂σ)
-        # δ|J|²/δχ* = 2Re[J* × δJ/δχ*] = 2Re[J* × ∂χ/∂σ]
+        # Circulation gradient
         dchi = self.grid.first_derivative(chi)
         J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
         circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
         
-        # Coupling gradient: δ(-α×k×A)/δχ* = -α×k/(2A) × χ
-        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        A = np.sqrt(max(A_sq, 1e-10))
-        coupling_grad = -self.alpha * self.k / (2 * A) * chi
+        grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # Coulomb gradient
-        coulomb_grad = self._compute_coulomb_gradient(chi)
+        # === QUARK WINDINGS (same as energy) ===
+        k1, k2, k3 = 5, 5, 3  # For proton (uud)
+        k_coupling = abs(k1) + abs(k2) + abs(k3)  # 13
         
-        return T_chi + V_chi + NL_chi + circ_grad + coupling_grad + coulomb_grad
+        # === Δx FROM COMPTON WAVELENGTH (same as energy) ===
+        # Δx = 1/m = 1/(βA²) in natural units
+        m = self.beta * max(A_sq, 1e-10)
+        delta_x = self.hbar / m  # = 1/m in natural units (hbar=1)
+        
+        # Geometric factor for baryons (√3 from triangular color phase)
+        GEOMETRIC_FACTOR_BARYON = np.sqrt(3)
+        
+        # === SPATIAL GRADIENT ===
+        # E_spatial = ℏ²/(2βA²Δx²), grad = -ℏ²/(βA⁴Δx²) × χ
+        grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x**2) * chi
+        
+        # === COUPLING GRADIENT (uses k_coupling × √3 for baryons) ===
+        # E_coupling = -α × k_coupling × √3 × A
+        # grad = -α × k_coupling × √3 / (2A) × χ
+        grad_coupling = -self.alpha * k_coupling * GEOMETRIC_FACTOR_BARYON / (2 * A + 1e-10) * chi
+        
+        # === CURVATURE GRADIENT (κ is calibrated parameter) ===
+        # E_curvature = κ(βA²)² / Δx, grad = 4κβ²A² / Δx × χ
+        grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x * chi
+        
+        # === COULOMB GRADIENT (baryon-specific) ===
+        grad_coulomb = self._compute_coulomb_gradient(chi)
+        
+        return grad_subspace + grad_spatial + grad_coupling + grad_curvature + grad_coulomb
     
     def _extract_color_phases(self, chi: NDArray[np.complexfloating]) -> Tuple[Tuple[float, ...], Tuple[float, ...], float]:
         """Extract phases at well positions."""
@@ -436,7 +524,7 @@ class CompositeBaryonSolver:
             print(f"Initial: A²={A2:.4f}, color_sum={color_mag:.4f}")
             print(f"  phases: {[f'{p:.3f}' for p in phases]}")
         
-        E_old, _, _, _, _, _ = self._compute_energy(chi)
+        E_old, *_ = self._compute_energy(chi)
         converged = False
         residual = float('inf')
         
@@ -445,8 +533,10 @@ class CompositeBaryonSolver:
             gradient = self._compute_gradient(chi)
             chi_new = chi - dt * gradient
             
-            # Compute new energy
-            E_new, E_kin, E_pot, E_nl, E_coup, E_coul = self._compute_energy(chi_new)
+            # Compute new energy (extract only what we need for the loop)
+            energy_tuple = self._compute_energy(chi_new)
+            E_new = energy_tuple[0]  # E_total
+            E_coul = energy_tuple[5]  # E_coulomb (for verbose output)
             
             # Check for energy increase (reduce step size if needed)
             if E_new > E_old:
@@ -476,7 +566,8 @@ class CompositeBaryonSolver:
                 break
         
         # Final results
-        E_total, E_kin, E_pot, E_nl, E_coup, E_coul = self._compute_energy(chi)
+        (E_total, E_subspace, E_spatial, E_coupling, E_curvature, E_coulomb, 
+         E_kin, E_pot, E_nl) = self._compute_energy(chi)
         A2 = np.sum(np.abs(chi)**2) * self.grid.dsigma
         phases, diffs, color_mag = self._extract_color_phases(chi)
         
@@ -485,11 +576,14 @@ class CompositeBaryonSolver:
             quark_types=tuple(quark_types),
             amplitude_squared=A2,
             energy_total=E_total,
+            energy_subspace=E_subspace,
+            energy_spatial=E_spatial,
+            energy_coupling=E_coupling,
+            energy_curvature=E_curvature,
+            energy_coulomb=E_coulomb,
             energy_kinetic=E_kin,
             energy_potential=E_pot,
             energy_nonlinear=E_nl,
-            energy_coupling=E_coup,
-            energy_coulomb=E_coul,
             phases=phases,
             phase_differences=diffs,
             color_sum_magnitude=color_mag,

@@ -144,7 +144,7 @@ class CompositeMesonState:
     energy_subspace: float     # Kinetic + potential + nonlinear + circulation
     energy_spatial: float      # Localization: ℏ²/(2βA²Δx²)
     energy_coupling: float     # Stabilizing: -α×n_gen^p_eff×k_eff×A
-    energy_curvature: float    # Enhanced 5D gravity: G_eff×(βA²)²/Δx
+    energy_curvature: float    # Curvature energy: κ×(βA²)²/Δx (κ calibrated)
     
     # Winding structure
     k_quark: int
@@ -179,7 +179,7 @@ class CompositeMesonSolver:
         E_total = E_subspace + E_spatial + E_coupling + E_curvature
     
     ALL PARAMETERS DERIVED FROM SFM PHYSICS:
-    1. κ = G_eff (enhanced 5D gravity at subspace scale)
+    1. κ = calibrated fundamental parameter (NOT derived from G!)
     2. gen_power = a_lepton × I_overlap (interference dilution)
     3. Radial enhancement g(n_rad) with λ_r (extension for radial excitations)
     
@@ -612,8 +612,37 @@ class CompositeMesonSolver:
         p_eff = 1.0  # Simplified
         g_rad = self._compute_radial_enhancement(n_rad, generation)
         
-        # === Δx SCALING ===
-        delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
+        # === Δx FROM COMPTON WAVELENGTH (first-principles QM) ===
+        # Reference: Implementation Note - The Beautiful Balance.html, Section 5
+        #
+        # Δx = λ_C = ℏ/(mc) = 1/m = 1/(βA²)  [natural units]
+        #
+        # This is the fundamental quantum mechanical scale for a particle.
+        # The Compton wavelength represents the minimum localization scale.
+        #
+        # NOTE: We do NOT use the virial formula Δx ~ 1/A⁶ which gives
+        # unphysical results (impossible mass/size tension).
+        #
+        # κ is a CALIBRATED fundamental parameter, NOT derived from Newton's G!
+        
+        # Mass from universal formula
+        m = self.beta * max(A_sq, 1e-10)
+        
+        # Compton wavelength as spatial extent
+        delta_x_base = self.hbar / m  # = 1/m in natural units
+        
+        # Apply radial scaling for excited states (n_rad^(2/3) from WKB)
+        delta_x_scaled = delta_x_base * (n_rad ** self.DELTA_X_EXPONENT)
+        
+        # === V_eff FOR MESONS (geometry-dependent) ===
+        # Reference: Implementation Note, Section 5.2
+        # Mesons: V_eff = 1.15 × V₀ (two peaks sample barrier region)
+        V_EFF_MESON_FACTOR = 1.15
+        
+        # === GEOMETRIC FACTOR FOR MESONS ===
+        # Reference: Implementation Note, Section 6.3
+        # Mesons have linear configuration, no geometric enhancement
+        GEOMETRIC_FACTOR_MESON = 1.0
         
         # === SUBSPACE ENERGY COMPONENTS ===
         
@@ -686,8 +715,11 @@ class CompositeMesonSolver:
         # === k_eff from actual wavefunction (EMERGENT!) ===
         k_eff = self._compute_k_eff_from_wavefunction(chi)
         
-        # === Δx scaling ===
-        delta_x_scaled = self.delta_x * (n_rad ** self.DELTA_X_EXPONENT)
+        # === Δx FROM COMPTON WAVELENGTH (same as energy) ===
+        # Δx = 1/m = 1/(βA²) in natural units
+        m = self.beta * max(A_sq, 1e-10)
+        delta_x_base = self.hbar / m  # = 1/m in natural units
+        delta_x_scaled = delta_x_base * (n_rad ** self.DELTA_X_EXPONENT)
         
         # === SUBSPACE GRADIENT ===
         T_chi = self.operators.apply_kinetic(chi)
@@ -730,7 +762,7 @@ class CompositeMesonSolver:
         
         ALL PARAMETERS DERIVED FROM SFM PHYSICS (Tier 2b Optimization):
         
-        1. κ = G_eff (enhanced 5D gravity at L₀)
+        1. κ = calibrated fundamental parameter (NOT from Newton's G!)
         2. gen_power = a_lepton × I_overlap (interference dilution)
         3. g(n_rad) = 1 + λ_r × (n_rad - 1)^(2/3) (radial enhancement)
         
@@ -764,7 +796,7 @@ class CompositeMesonSolver:
             print(f"  Radial enhancement g(n_rad): {g_rad:.4f}")
             print(f"  Spatial extent Dx_n = Dx_0 x n_rad = {delta_x_scaled:.4f}")
             print(f"  Parameters: alpha={self.alpha}, beta={self.beta}, kappa={self.kappa}")
-            print(f"  kappa = G_eff (derived from enhanced 5D gravity)")
+            print(f"  kappa = {self.kappa:.6f} (calibrated fundamental parameter)")
             print(f"  p_eff derived from interference (a_lepton x I_overlap)")
             print("=" * 60)
         
@@ -828,7 +860,7 @@ class CompositeMesonSolver:
             print(f"  E_subspace = {E_subspace:.6f}")
             print(f"  E_spatial = {E_spatial:.6f}")
             print(f"  E_coupling = {E_coupling:.6f}")
-            print(f"  E_curvature = {E_curvature:.6f} (G_eff = kappa)")
+            print(f"  E_curvature = {E_curvature:.6f} (κ = calibrated parameter)")
             print(f"  Converged: {converged} ({iteration+1} iterations)")
             print("=" * 60)
         
