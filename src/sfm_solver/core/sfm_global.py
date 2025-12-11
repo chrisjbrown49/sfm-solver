@@ -118,6 +118,7 @@ class SFMGlobalConstants:
     - Mass RATIOS are predicted correctly
     
     DEFAULT: use_physical=True (first-principles mode)
+    IMPORTANT: use_physical=False is deprecated and will be removed in future.
     
     Thread-safety: This class is designed to be used as a singleton.
     """

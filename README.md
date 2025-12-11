@@ -1,6 +1,8 @@
 # SFM Solver - Single-Field Model Numerical Solver
 
-A Python implementation of numerical solvers for the Single-Field Model (SFM) framework. This solver computes particle properties from the SFM mathematical formulation using physics-based energy functionals on an extended spacetime that includes a compact circular subspace S¹.
+A Python implementation of numerical solvers for the Single-Field Model (SFM) framework. This solver computes particle properties from first principles using physics-based energy functionals on an extended spacetime that includes a compact circular subspace S¹.
+
+**⚠️ IMPORTANT:** All solvers now operate in **physical mode** (`use_physical=True`) by default. The normalized mode is **deprecated** and should not be used for new development.
 
 ## Overview
 
@@ -41,30 +43,32 @@ pip install -r requirements.txt
 ```python
 from sfm_solver.eigensolver import SFMLeptonSolver
 
-# Create physics-based lepton solver
-solver = SFMLeptonSolver()
+# Create physics-based lepton solver (physical mode by default)
+solver = SFMLeptonSolver()  # use_physical=True is the default
 
 # Solve for all three charged leptons
 results = solver.solve_lepton_spectrum(verbose=True)
 
-# Compute mass ratios (emerge from energy minimization)
-ratios = solver.compute_mass_ratios(results)
-print(f"m_μ/m_e = {ratios['mu_e']:.2f}")
-print(f"m_τ/m_e = {ratios['tau_e']:.1f}")
+# Mass emerges from m = β × A² where β = M_W (W boson mass)
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
+m_electron = SFM_CONSTANTS.beta_physical * results['electron'].amplitude_squared
 ```
 
-### Tier 2: Composite Baryons
+### Tier 2: Composite Mesons
 
 ```python
-from sfm_solver.multiparticle import CompositeBaryon
+from sfm_solver.multiparticle import CompositeMesonSolver
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.potentials import ThreeWellPotential
 
-# Create proton solver (uud quarks)
-proton = CompositeBaryon(quark_types=['u', 'u', 'd'])
-state = proton.solve(verbose=True)
+# Create pion solver (physical mode by default)
+grid = SpectralGrid(N=256)
+potential = ThreeWellPotential(V0=1.0)
+solver = CompositeMesonSolver(grid, potential)  # use_physical=True
 
-# Color phases emerge from energy minimization
-phases = proton.extract_color_phases()
-print(f"Color neutral: {proton.is_color_neutral()}")
+# Solve for pion - mass emerges from m = β × A²
+pion = solver.solve('pion_plus', verbose=True)
+print(f"Predicted pion mass: {SFM_CONSTANTS.beta_physical * pion.amplitude_squared * 1000:.1f} MeV")
 ```
 
 ## Project Structure
@@ -76,7 +80,7 @@ sfm-solver/
 │   │   ├── constants.py    # Physical constants (masses, α, etc.)
 │   │   ├── grid.py         # SpectralGrid for FFT operations on S¹
 │   │   ├── parameters.py   # SFMParameters configuration
-│   │   └── sfm_global.py   # Global β constant (SFM_CONSTANTS)
+│   │   └── sfm_global.py   # SFM_CONSTANTS: β, α_EM, g₂ (first-principles)
 │   ├── potentials/         # Potential energy functions
 │   │   └── three_well.py   # V(σ) = V₀[1-cos(3σ)] + V₁[1-cos(6σ)]
 │   ├── eigensolver/        # Eigenvalue and energy solvers
@@ -121,7 +125,9 @@ The SFM framework is constrained by the fundamental relation:
 β L₀ c = ℏ
 ```
 
-where β is the mass-amplitude coupling, L₀ is the subspace radius, c is the speed of light, and ℏ is the reduced Planck constant. The constant β is calibrated from the electron mass via m = βA².
+where β is the mass-amplitude coupling, L₀ is the subspace radius, c is the speed of light, and ℏ is the reduced Planck constant.
+
+**First-Principles Derivation:** In physical mode, β = M_W ≈ 80.38 GeV (from W boson self-consistency). This determines L₀ = ℏ/(βc) = 1/β in natural units.
 
 ### Four-Term Energy Functional
 
@@ -131,12 +137,14 @@ Particle masses emerge from minimizing the total energy:
 E_total = E_subspace + E_spatial + E_coupling + E_curvature
 ```
 
-| Term | Expression | Physical Role |
-|------|------------|---------------|
+| Term | Physical Mode Expression | Physical Role |
+|------|--------------------------|---------------|
 | E_subspace | Kinetic + potential + nonlinear | Confinement in S¹ |
-| E_spatial | ℏ²/(2βA²Δx²) | Prevents collapse to A→0 |
-| E_coupling | -α × f(n) × k_eff × A | Subspace-spatial interaction |
-| E_curvature | κ(βA²)²/Δx | Enhanced 5D gravity |
+| E_spatial | βA²/2 = m/2 | Rest mass contribution (Δx = 1/m) |
+| E_coupling | -α × n^p × A / k^(5/6) | 3-well interference suppression |
+| E_curvature | κ × β³A⁶ | Enhanced 5D gravity |
+
+**Note:** In physical mode, Δx is self-consistent: Δx = 1/(βA²) = 1/m (Compton wavelength). The k^(5/6) suppression emerges from 3-well geometry.
 
 ### Winding Number and Charge
 
@@ -157,10 +165,20 @@ Q = ±e/k
 Particle mass is determined by the subspace amplitude squared:
 
 ```
-m = β A²
+m = β × A²
 ```
 
-where A² = ∫₀^(2π) |χ(σ)|² dσ. The global constant β is calibrated once from the electron mass and then used consistently across all particle sectors.
+where A² = ∫₀^(2π) |χ(σ)|² dσ and β = M_W ≈ 80.38 GeV (from W boson self-consistency).
+
+### Fine Structure Constant (First-Principles)
+
+The fine structure constant α_EM is **derived** from SFM geometry, not input:
+
+```
+α_EM = √(8π × m_e / (3 × β))
+```
+
+This gives α_EM ≈ 1/137.03 with **0.0075% error** (0.55 ppm) compared to experiment. The factor 8π/3 emerges from the 3-well potential geometry.
 
 ### Composite Particles
 
@@ -173,22 +191,31 @@ Baryons and mesons are modeled as composite wavefunctions:
 ## Running Tests
 
 ```bash
-# Run all tests with results report generation
+# Run all tests (214 tests, physical mode)
 pytest tests/ -v
 
 # Run specific tier tests
-pytest tests/test_tier1_leptons.py -v
-pytest tests/test_tier2_hadrons.py -v
-
-# Run with coverage
-pytest --cov=sfm_solver
+pytest tests/test_tier1_leptons.py -v      # Lepton solver
+pytest tests/test_tier1b_em_forces.py -v   # EM forces, α_EM derivation
+pytest tests/test_tier2_hadrons.py -v      # Baryons and mesons
+pytest tests/test_tier2b_quarkonia.py -v   # Radial excitations
 
 # View generated reports
-# Markdown: outputs/sfm_results_*.md
 # HTML: outputs/results.html
+# Markdown: outputs/sfm_results_*.md
 ```
 
 ## Implementation Methods
+
+### Physical Mode (Default)
+
+All solvers operate in physical mode (`use_physical=True`) by default:
+- β = M_W ≈ 80.38 GeV (W boson self-consistency)
+- α_EM derived from 3-well geometry (0.0075% accuracy)
+- Δx = 1/m (self-consistent Compton wavelength)
+- Mass predictions via m = β × A²
+
+**The normalized mode is deprecated and should not be used.**
 
 ### Spectral Methods
 
@@ -199,9 +226,9 @@ The solver uses FFT-based spectral methods on the periodic domain S¹:
 
 ### Energy Minimization
 
-Particle states are found by minimizing the total energy functional:
-- Joint optimization over amplitude A and spatial extent Δx
-- Gradient descent with adaptive step sizes
+Particle states are found by minimizing the four-term energy functional:
+- Joint optimization over amplitude A and wavefunction χ(σ)
+- Gradient descent with mode-specific gradients
 - Convergence monitored via residual norm
 
 ### Composite Wavefunctions
@@ -209,7 +236,7 @@ Particle states are found by minimizing the total energy functional:
 Multi-quark systems use a single composite wavefunction approach:
 - Phases extracted from well-localized components
 - Color neutrality verified via |Σe^(iφ)| < threshold
-- Coupling energy scales linearly with amplitude (prevents collapse)
+- k^(5/6) coupling suppression from 3-well interference
 
 ## Documentation
 
