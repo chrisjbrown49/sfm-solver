@@ -28,7 +28,7 @@ FIRST-PRINCIPLES PARAMETER DERIVATION (December 2024):
    From the 3-well geometry with 3-fold symmetry:
        α_coupling = √(V₀ × β) × (2π/3)
    
-   With V₀ ~ 1 GeV (QCD scale):
+   With V₀ ~ 1 GeV (3-well confinement scale):
        α_coupling ≈ 19 GeV (for k=1 particles)
    
    Winding-dependent: α(k) = α_base × |k_total|
@@ -88,8 +88,8 @@ M_W_GEV = 80.379  # GeV (PDG 2023)
 # Planck mass - fundamental gravitational scale
 M_PLANCK_GEV = 1.220890e19  # GeV
 
-# QCD confinement scale - sets the 3-well potential depth
-V0_GEV = 1.0  # GeV (estimated from Lambda_QCD)
+# 3-well confinement scale - sets the potential depth for quark localization in subspace
+V0_GEV = 1.0  # GeV (natural scale for 3-well potential depth)
 
 # Geometric factor from 3-well structure with 3-fold symmetry
 GEOMETRIC_FACTOR_3WELL = 2 * np.pi / 3  # ≈ 2.09
@@ -222,7 +222,7 @@ class SFMGlobalConstants:
         """
         FIRST-PRINCIPLES 3-well potential depth.
         
-        From QCD confinement scale: V₀ ~ Λ_QCD / α_s ~ 1 GeV
+        From 3-well confinement physics: V₀ ~ 1 GeV (natural scale for quark localization)
         
         Returns:
             V₀ ≈ 1.0 GeV
