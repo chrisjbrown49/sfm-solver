@@ -409,16 +409,21 @@ class TestCrossTierConsistency:
         assert hasattr(lepton_solver, 'kappa')
         assert hasattr(meson_solver, 'kappa')
     
-    def test_wkb_exponents_shared(self, grid, potential):
-        """Test that WKB exponents are consistent with meson solver."""
+    def test_spatial_scaling_exponents_shared(self, grid, potential):
+        """Test that spatial scaling exponents are consistent with meson solver."""
         from sfm_solver.multiparticle.composite_meson import CompositeMesonSolver
         
         lepton_solver = SFMLeptonSolver(grid=grid, potential=potential, g1=0.1, g2=0.1)
         meson_solver = CompositeMesonSolver(grid, potential, g1=0.1, g2=0.1)
         
-        # Both should use same WKB-derived exponents
+        # Both should use same Δx scaling exponent (2/3 from quantum mechanics)
         assert np.isclose(lepton_solver.DELTA_X_EXPONENT, meson_solver.DELTA_X_EXPONENT)
-        assert np.isclose(lepton_solver.RADIAL_EXPONENT, meson_solver.RADIAL_EXPONENT)
+        
+        # Meson solver has radial enhancement constants for quarkonia
+        assert hasattr(meson_solver, 'C_RAD')
+        assert hasattr(meson_solver, 'GENERATION_DILUTION')
+        assert meson_solver.C_RAD > 0  # Positive enhancement coefficient
+        assert meson_solver.GENERATION_DILUTION == 3.0  # n_gen³ dilution from SFM
 
 
 class TestConvenienceFunctions:
