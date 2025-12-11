@@ -649,7 +649,8 @@ class HTMLResultsViewer:
         
         other_preds = [p for p in reporter.predictions 
                        if p not in lepton_preds and p not in charge_preds_filtered 
-                       and p not in baryon_preds and p not in meson_preds]
+                       and p not in baryon_preds and p not in meson_preds
+                       and 'fine_structure_inverse' not in p.parameter.lower()]
         
         # 1. Lepton Predictions - from test analysis
         html_parts.append(self._generate_lepton_predictions(reporter))
@@ -715,18 +716,40 @@ class HTMLResultsViewer:
                     name = name[7:]
                 # Rename specific predictions
                 if name == 'Fine_Structure_Constant':
-                    return 'Fine Structure Constant'
-                elif name == 'Fine_Structure_Inverse':
-                    return 'Fine Structure Inverse'
+                    return 'Fine Structure Constant (α_EM)'
                 elif name == 'Pion_Mass_Splitting':
                     return 'Pion Mass Splitting'
                 elif name == 'Pion_EM_Energy_Ratio':
                     return 'Pion EM Energy Ratio'
                 return name
             
-            met = sum(1 for p in other_preds if p.within_target)
+            # Check if this is a Fine Structure prediction (needs special handling)
+            def is_fine_structure(p) -> bool:
+                return 'fine_structure' in p.parameter.lower()
+            
+            # Get note for prediction (special note for Fine Structure)
+            def get_note(p) -> str:
+                if is_fine_structure(p):
+                    return '⚠️ Currently using experimental value. Needs to be derived from SFM field equations.'
+                return p.notes if p.notes else ''
+            
+            # Get status for prediction (X for Fine Structure until resolved)
+            def get_status_class(p) -> str:
+                if is_fine_structure(p):
+                    return 'status-fail'
+                return 'status-pass' if p.within_target else 'status-fail'
+            
+            def get_status_icon(p) -> str:
+                if is_fine_structure(p):
+                    return '❌'
+                return '✅' if p.within_target else '❌'
+            
+            # Count met predictions (excluding Fine Structure which is not yet a true prediction)
+            met = sum(1 for p in other_preds if p.within_target and not is_fine_structure(p))
+            total_real = sum(1 for p in other_preds if not is_fine_structure(p))
+            
             html_parts.append(f'''
-        <h3>Other Predictions <span class="{'status-pass' if met == len(other_preds) else 'status-partial'}">({met}/{len(other_preds)})</span></h3>
+        <h3>Other Predictions <span class="{'status-pass' if met == total_real else 'status-partial'}">({met}/{total_real})</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th><th>Notes</th></tr>
             {''.join(f"""
@@ -735,8 +758,8 @@ class HTMLResultsViewer:
                 <td>{p.predicted:.4g}</td>
                 <td>{p.experimental:.4g}</td>
                 <td>{p.percent_error:.1f}%</td>
-                <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
-                <td style="font-size: 0.85em; color: var(--text-secondary);">{p.notes if p.notes else ''}</td>
+                <td class="{get_status_class(p)}">{get_status_icon(p)}</td>
+                <td style="font-size: 0.85em; color: var(--text-secondary);">{get_note(p)}</td>
             </tr>""" for p in other_preds)}
         </table>''')
         
@@ -1243,13 +1266,6 @@ class HTMLResultsViewer:
                 <td>J·s</td>
                 <td><strong>Fundamental</strong> (experimental, SI definition)</td>
             </tr>
-            <tr>
-                <td>Fine structure constant</td>
-                <td>α_EM</td>
-                <td>{SFM_CONSTANTS.alpha_em:.8f}</td>
-                <td>-</td>
-                <td><strong>Fundamental</strong> (experimental, CODATA)</td>
-            </tr>
             '''
         
         if summary.use_physical_mode:
@@ -1263,18 +1279,18 @@ class HTMLResultsViewer:
                 <td><strong>Fundamental</strong> (calibrated, β = M_W from W boson self-consistency)</td>
             </tr>
             <tr>
-                <td>Potential depth</td>
-                <td>V₀</td>
-                <td>{SFM_CONSTANTS.V0_physical:.2f}</td>
-                <td>GeV</td>
-                <td><strong>Fundamental</strong> (calibrated, QCD confinement scale)</td>
-            </tr>
-            <tr>
                 <td>Subspace radius</td>
                 <td>L₀</td>
                 <td>{SFM_CONSTANTS.L0_physical_gev_inv:.6f}</td>
                 <td>GeV⁻¹</td>
-                <td><strong>Derived</strong> from β via Beautiful Equation: L₀ = ℏ/(βc) = 1/β</td>
+                <td><strong>Fundamental</strong> (constrained by Beautiful Equation: L₀ = ℏ/(βc) = 1/β)</td>
+            </tr>
+            <tr>
+                <td>Potential depth</td>
+                <td>V₀</td>
+                <td>{SFM_CONSTANTS.V0_physical:.2f}</td>
+                <td>GeV</td>
+                <td><strong>Fundamental</strong> (calibrated, 3-well confinement scale)</td>
             </tr>
             <tr>
                 <td>Curvature coupling</td>

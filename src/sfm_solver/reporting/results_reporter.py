@@ -356,13 +356,12 @@ class ResultsReporter:
         # Universal constants (always shown first)
         lines.append(f"| Speed of light | c | {C:.0f} | m/s | **Fundamental** (experimental, SI definition) |")
         lines.append(f"| Reduced Planck constant | ℏ | {HBAR:.6e} | J·s | **Fundamental** (experimental, SI definition) |")
-        lines.append(f"| Fine structure constant | α_EM | {SFM_CONSTANTS.alpha_em:.8f} | - | **Fundamental** (experimental, CODATA) |")
         
         if summary.use_physical_mode:
             # Physical mode - use actual values from SFM_CONSTANTS
             lines.append(f"| Mass coupling | β | {SFM_CONSTANTS.beta_physical:.4f} | GeV | **Fundamental** (calibrated, β = M_W from W boson self-consistency) |")
-            lines.append(f"| Potential depth | V₀ | {SFM_CONSTANTS.V0_physical:.2f} | GeV | **Fundamental** (calibrated, QCD confinement scale) |")
-            lines.append(f"| Subspace radius | L₀ | {SFM_CONSTANTS.L0_physical_gev_inv:.6f} | GeV⁻¹ | **Derived** from β via Beautiful Equation: L₀ = ℏ/(βc) = 1/β |")
+            lines.append(f"| Subspace radius | L₀ | {SFM_CONSTANTS.L0_physical_gev_inv:.6f} | GeV⁻¹ | **Fundamental** (constrained by Beautiful Equation: L₀ = ℏ/(βc) = 1/β) |")
+            lines.append(f"| Potential depth | V₀ | {SFM_CONSTANTS.V0_physical:.2f} | GeV | **Fundamental** (calibrated, 3-well confinement scale) |")
             lines.append(f"| Curvature coupling | κ | {SFM_CONSTANTS.kappa_physical:.6f} | GeV⁻¹ | **Derived** from L₀ via enhanced 5D gravity: κ = G_eff/L₀ |")
             lines.append(f"| Base coupling | α_base | {SFM_CONSTANTS.alpha_coupling_base:.4f} | GeV | **Derived** from β, V₀ via 3-well geometry: α = √(V₀β)×2π/3 |")
             lines.append(f"| Nonlinear coupling | g₁ | {SFM_CONSTANTS.g1:.6f} | - | **Derived** from α_EM: g₁ = α_EM |")
@@ -481,10 +480,11 @@ class ResultsReporter:
             charge_preds = [p for p in self.predictions 
                            if ('q' in p.parameter.lower() or 'charge' in p.parameter.lower())
                            and p not in quarkonia_preds]
-            # Other predictions
+            # Other predictions (excluding Fine Structure Inverse which is redundant)
             other_preds = [p for p in self.predictions 
                           if p not in lepton_mass_preds and p not in lepton_ratio_preds 
-                          and p not in charge_preds and p not in quarkonia_preds]
+                          and p not in charge_preds and p not in quarkonia_preds
+                          and 'fine_structure_inverse' not in p.parameter.lower()]
             
             # Combined Lepton Predictions table (masses + ratios)
             if lepton_mass_preds or lepton_ratio_preds:
@@ -570,24 +570,39 @@ class ResultsReporter:
                         name = name[7:]
                     # Rename specific predictions
                     if name == 'Fine_Structure_Constant':
-                        return 'Fine Structure Constant'
-                    elif name == 'Fine_Structure_Inverse':
-                        return 'Fine Structure Inverse'
+                        return 'Fine Structure Constant (α_EM)'
                     elif name == 'Pion_Mass_Splitting':
                         return 'Pion Mass Splitting'
                     elif name == 'Pion_EM_Energy_Ratio':
                         return 'Pion EM Energy Ratio'
                     return name
                 
+                # Check if this is a Fine Structure prediction (needs special handling)
+                def is_fine_structure(p) -> bool:
+                    return 'fine_structure' in p.parameter.lower()
+                
+                # Get note for prediction (special note for Fine Structure)
+                def get_note(p) -> str:
+                    if is_fine_structure(p):
+                        return '⚠️ Currently using experimental value. Needs derivation from SFM.'
+                    return p.notes if p.notes else ''
+                
+                # Get status for prediction (X for Fine Structure until resolved)
+                def get_status(p) -> str:
+                    if is_fine_structure(p):
+                        return '❌'
+                    return '✅' if p.within_target else '❌'
+                
                 lines.append("#### Other Predictions")
                 lines.append("")
                 lines.append("| Parameter | Predicted | Experimental | Error (%) | Status | Notes |")
                 lines.append("|-----------|-----------|--------------|-----------|--------|-------|")
                 for pred in other_preds:
-                    status = "✅" if pred.within_target else "❌"
+                    status = get_status(pred)
                     param_name = clean_other_name(pred.parameter)
+                    note = get_note(pred)
                     lines.append(f"| {param_name} | {pred.predicted:.6g} | "
-                               f"{pred.experimental:.6g} | {pred.percent_error:.1f}% | {status} | {pred.notes} |")
+                               f"{pred.experimental:.6g} | {pred.percent_error:.1f}% | {status} | {note} |")
                 lines.append("")
         else:
             lines.append("*No predictions were recorded during this test run.*")
