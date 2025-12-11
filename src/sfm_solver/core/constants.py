@@ -7,7 +7,7 @@ All values from CODATA 2018/SI 2019 definitions where applicable.
 import numpy as np
 
 # =============================================================================
-# Fundamental Constants (SI units)
+# Single-Field Model Fundamental Constants (SI units)
 # =============================================================================
 
 # Speed of light (exact, SI definition)
@@ -21,6 +21,18 @@ HBAR: float = H / (2 * np.pi)  # J·s = 1.054571817...e-34 J·s
 
 # Reduced Planck constant in eV·s
 HBAR_EV: float = 6.582_119_569e-16  # eV·s
+
+# Beta: subspace-spacetime coupling constant
+
+# L0: subspace radius
+
+# IMPORTANT:
+# SFM defines Beta and L0 as fundamental constants, not derived.  Challenge is to solve.
+# the field equations and adjust Beta and L0 so that predictions match experimental values.
+
+# =============================================================================
+# Standard Model Fundamental Constants (SI units)
+# =============================================================================
 
 # Elementary charge (exact, SI definition)
 E_CHARGE: float = 1.602_176_634e-19  # C

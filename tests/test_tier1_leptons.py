@@ -56,10 +56,17 @@ def potential():
 
 @pytest.fixture
 def lepton_solver(grid, potential):
-    """Create a lepton solver for testing."""
+    """Create a lepton solver for testing.
+    
+    Note: Uses normalized mode with g1=0.1, g2=0.1 which the solver was calibrated with.
+    New code using physical mode will use SFM_CONSTANTS derived values.
+    """
     return SFMLeptonSolver(
         grid=grid,
         potential=potential,
+        g1=0.1,  # Calibrated value
+        g2=0.1,  # Calibrated value
+        use_physical=False,  # Use normalized mode for calibrated tests
     )
 
 
@@ -376,8 +383,8 @@ class TestCrossTierConsistency:
         """Test that lepton solver uses same energy functional structure as meson solver."""
         from sfm_solver.multiparticle.composite_meson import CompositeMesonSolver
         
-        lepton_solver = SFMLeptonSolver(grid=grid, potential=potential)
-        meson_solver = CompositeMesonSolver(grid, potential)
+        lepton_solver = SFMLeptonSolver(grid=grid, potential=potential, g1=0.1, g2=0.1)
+        meson_solver = CompositeMesonSolver(grid, potential, g1=0.1, g2=0.1)
         
         # Both should have the same fundamental parameters
         assert hasattr(lepton_solver, 'alpha')
@@ -393,8 +400,8 @@ class TestCrossTierConsistency:
         """Test that WKB exponents are consistent with meson solver."""
         from sfm_solver.multiparticle.composite_meson import CompositeMesonSolver
         
-        lepton_solver = SFMLeptonSolver(grid=grid, potential=potential)
-        meson_solver = CompositeMesonSolver(grid, potential)
+        lepton_solver = SFMLeptonSolver(grid=grid, potential=potential, g1=0.1, g2=0.1)
+        meson_solver = CompositeMesonSolver(grid, potential, g1=0.1, g2=0.1)
         
         # Both should use same WKB-derived exponents
         assert np.isclose(lepton_solver.DELTA_X_EXPONENT, meson_solver.DELTA_X_EXPONENT)

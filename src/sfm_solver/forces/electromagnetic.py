@@ -42,6 +42,7 @@ from numpy.typing import NDArray
 from typing import Tuple, Optional, Dict
 
 from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 
 
 # =============================================================================
@@ -430,25 +431,39 @@ class EMForceCalculator:
         grid: SpectralGrid instance.
         g1: Nonlinear coupling constant.
         g2: Circulation (EM) coupling constant.
+        use_physical: Whether using first-principles physical parameters.
     """
     
     def __init__(
         self,
         grid: SpectralGrid,
-        g1: float = 0.1,
-        g2: float = 0.1
+        g1: Optional[float] = None,
+        g2: Optional[float] = None,
+        use_physical: Optional[bool] = None,  # None = inherit from SFM_CONSTANTS
     ):
         """
         Initialize the EM force calculator.
         
         Args:
             grid: SpectralGrid instance.
-            g1: Nonlinear coupling constant.
-            g2: Circulation coupling constant.
+            g1: Nonlinear coupling constant. Default: SFM_CONSTANTS.g1 (= α)
+            g2: Circulation coupling constant. Default: SFM_CONSTANTS.g2 (= α/2)
+                Note: For two-particle interactions, g2 = α/2 is appropriate.
+                For self-energy calculations, use g2 = α via SFM_CONSTANTS.g2_alpha.
+            use_physical: If True, use first-principles physical parameters.
+                         If False, use normalized parameters.
+                         If None (default), inherit from SFM_CONSTANTS.use_physical.
         """
         self.grid = grid
-        self.g1 = g1
-        self.g2 = g2
+        
+        # Inherit global mode if not specified
+        if use_physical is None:
+            use_physical = SFM_CONSTANTS.use_physical
+        self.use_physical = use_physical
+        
+        # Use derived first-principles values from SFM_CONSTANTS if not specified
+        self.g1 = g1 if g1 is not None else SFM_CONSTANTS.g1
+        self.g2 = g2 if g2 is not None else SFM_CONSTANTS.g2  # α/2 for interactions
     
     def circulation_energy(
         self,

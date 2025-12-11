@@ -28,6 +28,7 @@ from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
@@ -133,44 +134,63 @@ class SFMLeptonSolver:
         self,
         grid: Optional[SpectralGrid] = None,
         potential: Optional[ThreeWellPotential] = None,
-        g1: float = 0.1,           # Nonlinear coupling
-        g2: float = 0.1,           # Circulation coupling
-        alpha: float = 2.5,        # Subspace-spacetime coupling strength
-        beta: float = 1.0,         # Mass coupling (m = β × A²)
+        g1: Optional[float] = None,  # Nonlinear coupling (default: SFM_CONSTANTS.g1)
+        g2: Optional[float] = None,  # Circulation coupling (default: SFM_CONSTANTS.g2_alpha)
+        alpha: Optional[float] = None,  # Subspace-spacetime coupling (None = use mode default)
+        beta: Optional[float] = None,   # Mass coupling (None = use mode default)
         delta_x_base: float = 1.0, # Base spatial localization
-        kappa: float = 0.10,       # Enhanced 5D gravity (from G_eff = G/L₀)
+        kappa: Optional[float] = None,  # Enhanced gravity (None = use mode default)
         m_eff: float = 1.0,        # Effective mass in subspace
         hbar: float = 1.0,         # Reduced Planck constant
         c: float = 1.0,            # Speed of light
+        use_physical: Optional[bool] = None,  # None = inherit from SFM_CONSTANTS.use_physical
     ):
         """
         Initialize lepton solver with physics-based parameters.
         
-        ALL PARAMETERS DERIVED FROM SFM PHYSICS:
+        PARAMETER MODES:
+        ================
         
-        1. κ = G_eff = G₄D/L₀ (enhanced 5D gravity at subspace scale)
-           From "A Beautiful Balance" Section 3: gravity enhanced by ~10⁴⁵ at L₀
-           In solver units (normalized): κ ≈ 0.10
+        1. PHYSICAL MODE (default, use_physical=True or None):
+           Uses first-principles parameters from SFM theory.
+           - α (alpha) = SFM_CONSTANTS.alpha_coupling_base ≈ 18.8 GeV
+           - β (beta) = SFM_CONSTANTS.beta_physical = M_W ≈ 80.4 GeV
+           - κ (kappa) = SFM_CONSTANTS.kappa_physical ≈ 0.012 GeV⁻¹
+           - Amplitudes EMERGE from energy minimization
+           - m = β × A² gives ABSOLUTE MASSES
         
-        2. α = subspace-spacetime coupling strength
-           From H_coupling = -α ∂²/∂r∂σ
-           Controls the strength of spatial-subspace interaction
+        2. NORMALIZED MODE (use_physical=False):
+           Uses dimensionless parameters calibrated for numerical stability.
+           - α (alpha) = 2.5 (calibrated for lepton ratios)
+           - β (beta) = 1.0 (normalized)
+           - κ (kappa) = 0.10 (calibrated)
+           - Predicts MASS RATIOS correctly
         
-        3. GEN_POWER_BASE controls f(n) = n^p scaling
-           Physical origin: overlap integrals in H_coupling
+        The default mode is controlled by SFM_CONSTANTS.DEFAULT_USE_PHYSICAL (True).
+        
+        ALL EM COUPLING CONSTANTS (g₁, g₂):
+        ===================================
+        Derived from fine structure constant α_EM ≈ 1/137:
+        - g₁ = α_EM (from Research Note Section 9.2)
+        - g₂ = α_EM (for self-energy in single particle)
+        
+        Reference: docs/First_Principles_Parameter_Derivation.md
         
         Args:
             grid: SpectralGrid for subspace discretization. If None, creates default.
             potential: Three-well potential. If None, creates default.
             g1: Nonlinear self-interaction strength.
             g2: Circulation coupling strength.
-            alpha: Subspace-spacetime coupling.
-            beta: Mass coupling constant (use SFM_CONSTANTS.beta for consistency).
+            alpha: Subspace-spacetime coupling. If None, uses mode default.
+            beta: Mass coupling constant. If None, uses mode default.
             delta_x_base: Base spatial localization for n=1.
-            kappa: Enhanced gravity coupling (use SFM_CONSTANTS.kappa for consistency).
+            kappa: Enhanced gravity coupling. If None, uses mode default.
             m_eff: Effective mass in subspace Hamiltonian.
             hbar: Reduced Planck constant (1.0 in natural units).
             c: Speed of light (1.0 in natural units).
+            use_physical: If True, use first-principles physical parameters.
+                         If False, use normalized parameters.
+                         If None (default), inherit from SFM_CONSTANTS.use_physical.
         """
         # Create defaults if not provided
         if grid is None:
@@ -180,12 +200,29 @@ class SFMLeptonSolver:
         
         self.grid = grid
         self.potential = potential
-        self.g1 = g1
-        self.g2 = g2
-        self.alpha = alpha
-        self.beta = beta
+        
+        # Inherit global mode if not specified
+        if use_physical is None:
+            use_physical = SFM_CONSTANTS.use_physical
+        self.use_physical = use_physical
+        
+        # Use derived first-principles values from SFM_CONSTANTS if not specified
+        self.g1 = g1 if g1 is not None else SFM_CONSTANTS.g1
+        self.g2 = g2 if g2 is not None else SFM_CONSTANTS.g2_alpha  # Use α for self-energy
+        
+        # Set mode-dependent parameters
+        if use_physical:
+            # PHYSICAL MODE: Use first-principles values from SFM theory
+            self.alpha = alpha if alpha is not None else SFM_CONSTANTS.alpha_coupling_base
+            self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
+            self.kappa = kappa if kappa is not None else SFM_CONSTANTS.kappa_physical
+        else:
+            # NORMALIZED MODE: Use calibrated values for numerical stability
+            self.alpha = alpha if alpha is not None else 2.5
+            self.beta = beta if beta is not None else 1.0
+            self.kappa = kappa if kappa is not None else 0.10
+        
         self.delta_x_base = delta_x_base
-        self.kappa = kappa
         self.m_eff = m_eff
         self.hbar = hbar
         self.c = c

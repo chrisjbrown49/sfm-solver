@@ -121,19 +121,72 @@ class CompositeBaryonSolver:
         self,
         grid: SpectralGrid,
         potential: ThreeWellPotential,
-        g1: float = 0.1,
-        g2: float = 0.1,    # Circulation coupling (EM-like)
-        alpha: float = 1.0,  # Subspace-spacetime coupling
+        g1: Optional[float] = None,  # Nonlinear coupling (default: SFM_CONSTANTS.g1)
+        g2: Optional[float] = None,  # Circulation coupling (default: SFM_CONSTANTS.g2_alpha)
+        alpha: Optional[float] = None,  # Subspace-spacetime coupling (None = use mode default)
+        beta: Optional[float] = None,   # Mass coupling (None = use mode default)
+        kappa: Optional[float] = None,  # Enhanced gravity (None = use mode default)
         k: int = 3,
         m_eff: float = 1.0,
         hbar: float = 1.0,
         coulomb_strength: float = 0.06,  # Coulomb coupling (tuned to n-p mass difference)
+        use_physical: Optional[bool] = None,  # None = inherit from SFM_CONSTANTS.use_physical
     ):
+        """
+        Initialize baryon solver.
+        
+        PARAMETER MODES:
+        ================
+        
+        1. PHYSICAL MODE (default, use_physical=True or None):
+           Uses first-principles parameters from SFM theory.
+           - α (alpha) = SFM_CONSTANTS.alpha_coupling_for_winding(9) ≈ 169 GeV
+           - β (beta) = SFM_CONSTANTS.beta_physical = M_W ≈ 80.4 GeV
+           - κ (kappa) = SFM_CONSTANTS.kappa_physical ≈ 0.012 GeV⁻¹
+           - Amplitudes EMERGE from energy minimization
+           - m = β × A² gives ABSOLUTE MASSES
+        
+        2. NORMALIZED MODE (use_physical=False):
+           Uses dimensionless parameters calibrated for numerical stability.
+           - α (alpha) = 1.0 (calibrated for baryon masses)
+           - β (beta) = SFM_CONSTANTS.beta_normalized = 1.0
+           - κ (kappa) = SFM_CONSTANTS.kappa_normalized = 0.10
+           - Predicts MASS RATIOS correctly
+        
+        The default mode is controlled by SFM_CONSTANTS.DEFAULT_USE_PHYSICAL (True).
+        
+        Reference: docs/First_Principles_Parameter_Derivation.md
+        
+        Args:
+            use_physical: If True, use first-principles physical parameters.
+                         If False, use normalized parameters.
+                         If None (default), inherit from SFM_CONSTANTS.use_physical.
+        """
         self.grid = grid
         self.potential = potential
-        self.g1 = g1
-        self.g2 = g2        # Circulation coupling  
-        self.alpha = alpha  # Coupling that stabilizes amplitude
+        
+        # Inherit global mode if not specified
+        if use_physical is None:
+            use_physical = SFM_CONSTANTS.use_physical
+        self.use_physical = use_physical
+        
+        # Use derived first-principles values from SFM_CONSTANTS if not specified
+        self.g1 = g1 if g1 is not None else SFM_CONSTANTS.g1
+        self.g2 = g2 if g2 is not None else SFM_CONSTANTS.g2_alpha  # Use α for self-energy
+        
+        # Set mode-dependent parameters
+        if use_physical:
+            # PHYSICAL MODE: Use first-principles values from SFM theory
+            # For baryons, k_total ~ 9 (sum of |k| for uud: |5|+|5|+|3|=13, or k_eff ~ 9)
+            self.alpha = alpha if alpha is not None else SFM_CONSTANTS.alpha_coupling_for_winding(9)
+            self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
+            self.kappa = kappa if kappa is not None else SFM_CONSTANTS.kappa_physical
+        else:
+            # NORMALIZED MODE: Use calibrated values for numerical stability
+            self.alpha = alpha if alpha is not None else 1.0
+            self.beta = beta if beta is not None else SFM_CONSTANTS.beta_normalized
+            self.kappa = kappa if kappa is not None else SFM_CONSTANTS.kappa_normalized
+        
         self.k = k
         self.m_eff = m_eff
         self.hbar = hbar

@@ -13,8 +13,9 @@ from sfm_solver.reporting.results_reporter import ResultsReporter, RunSummary
 from sfm_solver.core.constants import (
     ELECTRON_MASS_GEV, MUON_MASS_GEV, TAU_MASS_GEV,
     MUON_ELECTRON_RATIO, TAU_ELECTRON_RATIO,
-    ALPHA_EM,
+    ALPHA_EM, C, HBAR,
 )
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 
 
 class HTMLResultsViewer:
@@ -504,6 +505,8 @@ class HTMLResultsViewer:
                 </td>
             </tr>
         </table>
+        
+        {self._generate_sfm_constants_table(summary)}
         
         {self._generate_lepton_solver_section(summary)}
         
@@ -1068,10 +1071,19 @@ class HTMLResultsViewer:
         """Generate HTML for all meson predictions (Tier 2 + Tier 2b)."""
         summary = reporter._get_summary()
         
-        # Helper to get prediction value
+        # Helper to get prediction value - prioritize exact matches over partial
         def get_pred(param_name: str):
+            # First try exact match (case-insensitive)
             for p in reporter.predictions:
-                if param_name.lower() in p.parameter.lower():
+                if p.parameter.lower() == param_name.lower():
+                    return p
+            # Then try Tier2_ prefix (for meson predictions)
+            for p in reporter.predictions:
+                if p.parameter.lower() == f"tier2_{param_name.lower()}":
+                    return p
+            # Finally try partial match, but exclude Tier1b to avoid confusion
+            for p in reporter.predictions:
+                if param_name.lower() in p.parameter.lower() and 'tier1b' not in p.parameter.lower():
                     return p
             return None
         
@@ -1209,6 +1221,149 @@ class HTMLResultsViewer:
         <p style="color: var(--text-secondary); font-size: 0.9em; margin-top: 10px;">
             <em>Physics: Mesons use composite qq̄ wavefunction. Radial excitations scale Δx_n = Δx₀ × n_rad.</em>
         </p>'''
+    
+    def _generate_sfm_constants_table(self, summary: RunSummary) -> str:
+        """Generate HTML table showing all SFM fundamental constants used in this run."""
+        mode_str = "PHYSICAL (First-Principles)" if summary.use_physical_mode else "NORMALIZED (Calibrated)"
+        mode_class = "status-pass" if summary.use_physical_mode else "status-pending"
+        
+        # Universal constants (always shown first)
+        universal_rows = f'''
+            <tr>
+                <td>Speed of light</td>
+                <td>c</td>
+                <td>{C:.0f}</td>
+                <td>m/s</td>
+                <td><strong>Fundamental</strong> (experimental, SI definition)</td>
+            </tr>
+            <tr>
+                <td>Reduced Planck constant</td>
+                <td>ℏ</td>
+                <td>{HBAR:.6e}</td>
+                <td>J·s</td>
+                <td><strong>Fundamental</strong> (experimental, SI definition)</td>
+            </tr>
+            <tr>
+                <td>Fine structure constant</td>
+                <td>α_EM</td>
+                <td>{SFM_CONSTANTS.alpha_em:.8f}</td>
+                <td>-</td>
+                <td><strong>Fundamental</strong> (experimental, CODATA)</td>
+            </tr>
+            '''
+        
+        if summary.use_physical_mode:
+            # Physical mode - use actual values from SFM_CONSTANTS
+            mode_rows = f'''
+            <tr>
+                <td>Mass coupling</td>
+                <td>β</td>
+                <td>{SFM_CONSTANTS.beta_physical:.4f}</td>
+                <td>GeV</td>
+                <td><strong>Fundamental</strong> (calibrated, β = M_W from W boson self-consistency)</td>
+            </tr>
+            <tr>
+                <td>Potential depth</td>
+                <td>V₀</td>
+                <td>{SFM_CONSTANTS.V0_physical:.2f}</td>
+                <td>GeV</td>
+                <td><strong>Fundamental</strong> (calibrated, QCD confinement scale)</td>
+            </tr>
+            <tr>
+                <td>Subspace radius</td>
+                <td>L₀</td>
+                <td>{SFM_CONSTANTS.L0_physical_gev_inv:.6f}</td>
+                <td>GeV⁻¹</td>
+                <td><strong>Derived</strong> from β via Beautiful Equation: L₀ = ℏ/(βc) = 1/β</td>
+            </tr>
+            <tr>
+                <td>Curvature coupling</td>
+                <td>κ</td>
+                <td>{SFM_CONSTANTS.kappa_physical:.6f}</td>
+                <td>GeV⁻¹</td>
+                <td><strong>Derived</strong> from L₀ via enhanced 5D gravity: κ = G_eff/L₀</td>
+            </tr>
+            <tr>
+                <td>Base coupling strength</td>
+                <td>α_base</td>
+                <td>{SFM_CONSTANTS.alpha_coupling_base:.4f}</td>
+                <td>GeV</td>
+                <td><strong>Derived</strong> from β, V₀ via 3-well geometry: α = √(V₀β)×2π/3</td>
+            </tr>
+            <tr>
+                <td>Nonlinear coupling</td>
+                <td>g₁</td>
+                <td>{SFM_CONSTANTS.g1:.6f}</td>
+                <td>-</td>
+                <td><strong>Derived</strong> from α_EM: g₁ = α_EM</td>
+            </tr>
+            <tr>
+                <td>Circulation coupling</td>
+                <td>g₂</td>
+                <td>{SFM_CONSTANTS.g2:.6f}</td>
+                <td>-</td>
+                <td><strong>Derived</strong> from α_EM via circulation energy: g₂ = α_EM/2</td>
+            </tr>
+            '''
+        else:
+            # Normalized mode - use normalized values
+            mode_rows = f'''
+            <tr>
+                <td>Mass coupling</td>
+                <td>β</td>
+                <td>{SFM_CONSTANTS.beta_normalized:.2f}</td>
+                <td>-</td>
+                <td><strong>Fundamental</strong> (calibrated, normalized for numerical stability)</td>
+            </tr>
+            <tr>
+                <td>Curvature coupling</td>
+                <td>κ</td>
+                <td>{SFM_CONSTANTS.kappa_normalized:.2f}</td>
+                <td>-</td>
+                <td><strong>Fundamental</strong> (calibrated from meson physics)</td>
+            </tr>
+            <tr>
+                <td>Coupling strength</td>
+                <td>α</td>
+                <td>2.5</td>
+                <td>-</td>
+                <td><strong>Fundamental</strong> (calibrated for lepton mass ratios)</td>
+            </tr>
+            <tr>
+                <td>Nonlinear coupling</td>
+                <td>g₁</td>
+                <td>{SFM_CONSTANTS.g1:.6f}</td>
+                <td>-</td>
+                <td><strong>Derived</strong> from α_EM: g₁ = α_EM</td>
+            </tr>
+            <tr>
+                <td>Circulation coupling</td>
+                <td>g₂</td>
+                <td>{SFM_CONSTANTS.g2:.6f}</td>
+                <td>-</td>
+                <td><strong>Derived</strong> from α_EM via circulation energy: g₂ = α_EM/2</td>
+            </tr>
+            '''
+        
+        rows = universal_rows + mode_rows
+        
+        return f'''
+        <h3>SFM Fundamental Constants</h3>
+        <p><strong>Run Mode:</strong> <span class="{mode_class}">{mode_str}</span></p>
+        <table>
+            <tr>
+                <th>Constant</th>
+                <th>Symbol</th>
+                <th>Value</th>
+                <th>Unit</th>
+                <th>Source</th>
+            </tr>
+            {rows}
+        </table>
+        <p style="color: var(--text-secondary); font-size: 0.9em; margin-top: 10px;">
+            <em>{'Mass formula: m = β × A² (amplitudes emerge from energy minimization)' if summary.use_physical_mode else 'Mass ratios meaningful; absolute masses require calibration'}</em>
+        </p>
+        '''
     
     def _generate_lepton_solver_section(self, summary: RunSummary) -> str:
         """Generate HTML for physics-based lepton solver status."""

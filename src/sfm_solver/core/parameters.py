@@ -3,13 +3,20 @@ SFM Parameters dataclass for configuring the solver.
 
 The parameters define the properties of the three-well potential
 and coupling constants for the Single-Field Model.
+
+NOTE: g1 and g2 coupling constants now default to first-principles values
+derived from the fine structure constant α via SFM_CONSTANTS.
 """
 
 from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
 
-from sfm_solver.core.constants import HBAR, C
+from sfm_solver.core.constants import HBAR, C, ALPHA_EM
+
+
+# Sentinel value for "use SFM_CONSTANTS default"
+_USE_DEFAULT = -1.0
 
 
 @dataclass
@@ -27,9 +34,9 @@ class SFMParameters:
         V1: Secondary modulation (GeV). Controls the 6-fold modulation.
             Typical value: 0-0.5 GeV, should be <= V0.
         g1: Nonlinear coupling constant. Controls |χ|² self-interaction.
-            Typical value: 0.01-0.5.
+            Default: α (fine structure constant) ≈ 0.0073, derived from first principles.
         g2: Circulation coupling constant. Controls EM-like interactions.
-            Typical value: 0.01-0.5.
+            Default: α (for self-energy) ≈ 0.0073, derived from first principles.
         lambda_so: Spin-orbit coupling constant.
             Typical value: 0.01-0.5.
         R: Effective subspace "radius" parameter (dimensionless scaling).
@@ -45,9 +52,10 @@ class SFMParameters:
     V0: float = 1.0     # GeV - Primary well depth
     V1: float = 0.1     # GeV - Secondary modulation
     
-    # Coupling constants (dimensionless)
-    g1: float = 0.1     # Nonlinear |χ|² coupling
-    g2: float = 0.1     # Circulation coupling (EM)
+    # Coupling constants (dimensionless) - now derived from first principles!
+    # Use sentinel value _USE_DEFAULT to indicate "use SFM_CONSTANTS"
+    g1: float = _USE_DEFAULT  # Nonlinear |χ|² coupling → defaults to α
+    g2: float = _USE_DEFAULT  # Circulation coupling (EM) → defaults to α
     lambda_so: float = 0.1  # Spin-orbit coupling
     
     # Subspace parameters
@@ -59,8 +67,20 @@ class SFMParameters:
     
     def __post_init__(self):
         """Compute derived parameters after initialization."""
+        # Apply first-principles defaults from SFM_CONSTANTS
+        self._apply_defaults()
         self._compute_L0()
         self._validate()
+    
+    def _apply_defaults(self):
+        """Apply first-principles defaults for g1 and g2 from SFM_CONSTANTS."""
+        # Import here to avoid circular dependency
+        from sfm_solver.core.sfm_global import SFM_CONSTANTS
+        
+        if self.g1 == _USE_DEFAULT:
+            self.g1 = SFM_CONSTANTS.g1  # α from first principles
+        if self.g2 == _USE_DEFAULT:
+            self.g2 = SFM_CONSTANTS.g2_alpha  # α for self-energy from first principles
     
     def _compute_L0(self):
         """

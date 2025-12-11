@@ -18,8 +18,9 @@ from sfm_solver.core.constants import (
     MUON_ELECTRON_RATIO, TAU_ELECTRON_RATIO, TAU_MUON_RATIO,
     W_MASS_GEV, Z_MASS_GEV, HIGGS_MASS_GEV,
     PROTON_MASS_GEV, NEUTRON_MASS_GEV,
-    ALPHA_EM,
+    ALPHA_EM, C, HBAR,
 )
+from sfm_solver.core.sfm_global import SFM_CONSTANTS
 
 
 @dataclass
@@ -56,6 +57,11 @@ class RunSummary:
     python_version: str
     platform_info: str
     solver_version: str = "0.1.0"
+    
+    # Parameter mode (CRITICAL: determines how predictions should be interpreted)
+    use_physical_mode: bool = True  # True = first-principles, False = normalized
+    beta_value: float = 0.0  # β in GeV (physical: ~80, normalized: ~1)
+    parameter_mode_description: str = ""  # Human-readable description
     
     # Test statistics
     total_tests: int = 0
@@ -210,12 +216,27 @@ class ResultsReporter:
                       if 'meson' in t.category.lower() or 'meson' in t.name.lower()]
         meson_passed = sum(1 for t in meson_tests if t.passed)
         
+        # Get parameter mode from SFM_CONSTANTS
+        use_physical = SFM_CONSTANTS.use_physical
+        try:
+            beta_val = SFM_CONSTANTS.beta_physical if use_physical else SFM_CONSTANTS.beta_normalized
+        except:
+            beta_val = 80.379 if use_physical else 1.0
+        
+        if use_physical:
+            mode_desc = "PHYSICAL MODE: First-principles parameters (β = M_W = 80.38 GeV)"
+        else:
+            mode_desc = "NORMALIZED MODE: Calibrated dimensionless parameters (β = 1.0)"
+        
         return RunSummary(
             run_id=self._generate_run_id(),
             timestamp=(self.start_time or datetime.now()).isoformat(),
             duration_seconds=self._calculate_duration(),
             python_version=platform.python_version(),
             platform_info=f"{platform.system()} {platform.release()}",
+            use_physical_mode=use_physical,
+            beta_value=beta_val,
+            parameter_mode_description=mode_desc,
             total_tests=len(self.test_results),
             passed_tests=passed,
             failed_tests=failed,
@@ -321,6 +342,38 @@ class ResultsReporter:
         lines.append(f"| Tier 2 (Multi-quark) | {'✅ Complete' if summary.tier2_complete else '⏳ Pending'} |")
         lines.append(f"| Tier 2b (Quarkonia) | {'✅ Complete' if summary.tier2b_complete else '⏳ Pending'} |")
         lines.append(f"| Tier 3 (Weak Decay) | {'✅ Complete' if summary.tier3_complete else '⏳ Pending'} |")
+        lines.append("")
+        
+        # SFM Fundamental Constants table
+        lines.append("### SFM Fundamental Constants")
+        lines.append("")
+        mode_str = "PHYSICAL (First-Principles)" if summary.use_physical_mode else "NORMALIZED (Calibrated)"
+        lines.append(f"**Run Mode:** {mode_str}")
+        lines.append("")
+        lines.append("| Constant | Symbol | Value | Unit | Source |")
+        lines.append("|----------|--------|-------|------|--------|")
+        
+        # Universal constants (always shown first)
+        lines.append(f"| Speed of light | c | {C:.0f} | m/s | **Fundamental** (experimental, SI definition) |")
+        lines.append(f"| Reduced Planck constant | ℏ | {HBAR:.6e} | J·s | **Fundamental** (experimental, SI definition) |")
+        lines.append(f"| Fine structure constant | α_EM | {SFM_CONSTANTS.alpha_em:.8f} | - | **Fundamental** (experimental, CODATA) |")
+        
+        if summary.use_physical_mode:
+            # Physical mode - use actual values from SFM_CONSTANTS
+            lines.append(f"| Mass coupling | β | {SFM_CONSTANTS.beta_physical:.4f} | GeV | **Fundamental** (calibrated, β = M_W from W boson self-consistency) |")
+            lines.append(f"| Potential depth | V₀ | {SFM_CONSTANTS.V0_physical:.2f} | GeV | **Fundamental** (calibrated, QCD confinement scale) |")
+            lines.append(f"| Subspace radius | L₀ | {SFM_CONSTANTS.L0_physical_gev_inv:.6f} | GeV⁻¹ | **Derived** from β via Beautiful Equation: L₀ = ℏ/(βc) = 1/β |")
+            lines.append(f"| Curvature coupling | κ | {SFM_CONSTANTS.kappa_physical:.6f} | GeV⁻¹ | **Derived** from L₀ via enhanced 5D gravity: κ = G_eff/L₀ |")
+            lines.append(f"| Base coupling | α_base | {SFM_CONSTANTS.alpha_coupling_base:.4f} | GeV | **Derived** from β, V₀ via 3-well geometry: α = √(V₀β)×2π/3 |")
+            lines.append(f"| Nonlinear coupling | g₁ | {SFM_CONSTANTS.g1:.6f} | - | **Derived** from α_EM: g₁ = α_EM |")
+            lines.append(f"| Circulation coupling | g₂ | {SFM_CONSTANTS.g2:.6f} | - | **Derived** from α_EM via circulation energy: g₂ = α_EM/2 |")
+        else:
+            # Normalized mode - use normalized values
+            lines.append(f"| Mass coupling | β | {SFM_CONSTANTS.beta_normalized:.2f} | - | **Fundamental** (calibrated, normalized for numerical stability) |")
+            lines.append(f"| Curvature coupling | κ | {SFM_CONSTANTS.kappa_normalized:.2f} | - | **Fundamental** (calibrated from meson physics) |")
+            lines.append(f"| Coupling strength | α | 2.5 | - | **Fundamental** (calibrated for lepton mass ratios) |")
+            lines.append(f"| Nonlinear coupling | g₁ | {SFM_CONSTANTS.g1:.6f} | - | **Derived** from α_EM: g₁ = α_EM |")
+            lines.append(f"| Circulation coupling | g₂ | {SFM_CONSTANTS.g2:.6f} | - | **Derived** from α_EM via circulation energy: g₂ = α_EM/2 |")
         lines.append("")
         
         # Lepton solver status (physics-based)

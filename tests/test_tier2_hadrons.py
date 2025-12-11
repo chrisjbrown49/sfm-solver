@@ -73,20 +73,34 @@ def potential():
 
 @pytest.fixture
 def baryon_solver(grid, potential):
-    """Standard composite baryon solver with coupling energy."""
+    """Standard composite baryon solver with coupling energy.
+    
+    Note: Uses normalized mode with g1=0.1, g2=0.1 which the solver was calibrated with.
+    New code using physical mode will use SFM_CONSTANTS derived values.
+    """
     return CompositeBaryonSolver(
         grid, potential, 
-        g1=0.1,      # Nonlinear coupling
-        g2=0.1,      # Circulation coupling
+        g1=0.1,      # Calibrated nonlinear coupling
+        g2=0.1,      # Calibrated circulation coupling
         alpha=2.0,   # Coupling that stabilizes amplitude
-        k=3          # Winding number for quarks
+        k=3,         # Winding number for quarks
+        use_physical=False,  # Use normalized mode for calibrated tests
     )
 
 
 @pytest.fixture
 def meson_solver(grid, potential):
-    """Standard composite meson solver with destructive interference physics."""
-    return CompositeMesonSolver(grid, potential, g1=0.1, g2=0.1, alpha=2.0)
+    """Standard composite meson solver with destructive interference physics.
+    
+    Note: Uses normalized mode with g1=0.1, g2=0.1 which the solver was calibrated with.
+    """
+    return CompositeMesonSolver(
+        grid, potential, 
+        g1=0.1, 
+        g2=0.1, 
+        alpha=2.0,
+        use_physical=False,  # Use normalized mode for calibrated tests
+    )
 
 
 # =============================================================================
