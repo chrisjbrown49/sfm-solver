@@ -10,13 +10,15 @@ with DIFFERENT windings that create interference.
 
 ENERGY FUNCTIONAL (same structure as baryon):
 
-    E_total = E_subspace + E_spatial + E_coupling + E_curvature
+    E_total = E_subspace + E_coupling
 
 Where:
-    E_subspace = kinetic + potential + nonlinear + circulation (∝ A²)
-    E_spatial  = ℏ² / (2βA²Δx²) (prevents collapse to A→0)
+    E_subspace = kinetic + potential + nonlinear + circulation (in σ dimension)
     E_coupling = -α × k_eff × A (k_eff EMERGES from interference!)
-    E_curvature = κ × (βA²)² / Δx (enhanced 5D gravity)
+
+NOTE: E_spatial and E_curvature are NOT minimized!
+      Δx is derived from mass via Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
+      Mass is the fundamental output: m = β × A²
 
 KEY PHYSICS:
 1. EMERGENT EFFECTIVE WINDING k_eff:
@@ -662,10 +664,6 @@ class CompositeMesonSolver:
         
         E_subspace = E_kin + E_pot + E_nl + E_circ
         
-        # === SPATIAL ENERGY (LOCALIZATION) ===
-        # E_spatial = ℏ² / (2βA²Δx²) - PREVENTS COLLAPSE (1/A² term)
-        E_spatial = self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10) * delta_x_scaled**2)
-        
         # === COUPLING ENERGY - USES EMERGENT k_eff ===
         # 
         # BARYON: E_coupling = -α × k × A (k is the actual winding)
@@ -680,12 +678,21 @@ class CompositeMesonSolver:
         #
         E_coupling = -self.alpha * k_eff * A
         
-        # === CURVATURE ENERGY (enhanced 5D gravity) ===
-        # E_curvature = κ × (βA²)² / Δx
-        E_curvature = self.kappa * (self.beta * A_sq)**2 / delta_x_scaled
+        # === NO E_spatial OR E_curvature IN MINIMIZATION ===
+        # 
+        # Key insight: Δx is NOT an independent variable - it's determined
+        # by the Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
+        # 
+        # The spatial and curvature energies are derived quantities,
+        # not part of the energy functional to minimize.
+        # They emerge from the mass-size relationship after equilibrium.
+        #
+        # E_spatial and E_curvature are computed for output but NOT minimized.
+        E_spatial = 0.0  # Not part of minimization
+        E_curvature = 0.0  # Not part of minimization
         
-        # Total energy from all four components
-        E_total = E_subspace + E_spatial + E_coupling + E_curvature
+        # Total energy: only subspace + coupling
+        E_total = E_subspace + E_coupling
         
         return (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
                 E_circ, A_sq, k_eff, delta_x_scaled, p_eff, I_overlap, g_rad)
@@ -704,9 +711,9 @@ class CompositeMesonSolver:
         
         δE/δχ* for each term:
             δE_subspace/δχ* = T_chi + V_chi + g₁|χ|²χ + circ_grad
-            δE_spatial/δχ*  = -ℏ²/(β×A⁴×Δx²) × χ
             δE_coupling/δχ* = -α×k_eff/(2A) × χ  (uses emergent k_eff)
-            δE_curvature/δχ* = 4κβ²A²/Δx × χ
+        
+        NOTE: No spatial or curvature gradients - Δx is derived from mass.
         """
         # Amplitude
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
@@ -730,10 +737,6 @@ class CompositeMesonSolver:
         circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
         grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # === SPATIAL GRADIENT ===
-        # E_spatial = ℏ²/(2βA²Δx²), grad = -ℏ²/(βA⁴Δx²) × χ
-        grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x_scaled**2) * chi
-        
         # === COUPLING GRADIENT - USES EMERGENT k_eff ===
         # E_coupling = -α × k_eff × A
         # dE/dA = -α × k_eff
@@ -742,11 +745,11 @@ class CompositeMesonSolver:
         # Like baryon, but using k_eff which emerges from interference
         grad_coupling = -self.alpha * k_eff / (2 * A + 1e-10) * chi
         
-        # === CURVATURE GRADIENT ===
-        # E_curvature = κ(βA²)² / Δx
-        grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x_scaled * chi
+        # === NO SPATIAL OR CURVATURE GRADIENTS ===
+        # These terms are not part of the energy functional to minimize.
+        # Δx is derived from mass via Compton wavelength, not minimized.
         
-        return grad_subspace + grad_spatial + grad_coupling + grad_curvature
+        return grad_subspace + grad_coupling
     
     def solve(
         self,

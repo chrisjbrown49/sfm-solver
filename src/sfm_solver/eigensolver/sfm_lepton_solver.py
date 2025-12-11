@@ -1,11 +1,15 @@
 """
 SFM Lepton Solver with Physics-Based Energy Functional.
 
-Implements the complete four-term energy balance from "A Beautiful Balance":
-    E_total = E_subspace + E_spatial + E_coupling + E_curvature
+Implements the simplified two-term energy balance:
+    E_total = E_subspace + E_coupling
+
+NOTE: E_spatial and E_curvature are NOT minimized!
+      Δx is derived from mass via Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
+      Mass is the fundamental output: m = β × A²
 
 The lepton mass hierarchy (e, μ, τ) emerges from self-consistent
-minimization over amplitude A and spatial extent Δx, NOT from fitted
+minimization of the subspace energy functional, NOT from fitted
 scaling laws.
 
 Key physics:
@@ -417,23 +421,25 @@ class SFMLeptonSolver:
         
         E_subspace = E_kin + E_pot + E_nl + E_circ
         
-        # === SPATIAL ENERGY (from "A Beautiful Balance" Section 2.2) ===
-        # E_x = ℏ²/(2mΔx²) = ℏ²/(2βA²Δx²)
-        # This prevents collapse to A→0 (uncertainty principle)
-        E_spatial = self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10) * delta_x**2)
-        
         # === COUPLING ENERGY (from Math Formulation Part A, Section 2.1.7) ===
         # E_coupling = -α × f(n) × g(n) × k_eff × A
         # f(n) creates the mass hierarchy via different spatial mode numbers
         # g(n) is the radial correction factor
         E_coupling = -self.alpha * f_n * g_n * k_eff * A
         
-        # === CURVATURE ENERGY (enhanced 5D gravity at subspace scale) ===
-        # E_curv = G_eff × m² / Δx = κ × (βA²)² / Δx
-        # κ = G_eff derived from G₄D/L₀ (enhanced by ~10⁴⁵)
-        E_curvature = self.kappa * (self.beta * A_sq)**2 / delta_x
+        # === NO E_spatial OR E_curvature IN MINIMIZATION ===
+        # 
+        # Key insight: Δx is NOT an independent variable - it's determined
+        # by the Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
+        # 
+        # The spatial and curvature energies are derived quantities,
+        # not part of the energy functional to minimize.
+        # They emerge from the mass-size relationship after equilibrium.
+        E_spatial = 0.0  # Not part of minimization
+        E_curvature = 0.0  # Not part of minimization
         
-        E_total = E_subspace + E_spatial + E_coupling + E_curvature
+        # Total energy: only subspace + coupling
+        E_total = E_subspace + E_coupling
         
         return (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
                 E_kin, E_pot, E_nl, E_circ, A_sq, k_eff)
@@ -447,8 +453,9 @@ class SFMLeptonSolver:
         """
         Compute energy gradient δE/δχ* for all four terms.
         
-        δE_total/δχ* = δE_subspace/δχ* + δE_spatial/δχ* 
-                     + δE_coupling/δχ* + δE_curvature/δχ*
+        δE_total/δχ* = δE_subspace/δχ* + δE_coupling/δχ*
+        
+        NOTE: No spatial or curvature gradients - Δx is derived from mass.
         """
         # Amplitude
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
@@ -478,19 +485,15 @@ class SFMLeptonSolver:
         
         grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # === SPATIAL GRADIENT (1/A² term) ===
-        # δE_spatial/δχ* = -ℏ²/(β×A⁴×Δx²) × χ
-        grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x**2) * chi
-        
         # === COUPLING GRADIENT ===
         # δE_coupling/δχ* = -α×f(n)×g(n)×k_eff/(2A) × χ
         grad_coupling = -self.alpha * f_n * g_n * k_eff / (2 * A + 1e-10) * chi
         
-        # === CURVATURE GRADIENT ===
-        # δE_curvature/δχ* = 4κβ²A²/Δx × χ
-        grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x * chi
+        # === NO SPATIAL OR CURVATURE GRADIENTS ===
+        # These terms are not part of the energy functional to minimize.
+        # Δx is derived from mass via Compton wavelength, not minimized.
         
-        return grad_subspace + grad_spatial + grad_coupling + grad_curvature
+        return grad_subspace + grad_coupling
     
     def _compute_equilibrium_delta_x(
         self,

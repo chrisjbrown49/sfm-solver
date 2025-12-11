@@ -85,6 +85,9 @@ class CompositeBaryonState:
     energy_potential: float
     energy_nonlinear: float
     
+    # Effective winding (EMERGENT from wavefunction gradient)
+    k_eff: float  # Computed from ∫|∂χ/∂σ|²/∫|χ|² - NOT summed windings!
+    
     # Color structure
     phases: Tuple[float, float, float]
     phase_differences: Tuple[float, float]
@@ -279,13 +282,57 @@ class CompositeBaryonSolver:
         
         return self.coulomb_strength * E_coulomb
     
-    def _compute_energy(self, chi: NDArray[np.complexfloating]) -> Tuple[float, float, float, float, float, float, float, float, float]:
+    def _compute_k_eff_from_wavefunction(self, chi: NDArray[np.complexfloating]) -> float:
         """
-        Compute total energy using UNIFIED four-term functional (same as meson).
+        Compute effective winding number from actual wavefunction gradient.
         
-        E_total = E_subspace + E_spatial + E_coupling + E_curvature + E_coulomb
+        FIRST PRINCIPLES APPROACH FOR COMPOSITE PARTICLES:
+        ==================================================
         
-        This ensures consistent A² ratios with mesons for universal m = β × A².
+        k²_eff = ∫|∂χ/∂σ|² dσ / ∫|χ|² dσ
+        
+        This is the CORRECT way to compute effective winding for composites!
+        
+        For baryons, the three quarks have phases {0, 2π/3, 4π/3} and windings
+        k1, k2, k3. The composite wavefunction χ = Σ χ_i has interference
+        patterns that REDUCE the effective winding compared to the naive sum.
+        
+        The √3 geometric factor should emerge naturally from the interference,
+        NOT be imposed by hand!
+        
+        Physical interpretation:
+        - k_eff measures actual "waviness" of the composite wavefunction
+        - Accounts for constructive/destructive interference automatically
+        - For baryon with three-phase structure, k_eff < k1 + k2 + k3
+        
+        Returns:
+            k_eff: Effective winding number from wavefunction gradient
+        """
+        # Compute wavefunction gradient
+        dchi_dsigma = self.grid.first_derivative(chi)
+        
+        # ∫|∂χ/∂σ|² dσ (measures "waviness")
+        numerator = np.sum(np.abs(dchi_dsigma)**2) * self.grid.dsigma
+        
+        # ∫|χ|² dσ (normalization)
+        denominator = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        
+        if denominator < 1e-20:
+            return 0.0
+        
+        # k_eff = sqrt(⟨|∇χ|²⟩ / ⟨|χ|²⟩)
+        k_eff = np.sqrt(numerator / denominator)
+        return float(k_eff)
+    
+    def _compute_energy(self, chi: NDArray[np.complexfloating]) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        """
+        Compute total energy using SIMPLIFIED two-term functional.
+        
+        E_total = E_subspace + E_coupling + E_coulomb
+        
+        NOTE: E_spatial and E_curvature are NOT minimized!
+              Δx is derived from mass via Compton wavelength: Δx = 1/(βA²)
+              Mass is the fundamental output: m = β × A²
         
         NO normalization constraints!
         """
@@ -312,72 +359,60 @@ class CompositeBaryonSolver:
         
         E_subspace = E_kin + E_pot + E_nl + E_circ
         
-        # === QUARK WINDINGS FOR PROTON (uud) ===
-        # u quark: k = 5, d quark: k = 3
-        # For proton: k1=5 (u), k2=5 (u), k3=3 (d)
-        k1, k2, k3 = 5, 5, 3  # TODO: Make configurable per baryon type
+        # === EFFECTIVE WINDING FROM WAVEFUNCTION (FIRST PRINCIPLES!) ===
+        # 
+        # CRITICAL: For composite particles, k_eff must be computed from the
+        # actual wavefunction gradient, NOT from summing individual k values!
+        #
+        # k²_eff = ∫|∂χ/∂σ|² dσ / ∫|χ|² dσ
+        #
+        # This naturally accounts for:
+        # - Three-phase interference in baryons
+        # - Constructive/destructive interference patterns
+        # - The √3 geometric factor (if real) will emerge from the math
+        #
+        # The old approach k_coupling = 13 × √3 = 22.5 was WRONG because it
+        # didn't account for interference between the three quark wavefunctions.
+        #
+        k_eff = self._compute_k_eff_from_wavefunction(chi)
         
-        # === E_COUPLING: Sum of individual quark windings (ADDITIVE) ===
-        # Each quark independently couples spacetime gradients to subspace gradients
-        # E_coupling = -α × Σ|k_i| × A
-        k_coupling = abs(k1) + abs(k2) + abs(k3)  # For proton: 5+5+3 = 13
+        # Store bare k values for reference (not used in energy)
+        k1, k2, k3 = 5, 5, 3  # For proton (uud)
+        k_coupling_bare = abs(k1) + abs(k2) + abs(k3)  # = 13 (for reference only)
         
         # === Δx FROM COMPTON WAVELENGTH (first-principles QM) ===
-        # Reference: Implementation Note - The Beautiful Balance.html, Section 5
-        #
         # Δx = λ_C = ℏ/(mc) = 1/m = 1/(βA²)  [natural units]
-        #
-        # This is the fundamental quantum mechanical scale for a particle.
-        # The Compton wavelength represents the minimum localization scale.
-        #
-        # NOTE: We do NOT use the virial formula Δx ~ 1/A⁶ which gives
-        # unphysical results (impossible mass/size tension).
-        #
-        # KEY INSIGHT: k-dependence emerges NATURALLY because:
-        # - E_coupling = -α × k_coupling × g_geom × A (k appears ONLY here)
-        # - Different k_coupling → different equilibrium A
-        # - Different A → different Δx = 1/(βA²)
-        #
-        # κ is a CALIBRATED fundamental parameter, NOT derived from Newton's G!
-        
-        # Mass from universal formula
         m = self.beta * max(A_sq, 1e-10)
-        
-        # Compton wavelength as spatial extent
         delta_x = self.hbar / m  # = 1/m in natural units (hbar=1)
         
-        # === V_eff FOR BARYONS (geometry-dependent) ===
-        # Reference: Implementation Note, Section 5.2
-        # Baryons: V_eff = 0.85 × V₀ (three peaks average over full circle)
-        V_EFF_BARYON_FACTOR = 0.85
+        # === COUPLING ENERGY (uses EMERGENT k_eff from wavefunction!) ===
+        # E_coupling = -α × k_eff × A
+        #
+        # This is now consistent with the meson solver!
+        # Both compute k_eff from wavefunction gradient, which naturally
+        # accounts for interference effects in composite particles.
+        #
+        # NO √3 factor imposed by hand - it should emerge from the physics
+        # (or not, if the three-phase structure doesn't enhance coupling).
+        E_coupling = -self.alpha * k_eff * A
         
-        # === GEOMETRIC FACTOR FOR BARYONS ===
-        # Reference: Implementation Note, Section 6.2
-        # Triangular color phase geometry enhances coupling by √3
-        GEOMETRIC_FACTOR_BARYON = np.sqrt(3)
-        
-        # === SPATIAL ENERGY (LOCALIZATION) ===
-        # E_spatial = ℏ² / (2βA²Δx²) - prevents collapse to A→0
-        # With Δx = 1/(βA²), this becomes E_spatial = (βA²)/2 = m/2
-        E_spatial = self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10) * delta_x**2)
-        
-        # === COUPLING ENERGY (uses SUM of windings + √3 geometric factor) ===
-        # E_coupling = -α × k_coupling × √3 × A
-        # Reference: Implementation Note, Section 6.2
-        # - k_coupling is the ONLY place where winding appears!
-        # - √3 comes from triangular color phase geometry (baryons only)
-        # - The Δx dependence on k emerges naturally through A
-        E_coupling = -self.alpha * k_coupling * GEOMETRIC_FACTOR_BARYON * A
-        
-        # === CURVATURE ENERGY (κ is calibrated fundamental parameter) ===
-        # E_curvature = κ × (βA²)² / Δx = κ × m² × m = κ × m³ = κ × β³ × A⁶
-        E_curvature = self.kappa * (self.beta * A_sq)**2 / delta_x
+        # === NO E_spatial OR E_curvature IN MINIMIZATION ===
+        # 
+        # Key insight: Δx is NOT an independent variable - it's determined
+        # by the Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
+        # 
+        # The spatial and curvature energies are derived quantities,
+        # not part of the energy functional to minimize.
+        # They emerge from the mass-size relationship after equilibrium.
+        E_spatial = 0.0  # Not part of minimization
+        E_curvature = 0.0  # Not part of minimization
         
         # === COULOMB ENERGY (charge-dependent, baryon-specific) ===
         E_coulomb = self._compute_coulomb_energy(chi)
         
-        E_total = E_subspace + E_spatial + E_coupling + E_curvature + E_coulomb
-        return E_total, E_subspace, E_spatial, E_coupling, E_curvature, E_coulomb, E_kin, E_pot, E_nl
+        # Total energy: subspace + coupling + coulomb (no spatial/curvature)
+        E_total = E_subspace + E_coupling + E_coulomb
+        return E_total, E_subspace, E_spatial, E_coupling, E_curvature, E_coulomb, E_kin, E_pot, E_nl, k_eff
     
     def _compute_coulomb_gradient(self, chi: NDArray[np.complexfloating]) -> NDArray[np.complexfloating]:
         """
@@ -432,35 +467,25 @@ class CompositeBaryonSolver:
         
         grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # === QUARK WINDINGS (same as energy) ===
-        k1, k2, k3 = 5, 5, 3  # For proton (uud)
-        k_coupling = abs(k1) + abs(k2) + abs(k3)  # 13
+        # === EFFECTIVE WINDING FROM WAVEFUNCTION (FIRST PRINCIPLES!) ===
+        # Same computation as in _compute_energy - k_eff from gradient
+        k_eff = self._compute_k_eff_from_wavefunction(chi)
         
-        # === Δx FROM COMPTON WAVELENGTH (same as energy) ===
-        # Δx = 1/m = 1/(βA²) in natural units
-        m = self.beta * max(A_sq, 1e-10)
-        delta_x = self.hbar / m  # = 1/m in natural units (hbar=1)
+        # === COUPLING GRADIENT (uses EMERGENT k_eff from wavefunction!) ===
+        # E_coupling = -α × k_eff × A
+        # grad = -α × k_eff / (2A) × χ
+        #
+        # Consistent with meson solver - no √3 imposed by hand!
+        grad_coupling = -self.alpha * k_eff / (2 * A + 1e-10) * chi
         
-        # Geometric factor for baryons (√3 from triangular color phase)
-        GEOMETRIC_FACTOR_BARYON = np.sqrt(3)
-        
-        # === SPATIAL GRADIENT ===
-        # E_spatial = ℏ²/(2βA²Δx²), grad = -ℏ²/(βA⁴Δx²) × χ
-        grad_spatial = -self.hbar**2 / (2 * self.beta * max(A_sq, 1e-10)**2 * delta_x**2) * chi
-        
-        # === COUPLING GRADIENT (uses k_coupling × √3 for baryons) ===
-        # E_coupling = -α × k_coupling × √3 × A
-        # grad = -α × k_coupling × √3 / (2A) × χ
-        grad_coupling = -self.alpha * k_coupling * GEOMETRIC_FACTOR_BARYON / (2 * A + 1e-10) * chi
-        
-        # === CURVATURE GRADIENT (κ is calibrated parameter) ===
-        # E_curvature = κ(βA²)² / Δx, grad = 4κβ²A² / Δx × χ
-        grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x * chi
+        # === NO SPATIAL OR CURVATURE GRADIENTS ===
+        # These terms are not part of the energy functional to minimize.
+        # Δx is derived from mass via Compton wavelength, not minimized.
         
         # === COULOMB GRADIENT (baryon-specific) ===
         grad_coulomb = self._compute_coulomb_gradient(chi)
         
-        return grad_subspace + grad_spatial + grad_coupling + grad_curvature + grad_coulomb
+        return grad_subspace + grad_coupling + grad_coulomb
     
     def _extract_color_phases(self, chi: NDArray[np.complexfloating]) -> Tuple[Tuple[float, ...], Tuple[float, ...], float]:
         """Extract phases at well positions."""
@@ -567,7 +592,7 @@ class CompositeBaryonSolver:
         
         # Final results
         (E_total, E_subspace, E_spatial, E_coupling, E_curvature, E_coulomb, 
-         E_kin, E_pot, E_nl) = self._compute_energy(chi)
+         E_kin, E_pot, E_nl, k_eff) = self._compute_energy(chi)
         A2 = np.sum(np.abs(chi)**2) * self.grid.dsigma
         phases, diffs, color_mag = self._extract_color_phases(chi)
         
@@ -584,6 +609,7 @@ class CompositeBaryonSolver:
             energy_kinetic=E_kin,
             energy_potential=E_pot,
             energy_nonlinear=E_nl,
+            k_eff=k_eff,  # EMERGENT effective winding from wavefunction gradient
             phases=phases,
             phase_differences=diffs,
             color_sum_magnitude=color_mag,
