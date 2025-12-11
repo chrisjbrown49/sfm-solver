@@ -469,25 +469,70 @@ class ResultsReporter:
             # Note: Quarkonia predictions are now shown in the Tier 2b Meson Predictions table below
             
             if charge_preds:
-                lines.append("#### Charge Quantization Predictions")
-                lines.append("")
-                lines.append("| Parameter | Predicted | Experimental | Error (%) | Status |")
-                lines.append("|-----------|-----------|--------------|-----------|--------|")
-                for pred in charge_preds:
-                    status = "✅" if pred.within_target else "❌"
-                    param_name = clean_param_name(pred.parameter)
-                    lines.append(f"| {param_name} | {pred.predicted:.4g} | "
-                               f"{pred.experimental:.4g} | {pred.percent_error:.1f}% | {status} |")
-                lines.append("")
+                # Filter out _SI predictions (redundant SI unit versions)
+                charge_preds_filtered = [p for p in charge_preds if not p.parameter.endswith('_SI')]
+                
+                # Custom sorting: Elementary_Charge and Winding_Consistency first, then alphabetical
+                def charge_sort_key(p):
+                    if 'Elementary_Charge' in p.parameter:
+                        return (0, p.parameter)
+                    elif 'Winding_Consistency' in p.parameter:
+                        return (1, p.parameter)
+                    else:
+                        return (2, p.parameter)
+                
+                charge_preds_filtered.sort(key=charge_sort_key)
+                
+                # Custom name cleaning for charge predictions
+                def clean_charge_name(name: str) -> str:
+                    name = clean_param_name(name)  # Remove Tier2_, Tier2b_ prefixes
+                    # Remove Tier1b_ prefix
+                    if name.startswith('Tier1b_'):
+                        name = name[7:]
+                    # Rename specific predictions
+                    if name == 'Elementary_Charge':
+                        return 'Elementary Charge'
+                    elif name == 'Charge_Winding_Consistency':
+                        return 'Winding Consistency'
+                    return name
+                
+                if charge_preds_filtered:
+                    lines.append("#### Charge Quantization Predictions")
+                    lines.append("")
+                    lines.append("| Parameter | Predicted | Experimental | Error (%) | Status |")
+                    lines.append("|-----------|-----------|--------------|-----------|--------|")
+                    for pred in charge_preds_filtered:
+                        status = "✅" if pred.within_target else "❌"
+                        param_name = clean_charge_name(pred.parameter)
+                        lines.append(f"| {param_name} | {pred.predicted:.4g} | "
+                                   f"{pred.experimental:.4g} | {pred.percent_error:.1f}% | {status} |")
+                    lines.append("")
             
             if other_preds:
+                # Custom name cleaning for other predictions
+                def clean_other_name(name: str) -> str:
+                    name = clean_param_name(name)  # Remove Tier2_, Tier2b_ prefixes
+                    # Remove Tier1b_ prefix
+                    if name.startswith('Tier1b_'):
+                        name = name[7:]
+                    # Rename specific predictions
+                    if name == 'Fine_Structure_Constant':
+                        return 'Fine Structure Constant'
+                    elif name == 'Fine_Structure_Inverse':
+                        return 'Fine Structure Inverse'
+                    elif name == 'Pion_Mass_Splitting':
+                        return 'Pion Mass Splitting'
+                    elif name == 'Pion_EM_Energy_Ratio':
+                        return 'Pion EM Energy Ratio'
+                    return name
+                
                 lines.append("#### Other Predictions")
                 lines.append("")
                 lines.append("| Parameter | Predicted | Experimental | Error (%) | Status | Notes |")
                 lines.append("|-----------|-----------|--------------|-----------|--------|-------|")
                 for pred in other_preds:
                     status = "✅" if pred.within_target else "❌"
-                    param_name = clean_param_name(pred.parameter)
+                    param_name = clean_other_name(pred.parameter)
                     lines.append(f"| {param_name} | {pred.predicted:.6g} | "
                                f"{pred.experimental:.6g} | {pred.percent_error:.1f}% | {status} | {pred.notes} |")
                 lines.append("")

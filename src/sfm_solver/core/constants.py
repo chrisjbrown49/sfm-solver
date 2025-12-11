@@ -25,11 +25,20 @@ HBAR_EV: float = 6.582_119_569e-16  # eV·s
 # Elementary charge (exact, SI definition)
 E_CHARGE: float = 1.602_176_634e-19  # C
 
+# Vacuum permittivity (exact, SI definition)
+# ε₀ = 1/(μ₀c²) where μ₀ = 4π×10⁻⁷ H/m exactly
+EPSILON_0: float = 8.854_187_8128e-12  # F/m (farads per meter)
+
+# Vacuum permeability (exact, SI definition)
+MU_0: float = 1.256_637_062_12e-6  # H/m (henries per meter)
+
 # Gravitational constant (CODATA 2018)
 G_NEWTON: float = 6.674_30e-11  # m³/(kg·s²)
 
 # Fine structure constant at low energy α(m_e) (CODATA 2018)
+# α = e²/(4πε₀ℏc) ≈ 1/137.036
 ALPHA_EM: float = 1.0 / 137.035_999_084
+ALPHA_EM_INVERSE: float = 137.035_999_084  # 1/α for convenience
 
 # Fermi coupling constant G_F/(ℏc)³
 G_FERMI: float = 1.166_378_7e-5  # GeV⁻²

@@ -623,7 +623,8 @@ class HTMLResultsViewer:
         # Categorize predictions
         lepton_preds = [p for p in reporter.predictions 
                         if ('m_' in p.parameter.lower() or 'ratio' in p.parameter.lower())
-                        and 'tier2b' not in p.parameter.lower()]
+                        and 'tier2b' not in p.parameter.lower()
+                        and 'pion' not in p.parameter.lower()]  # Pion predictions go elsewhere
         
         quarkonia_preds = [p for p in reporter.predictions if 'tier2b' in p.parameter.lower()]
         
@@ -640,7 +641,8 @@ class HTMLResultsViewer:
         meson_preds = [p for p in reporter.predictions 
                        if ('pion' in p.parameter.lower() or 'jpsi' in p.parameter.lower()
                            or 'meson' in p.parameter.lower() or p in quarkonia_preds)
-                       and p not in baryon_preds]
+                       and p not in baryon_preds
+                       and not p.parameter.startswith('Tier1b_')]  # Tier1b pion predictions go to Other
         
         other_preds = [p for p in reporter.predictions 
                        if p not in lepton_preds and p not in charge_preds_filtered 
@@ -651,19 +653,47 @@ class HTMLResultsViewer:
         
         # 2. Charge Quantization Predictions
         if charge_preds_filtered:
-            met = sum(1 for p in charge_preds_filtered if p.within_target)
-            html_parts.append(f'''
-        <h3>Charge Quantization Predictions <span class="{'status-pass' if met == len(charge_preds_filtered) else 'status-fail'}">({met}/{len(charge_preds_filtered)})</span></h3>
+            # Filter out _SI predictions (redundant SI unit versions)
+            charge_preds_display = [p for p in charge_preds_filtered if not p.parameter.endswith('_SI')]
+            
+            # Custom sorting: Elementary_Charge and Winding_Consistency first, then alphabetical
+            def charge_sort_key(p):
+                if 'Elementary_Charge' in p.parameter:
+                    return (0, p.parameter)
+                elif 'Winding_Consistency' in p.parameter:
+                    return (1, p.parameter)
+                else:
+                    return (2, p.parameter)
+            
+            charge_preds_display.sort(key=charge_sort_key)
+            
+            # Custom name cleaning for charge predictions
+            def clean_charge_name(name: str) -> str:
+                name = clean_param_name(name)  # Remove Tier2_, Tier2b_ prefixes
+                # Remove Tier1b_ prefix
+                if name.startswith('Tier1b_'):
+                    name = name[7:]
+                # Rename specific predictions
+                if name == 'Elementary_Charge':
+                    return 'Elementary Charge'
+                elif name == 'Charge_Winding_Consistency':
+                    return 'Winding Consistency'
+                return name
+            
+            if charge_preds_display:
+                met = sum(1 for p in charge_preds_display if p.within_target)
+                html_parts.append(f'''
+        <h3>Charge Quantization Predictions <span class="{'status-pass' if met == len(charge_preds_display) else 'status-fail'}">({met}/{len(charge_preds_display)})</span></h3>
         <table>
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th></tr>
             {''.join(f"""
             <tr>
-                <td>{clean_param_name(p.parameter)}</td>
+                <td>{clean_charge_name(p.parameter)}</td>
                 <td>{p.predicted:.4g}</td>
                 <td>{p.experimental:.4g}</td>
                 <td>{p.percent_error:.1f}%</td>
                 <td class="{'status-pass' if p.within_target else 'status-fail'}">{'✅' if p.within_target else '❌'}</td>
-            </tr>""" for p in charge_preds_filtered)}
+            </tr>""" for p in charge_preds_display)}
         </table>''')
         
         # 3. Baryon Predictions - from both recorded predictions and test analysis
@@ -674,6 +704,23 @@ class HTMLResultsViewer:
         
         # 5. Other Predictions
         if other_preds:
+            # Custom name cleaning for other predictions
+            def clean_other_name(name: str) -> str:
+                name = clean_param_name(name)  # Remove Tier2_, Tier2b_ prefixes
+                # Remove Tier1b_ prefix
+                if name.startswith('Tier1b_'):
+                    name = name[7:]
+                # Rename specific predictions
+                if name == 'Fine_Structure_Constant':
+                    return 'Fine Structure Constant'
+                elif name == 'Fine_Structure_Inverse':
+                    return 'Fine Structure Inverse'
+                elif name == 'Pion_Mass_Splitting':
+                    return 'Pion Mass Splitting'
+                elif name == 'Pion_EM_Energy_Ratio':
+                    return 'Pion EM Energy Ratio'
+                return name
+            
             met = sum(1 for p in other_preds if p.within_target)
             html_parts.append(f'''
         <h3>Other Predictions <span class="{'status-pass' if met == len(other_preds) else 'status-partial'}">({met}/{len(other_preds)})</span></h3>
@@ -681,7 +728,7 @@ class HTMLResultsViewer:
             <tr><th>Parameter</th><th>Predicted</th><th>Experimental</th><th>Error (%)</th><th>Status</th><th>Notes</th></tr>
             {''.join(f"""
             <tr>
-                <td>{clean_param_name(p.parameter)}</td>
+                <td>{clean_other_name(p.parameter)}</td>
                 <td>{p.predicted:.4g}</td>
                 <td>{p.experimental:.4g}</td>
                 <td>{p.percent_error:.1f}%</td>
