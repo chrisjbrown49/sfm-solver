@@ -95,6 +95,10 @@ class CorrelatedBasis:
         R_{nl}(r) ∝ r^l × L_{n-l-1}^{l+1/2}(r²/a₀²) × exp(-r²/(2a₀²))
         
         where L_k^α is the generalized Laguerre polynomial.
+        
+        NOTE: This uses a FIXED reference scale a0 for computing the wavefunction
+        STRUCTURE and coupling matrix. The actual spatial SCALE (Δx) is an
+        optimization variable in the energy minimizer.
         """
         if r is None:
             r = self.r
@@ -103,6 +107,7 @@ class CorrelatedBasis:
         if l >= n or l < 0:
             return np.zeros_like(r)
         
+        # Use FIXED reference scale for structure computation
         x = (r / self.a0) ** 2
         
         # Polynomial degree

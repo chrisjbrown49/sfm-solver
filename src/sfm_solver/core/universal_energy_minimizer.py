@@ -18,8 +18,15 @@ Where:
     E_nonlinear = (g₁/2) × (A⁴/Δσ) × I_NL
     E_circulation = g₂ × |J|² × A⁴
     E_spatial   = ℏ²/(2βA²Δx²)
-    E_coupling  = from actual entangled wavefunction integrals
+    E_coupling  = -α × spatial_factor(n, Δx) × subspace_factor × A
     E_curvature = κ × (βA²)² / Δx
+
+CRITICAL PHYSICS:
+    The spatial wavefunction φ_n(r; Δx) has:
+    - n-1 radial nodes (determined by quantum number n)
+    - Scale parameter = Δx/√(2n+1) (determined by optimization variable Δx)
+    
+    The spatial_factor is computed dynamically as Δx changes during optimization.
 
 This is Phase 1 of the refactor - the universal minimizer.
 """
@@ -28,6 +35,7 @@ import numpy as np
 from numpy.typing import NDArray
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
+from scipy.special import genlaguerre
 
 from sfm_solver.core.nonseparable_wavefunction_solver import WavefunctionStructure
 
@@ -114,6 +122,128 @@ class UniversalEnergyMinimizer:
         self.V0 = V0
         self.m_eff = m_eff
         self.hbar = hbar
+        
+        # Radial grid for spatial wavefunction integrals
+        self._r_grid = np.linspace(0.01, 20.0, 500)
+    
+    def _compute_spatial_factor(self, n: int, delta_x: float) -> float:
+        """
+        Compute the spatial coupling factor for harmonic oscillator wavefunction.
+        
+        CRITICAL PHYSICS:
+        - n determines the number of radial nodes (n-1 nodes for s-wave)
+        - delta_x determines the spatial scale: a = delta_x / sqrt(2n+1)
+        
+        The spatial wavefunction is:
+            φ_n(r; Δx) = N × L_{n-1}^{1/2}(r²/a²) × exp(-r²/(2a²))
+        
+        where a = Δx/√(2n+1).
+        
+        The CORRECT spatial coupling factor (from Math Formulation Part A) is:
+            ∫ |∇φ|² d³x = 4π ∫ (dφ/dr)² r² dr
+        
+        This is the SQUARED GRADIENT, which:
+        - Is non-zero for all states (unlike ∫φ×dφ/dr which is always zero!)
+        - Scales with n (more nodes → larger gradients)
+        - Scales with 1/a² = (2n+1)/Δx² (tighter confinement → stronger gradients)
+        
+        Args:
+            n: Spatial quantum number (1 for electron, 2 for muon, 3 for tau)
+            delta_x: Spatial extent (optimization variable)
+            
+        Returns:
+            Spatial coupling factor (always positive, scales as 1/Δx²)
+        """
+        if delta_x < 1e-10:
+            return 1e10  # Return large value for small delta_x
+        
+        # Scale parameter: a = Δx / √(2n+1)
+        # This ensures the characteristic size is Δx, adjusted for the number of nodes
+        a = delta_x / np.sqrt(2 * n + 1)
+        
+        if a < 1e-10:
+            return 1e10
+        
+        r = self._r_grid
+        x = (r / a) ** 2
+        
+        # Laguerre polynomial parameters for s-wave (l=0) harmonic oscillator
+        # φ_n has n-1 radial nodes, corresponding to L_{n-1}^{1/2}(x)
+        k = n - 1  # Polynomial degree
+        alpha_lag = 0.5  # For 3D harmonic oscillator s-wave
+        
+        # Compute Laguerre polynomial and its derivative
+        if k >= 0:
+            L = genlaguerre(k, alpha_lag)(x)
+            if k >= 1:
+                dL_dx = -genlaguerre(k - 1, alpha_lag + 1)(x)
+            else:
+                dL_dx = np.zeros_like(x)
+        else:
+            L = np.ones_like(x)
+            dL_dx = np.zeros_like(x)
+        
+        # Radial wavefunction (unnormalized)
+        # φ = L(x) × exp(-x/2)  where x = (r/a)²
+        exp_factor = np.exp(-x / 2)
+        phi = L * exp_factor
+        
+        # Derivative: dφ/dr = dφ/dx × dx/dr = dφ/dx × (2r/a²)
+        # dφ/dx = dL/dx × exp(-x/2) + L × (-1/2) × exp(-x/2)
+        #       = exp(-x/2) × [dL/dx - L/2]
+        dphi_dx = exp_factor * (dL_dx - L / 2)
+        dphi_dr = dphi_dx * (2 * r / a**2)
+        
+        # Normalize: ∫ 4π φ² r² dr = 1
+        norm_sq = 4 * np.pi * np.trapz(phi**2 * r**2, r)
+        if norm_sq > 1e-20:
+            phi = phi / np.sqrt(norm_sq)
+            dphi_dr = dphi_dr / np.sqrt(norm_sq)
+        
+        # CORRECT spatial coupling factor: ∫ |∇φ|² d³x = 4π ∫ (dφ/dr)² r² dr
+        # This is the SQUARED GRADIENT which is always positive and non-zero!
+        # Scales as 1/a² = (2n+1)/Δx²
+        spatial_factor = 4 * np.pi * np.trapz(dphi_dr**2 * r**2, r)
+        
+        return float(spatial_factor)
+    
+    def _compute_subspace_factor(
+        self,
+        chi_components: Dict[Tuple[int, int, int], NDArray],
+        sigma_grid: NDArray,
+    ) -> float:
+        """
+        Compute the subspace coupling factor from the entangled wavefunction.
+        
+        subspace_factor = Im[∫χ*(∂χ/∂σ)dσ]
+        
+        This is computed from the ACTUAL entangled structure once,
+        then combined with spatial_factor during optimization.
+        """
+        dsigma = sigma_grid[1] - sigma_grid[0]
+        N = len(sigma_grid)
+        
+        # First derivative matrix
+        D1 = np.zeros((N, N), dtype=complex)
+        for i in range(N):
+            D1[i, (i+1) % N] = 1.0
+            D1[i, (i-1) % N] = -1.0
+        D1 = D1 / (2 * dsigma)
+        
+        # Sum all chi components for total wavefunction
+        chi_total = np.zeros(N, dtype=complex)
+        for chi in chi_components.values():
+            chi_total += chi
+        
+        # Compute ∂χ/∂σ
+        dchi_total = D1 @ chi_total
+        
+        # Subspace factor = Im[∫χ*(∂χ/∂σ)dσ]
+        # The imaginary part carries the winding information
+        integral = np.sum(np.conj(chi_total) * dchi_total) * dsigma
+        subspace_factor = np.imag(integral)
+        
+        return float(subspace_factor)
     
     def _compute_shape_integrals(
         self,
@@ -306,17 +436,22 @@ class UniversalEnergyMinimizer:
         delta_x: float,
         delta_sigma: float,
         shape_integrals: Dict[str, float],
-        coupling_factor: float,
+        n: int,
+        subspace_factor: float,
     ) -> Tuple[float, Dict[str, float]]:
         """
         Compute total energy for given (A, Δx, Δσ) and precomputed shape integrals.
         
+        CRITICAL: The spatial_factor is computed DYNAMICALLY from (n, delta_x)!
+        This is the key to having the spatial scale emerge from optimization.
+        
         Args:
-            A: Amplitude
-            delta_x: Spatial extent
-            delta_sigma: Subspace width scale
+            A: Amplitude (optimization variable)
+            delta_x: Spatial extent (optimization variable)
+            delta_sigma: Subspace width scale (optimization variable)
             shape_integrals: Dict from _compute_shape_integrals
-            coupling_factor: From _compute_coupling_energy_from_structure
+            n: Spatial quantum number (FIXED input - determines node structure)
+            subspace_factor: From _compute_subspace_factor (computed once from chi)
             
         Returns:
             E_total, breakdown dict
@@ -353,8 +488,17 @@ class UniversalEnergyMinimizer:
         else:
             E_spatial = 1e10
         
-        # === E_COUPLING: -α × coupling_factor × A ===
-        # coupling_factor already includes the entangled wavefunction structure!
+        # === E_COUPLING: -α × spatial_factor(n, Δx) × subspace_factor × A ===
+        # 
+        # CRITICAL: spatial_factor is computed DYNAMICALLY from (n, delta_x)!
+        # This allows the spatial scale to emerge from optimization.
+        #
+        # - spatial_factor captures how spatial wavefunction structure affects coupling
+        # - subspace_factor captures how subspace wavefunction structure affects coupling
+        # - Together they give the total coupling strength
+        #
+        spatial_factor = self._compute_spatial_factor(n, delta_x)
+        coupling_factor = spatial_factor * subspace_factor
         E_coupling = -self.alpha * coupling_factor * A
         
         # === E_CURVATURE: κ × (βA²)² / Δx ===
@@ -374,6 +518,9 @@ class UniversalEnergyMinimizer:
             'E_spatial': E_spatial,
             'E_coupling': E_coupling,
             'E_curvature': E_curvature,
+            'spatial_factor': spatial_factor,
+            'subspace_factor': subspace_factor,
+            'coupling_factor': coupling_factor,
         }
         
         return E_total, breakdown
@@ -384,10 +531,13 @@ class UniversalEnergyMinimizer:
         delta_x: float,
         delta_sigma: float,
         shape_integrals: Dict[str, float],
-        coupling_factor: float,
+        n: int,
+        subspace_factor: float,
     ) -> Tuple[float, float, float]:
         """
         Compute gradients ∂E/∂A, ∂E/∂Δx, ∂E/∂Δσ.
+        
+        CRITICAL: The spatial_factor depends on Δx, so ∂E_coupling/∂Δx is non-zero!
         
         Returns:
             grad_A, grad_dx, grad_ds
@@ -398,6 +548,14 @@ class UniversalEnergyMinimizer:
         I_pot = shape_integrals['I_potential']
         I_NL = shape_integrals['I_nonlinear']
         J = shape_integrals['J']
+        
+        # Compute spatial_factor and its derivative w.r.t. delta_x (numerical)
+        spatial_factor = self._compute_spatial_factor(n, delta_x)
+        eps = delta_x * 0.001 if delta_x > 1e-6 else 1e-6
+        spatial_factor_plus = self._compute_spatial_factor(n, delta_x + eps)
+        d_spatial_d_dx = (spatial_factor_plus - spatial_factor) / eps
+        
+        coupling_factor = spatial_factor * subspace_factor
         
         # === ∂E/∂A ===
         grad_A = 0.0
@@ -420,7 +578,7 @@ class UniversalEnergyMinimizer:
         if A > 1e-10 and delta_x > 1e-10:
             grad_A += -self.hbar**2 / (self.beta * A**3 * delta_x**2)
         
-        # ∂E_coupling/∂A
+        # ∂E_coupling/∂A = -α × coupling_factor
         grad_A += -self.alpha * coupling_factor
         
         # ∂E_curvature/∂A
@@ -433,6 +591,9 @@ class UniversalEnergyMinimizer:
         # ∂E_spatial/∂Δx
         if A_sq > 1e-10 and delta_x > 1e-10:
             grad_dx += -self.hbar**2 / (self.beta * A_sq * delta_x**3)
+        
+        # ∂E_coupling/∂Δx = -α × (∂spatial_factor/∂Δx) × subspace_factor × A
+        grad_dx += -self.alpha * d_spatial_d_dx * subspace_factor * A
         
         # ∂E_curvature/∂Δx
         if delta_x > 1e-10:
@@ -486,26 +647,30 @@ class UniversalEnergyMinimizer:
         Returns:
             EnergyMinimizationResult with optimal A, Δx, Δσ and predicted mass
         """
+        # Get the quantum number n from the structure
+        n = structure.n_target
+        
         if verbose:
             print(f"Minimizing energy for {structure.particle_type} "
-                  f"(n={structure.n_target}, k={structure.k_winding})")
+                  f"(n={n}, k={structure.k_winding})")
         
         # Precompute shape integrals (computed ONCE)
         shape_integrals = self._compute_shape_integrals(
             structure.chi_components, sigma_grid, V_sigma
         )
         
-        # Precompute coupling factor (computed ONCE)
-        # Use the state_index_map to correctly map (n,l,m) to coupling matrix indices
-        coupling_factor = self._compute_coupling_energy_from_structure_v2(
-            structure.chi_components, spatial_coupling, sigma_grid, state_index_map
+        # Precompute SUBSPACE factor (computed ONCE from chi structure)
+        # The SPATIAL factor is computed dynamically as delta_x changes!
+        subspace_factor = self._compute_subspace_factor(
+            structure.chi_components, sigma_grid
         )
         
         if verbose:
             print(f"  Shape integrals: I_kin={shape_integrals['I_kinetic']:.4f}, "
                   f"I_pot={shape_integrals['I_potential']:.4f}, "
                   f"I_NL={shape_integrals['I_nonlinear']:.4f}")
-            print(f"  Coupling factor: {coupling_factor:.6f}")
+            print(f"  Subspace factor: {subspace_factor:.6f}")
+            print(f"  n (spatial mode): {n}")
         
         # Initialize
         A = initial_A
@@ -518,17 +683,19 @@ class UniversalEnergyMinimizer:
         lr_ds = 0.001
         
         # Compute initial energy
+        # Note: spatial_factor is computed DYNAMICALLY inside compute_energy!
         energy, breakdown = self.compute_energy(
-            A, delta_x, delta_sigma, shape_integrals, coupling_factor
+            A, delta_x, delta_sigma, shape_integrals, n, subspace_factor
         )
         
         best_energy = energy
         best_params = (A, delta_x, delta_sigma)
+        best_breakdown = breakdown
         
         for iteration in range(max_iter):
             # Compute gradients
             grad_A, grad_dx, grad_ds = self.compute_gradients(
-                A, delta_x, delta_sigma, shape_integrals, coupling_factor
+                A, delta_x, delta_sigma, shape_integrals, n, subspace_factor
             )
             
             # Gradient descent
@@ -541,9 +708,9 @@ class UniversalEnergyMinimizer:
             delta_x_new = max(delta_x_new, 1e-6)
             delta_sigma_new = max(delta_sigma_new, 1e-6)
             
-            # Compute new energy
+            # Compute new energy (spatial_factor computed dynamically inside!)
             new_energy, new_breakdown = self.compute_energy(
-                A_new, delta_x_new, delta_sigma_new, shape_integrals, coupling_factor
+                A_new, delta_x_new, delta_sigma_new, shape_integrals, n, subspace_factor
             )
             
             # Accept if improved
@@ -556,6 +723,7 @@ class UniversalEnergyMinimizer:
                 if energy < best_energy:
                     best_energy = energy
                     best_params = (A, delta_x, delta_sigma)
+                    best_breakdown = new_breakdown
                 
                 # Increase learning rates
                 lr_A = min(lr_A * 1.05, 0.1)
@@ -589,17 +757,17 @@ class UniversalEnergyMinimizer:
         
         # Use best result
         A, delta_x, delta_sigma = best_params
-        energy, breakdown = self.compute_energy(
-            A, delta_x, delta_sigma, shape_integrals, coupling_factor
-        )
+        breakdown = best_breakdown
         
         # Final results
         mass = self.beta * A**2
         compton_check = delta_x * self.beta * A**2
         
         if verbose:
+            spatial_factor = self._compute_spatial_factor(n, delta_x)
             print(f"  Final: A={A:.4f}, dx={delta_x:.4f}, ds={delta_sigma:.4f}")
             print(f"  Mass: {mass:.6f} GeV")
+            print(f"  Spatial factor (final): {spatial_factor:.6f}")
             print(f"  Compton check: dx*beta*A^2 = {compton_check:.4f}")
         
         return EnergyMinimizationResult(

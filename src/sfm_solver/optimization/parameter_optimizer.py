@@ -685,12 +685,12 @@ class SFMParameterOptimizer:
         """
         if self.verbose:
             print("=" * 70)
-            print("SFM FIRST-PRINCIPLES β-ONLY OPTIMIZATION")
+            print("SFM FIRST-PRINCIPLES BETA-ONLY OPTIMIZATION")
             print("=" * 70)
-            print("\nDERIVATION FORMULAS (all from β):")
-            print("  κ = 8πGβ/(ℏc³)         [enhanced 5D gravity]")
-            print("  g₁ = α_em × β² / m_e   [EM/gravity hierarchy]")
-            print("  α = 1/β                [spatial-subspace coupling]")
+            print("\nDERIVATION FORMULAS (all from beta):")
+            print("  kappa = 1/beta^2         [enhanced 5D gravity]")
+            print("  g1 = alpha_em * beta / m_e   [EM/gravity hierarchy]")
+            print("  alpha = C * beta         [spatial-subspace coupling]")
             print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
             print(f"Validation particles: {[p.name for p in self.validation]}")
             print(f"\nSearching β in [{beta_bounds[0]}, {beta_bounds[1]}] GeV")
