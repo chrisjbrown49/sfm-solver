@@ -1,36 +1,28 @@
 """
-Universal Energy Minimizer for SFM Particles.
+Universal Energy Minimizer for SFM Particles - Wavefunction-Based.
 
-CRITICAL REQUIREMENTS:
-======================
-A. ALL predictions must EMERGE from first principles of the Single-Field Model.
-   NO phenomenological parameters are permitted.
+CRITICAL FIX: Now computes energy from ACTUAL WAVEFUNCTION INTEGRALS,
+not parameterized approximations!
 
-B. Uses ONLY fundamental parameters derived from first principles:
-   - β: Fundamental mass scale (GeV)
-   - κ = 1/β²: Curvature coupling (GeV⁻²)
-   - α = C × β: Spacetime-subspace coupling (GeV)
-   - g₁ = α_em × β / m_e: Nonlinear self-interaction
-   - g₂ = α_em / 2: Circulation coupling
-   - V₀ = 1.0 GeV: Three-well potential depth
+The energy functional must capture:
+1. ∫(ℏ²/2m)|∇χ|² dσ - actual kinetic energy from wavefunction gradient
+2. ∫V(σ)|χ|² dσ - actual potential energy from three-well overlap
+3. ∫|χ|⁴ dσ - actual nonlinear self-interaction
+4. |∫χ*∂χ/∂σ|² - actual circulation
 
-C. Minimizes E_total(A, Δx, Δσ) over ALL THREE variables simultaneously.
-   This is UNIVERSAL across all particle types (leptons, baryons, mesons).
-
-ENERGY FUNCTIONAL (from "Research Note - A Beautiful Balance"):
-===============================================================
-E_total = E_subspace + E_spatial + E_coupling + E_curvature
-
-Where:
-- E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
-- E_spatial = ℏ²/(2βA²Δx²)
-- E_coupling = -α × k_eff × A
-- E_curvature = κ × (βA²)² / Δx
+Different wavefunctions (1-peak lepton, 2-peak meson, 3-peak baryon)
+give DIFFERENT energies even with the same A² because they interact
+differently with the three-well potential!
 """
 
 import numpy as np
+from numpy.typing import NDArray
 from dataclasses import dataclass
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable
+
+from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
 @dataclass
@@ -42,121 +34,177 @@ class EnergyBreakdown:
     E_coupling: float
     E_curvature: float
     
-    # Subspace components
-    E_kinetic: float
-    E_potential: float
-    E_nonlinear: float
-    E_circulation: float
+    # Subspace components (from ACTUAL integrals!)
+    E_kinetic: float      # ∫(ℏ²/2m)|∇χ|² dσ
+    E_potential: float    # ∫V(σ)|χ|² dσ
+    E_nonlinear: float    # (g₁/2)∫|χ|⁴ dσ
+    E_circulation: float  # g₂|∫χ*∂χ/∂σ|²
 
 
 @dataclass
 class MinimizationResult:
-    """Result of universal energy minimization."""
+    """Result of energy minimization."""
+    # Optimized wavefunction
+    chi: NDArray[np.complexfloating]
+    
     # Optimized variables
-    A: float              # Equilibrium amplitude
-    A_squared: float      # A² (determines mass via m = β × A²)
-    delta_x: float        # Equilibrium spatial extent
-    delta_sigma: float    # Equilibrium subspace width
+    A: float
+    A_squared: float
+    delta_x: float
+    delta_sigma: float
+    
+    # Emergent k_eff from wavefunction
+    k_eff: float
     
     # Energy breakdown
     energy: EnergyBreakdown
     
-    # Input parameter
-    k_eff: float          # Effective winding (from wavefunction)
-    
-    # Convergence info
+    # Convergence
     converged: bool
     iterations: int
     final_residual: float
 
 
-class UniversalEnergyMinimizer:
+class WavefunctionEnergyMinimizer:
     """
-    Universal energy minimizer for ALL SFM particles.
+    Energy minimizer that works with ACTUAL WAVEFUNCTIONS.
     
-    Minimizes E_total(A, Δx, Δσ) over all three variables simultaneously.
-    The particle-specific wavefunction determines k_eff, which is passed
-    as an input parameter.
+    Key difference from parameterized approach:
+    - Energy is computed from real integrals over χ
+    - Different wavefunction structures give different energies
+    - Three-well potential overlap is properly captured
     
-    This class contains NO phenomenological parameters. All physics is
-    encoded in the energy functional derived from SFM first principles.
+    The minimization optimizes over:
+    - χ (wavefunction) via gradient descent
+    - Δx (spatial extent) as separate variable
+    
+    Δσ emerges from the wavefunction shape, not as a free parameter.
     """
     
     def __init__(
         self,
-        alpha: float,      # Spacetime-subspace coupling (GeV)
-        beta: float,       # Mass scale (GeV)
-        kappa: float,      # Curvature coupling (GeV⁻²)
-        g1: float,         # Nonlinear self-interaction
-        g2: float,         # Circulation coupling
-        V0: float = 1.0,   # Three-well potential depth (GeV)
-        m_eff: float = 1.0,  # Effective mass in subspace
-        hbar: float = 1.0,   # Reduced Planck constant (natural units)
+        grid: SpectralGrid,
+        potential: ThreeWellPotential,
+        alpha: float,
+        beta: float,
+        kappa: float,
+        g1: float,
+        g2: float,
+        m_eff: float = 1.0,
+        hbar: float = 1.0,
     ):
         """
-        Initialize with fundamental parameters ONLY.
+        Initialize with grid, potential, and fundamental parameters.
         
-        NO phenomenological parameters allowed!
+        The grid and potential are ESSENTIAL - they define the actual
+        σ-space where the wavefunction lives and the three-well structure.
         """
+        self.grid = grid
+        self.potential = potential
+        self.V_grid = potential(grid.sigma)  # V(σ) on the grid
+        
         self.alpha = alpha
         self.beta = beta
         self.kappa = kappa
         self.g1 = g1
         self.g2 = g2
-        self.V0 = V0
         self.m_eff = m_eff
         self.hbar = hbar
+        
+        # Create spectral operators for kinetic energy
+        self.operators = SpectralOperators(grid, m_eff, hbar)
+    
+    def compute_k_eff(self, chi: NDArray[np.complexfloating]) -> float:
+        """
+        Compute effective winding from ACTUAL wavefunction gradient.
+        
+        k²_eff = ∫|∂χ/∂σ|² dσ / ∫|χ|² dσ
+        
+        This EMERGES from the wavefunction structure!
+        """
+        dchi = self.grid.first_derivative(chi)
+        numerator = np.sum(np.abs(dchi)**2) * self.grid.dsigma
+        denominator = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        
+        if denominator < 1e-10:
+            return 1.0
+        
+        return float(np.sqrt(numerator / denominator))
+    
+    def compute_delta_sigma(self, chi: NDArray[np.complexfloating]) -> float:
+        """
+        Compute effective width from wavefunction structure.
+        
+        Δσ_eff = sqrt(∫σ²|χ|² dσ / ∫|χ|² dσ - (∫σ|χ|² dσ / ∫|χ|² dσ)²)
+        
+        This EMERGES from the wavefunction shape!
+        """
+        sigma = self.grid.sigma
+        chi_sq = np.abs(chi)**2
+        norm = np.sum(chi_sq) * self.grid.dsigma
+        
+        if norm < 1e-10:
+            return 0.5
+        
+        # Mean position (handle periodicity)
+        mean_sigma = np.sum(sigma * chi_sq) * self.grid.dsigma / norm
+        
+        # Variance
+        var = np.sum((sigma - mean_sigma)**2 * chi_sq) * self.grid.dsigma / norm
+        
+        return float(np.sqrt(max(var, 1e-10)))
     
     def compute_energy(
         self,
-        A: float,
-        delta_x: float,
-        delta_sigma: float,
-        k_eff: float
+        chi: NDArray[np.complexfloating],
+        delta_x: float
     ) -> EnergyBreakdown:
         """
-        Compute E_total(A, Δx, Δσ) - the universal four-term energy.
+        Compute E_total from ACTUAL INTEGRALS over the wavefunction.
         
-        This is IDENTICAL for all particle types (leptons, baryons, mesons).
-        The only particle-specific input is k_eff.
-        
-        Args:
-            A: Amplitude (determines mass via m = β × A²)
-            delta_x: Spatial localization scale
-            delta_sigma: Subspace wavefunction width
-            k_eff: Effective winding (from particle-specific wavefunction)
-            
-        Returns:
-            EnergyBreakdown with all energy components
+        This properly captures:
+        - How the wavefunction overlaps with the three-well potential
+        - The actual gradient structure for kinetic energy
+        - The actual |χ|⁴ distribution for nonlinear term
         """
-        A_sq = A ** 2
+        # === AMPLITUDE FROM WAVEFUNCTION ===
+        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        A = np.sqrt(max(A_sq, 1e-10))
         
-        # === SUBSPACE ENERGY ===
+        # === k_eff FROM WAVEFUNCTION (EMERGENT!) ===
+        k_eff = self.compute_k_eff(chi)
         
-        # Kinetic: ℏ²/(2m_eff) × A²/Δσ²
-        E_kin = (self.hbar**2 / (2 * self.m_eff)) * A_sq / (delta_sigma**2)
+        # === SUBSPACE ENERGY FROM ACTUAL INTEGRALS ===
         
-        # Potential: V₀ × A²
-        E_pot = self.V0 * A_sq
+        # Kinetic: ∫(ℏ²/2m)|∇χ|² dσ - ACTUAL gradient!
+        T_chi = self.operators.apply_kinetic(chi)
+        E_kinetic = np.real(self.grid.inner_product(chi, T_chi))
         
-        # Nonlinear: (g₁/2) × A⁴/Δσ
-        E_nl = (self.g1 / 2) * A_sq**2 / delta_sigma
+        # Potential: ∫V(σ)|χ|² dσ - ACTUAL three-well overlap!
+        # THIS IS CRUCIAL - different wavefunctions see different effective potentials!
+        E_potential = np.real(np.sum(self.V_grid * np.abs(chi)**2) * self.grid.dsigma)
         
-        # Circulation: g₂ × k_eff² × A²
-        E_circ = self.g2 * (k_eff ** 2) * A_sq
+        # Nonlinear: (g₁/2)∫|χ|⁴ dσ - ACTUAL self-interaction!
+        # Three peaks vs two peaks vs one peak give DIFFERENT values!
+        E_nonlinear = (self.g1 / 2) * np.sum(np.abs(chi)**4) * self.grid.dsigma
         
-        E_subspace = E_kin + E_pot + E_nl + E_circ
+        # Circulation: g₂|J|² where J = ∫χ*∂χ/∂σ dσ
+        dchi = self.grid.first_derivative(chi)
+        J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
+        E_circulation = self.g2 * np.abs(J)**2
+        
+        E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
         
         # === SPATIAL ENERGY ===
         # E_spatial = ℏ²/(2βA²Δx²)
         if A_sq > 1e-10 and delta_x > 1e-10:
             E_spatial = self.hbar**2 / (2 * self.beta * A_sq * delta_x**2)
         else:
-            E_spatial = 1e10  # Penalty for invalid values
+            E_spatial = 1e10
         
         # === COUPLING ENERGY ===
         # E_coupling = -α × k_eff × A
-        # This is the SIMPLE theoretical form - no phenomenological scaling!
+        # k_eff is EMERGENT from wavefunction!
         E_coupling = -self.alpha * k_eff * A
         
         # === CURVATURE ENERGY ===
@@ -165,7 +213,7 @@ class UniversalEnergyMinimizer:
             mass_sq = (self.beta * A_sq) ** 2
             E_curvature = self.kappa * mass_sq / delta_x
         else:
-            E_curvature = 1e10  # Penalty
+            E_curvature = 1e10
         
         E_total = E_subspace + E_spatial + E_coupling + E_curvature
         
@@ -175,207 +223,186 @@ class UniversalEnergyMinimizer:
             E_spatial=E_spatial,
             E_coupling=E_coupling,
             E_curvature=E_curvature,
-            E_kinetic=E_kin,
-            E_potential=E_pot,
-            E_nonlinear=E_nl,
-            E_circulation=E_circ,
+            E_kinetic=E_kinetic,
+            E_potential=E_potential,
+            E_nonlinear=E_nonlinear,
+            E_circulation=E_circulation,
         )
     
-    def compute_gradients(
+    def compute_wavefunction_gradient(
         self,
-        A: float,
-        delta_x: float,
-        delta_sigma: float,
-        k_eff: float
-    ) -> Tuple[float, float, float]:
+        chi: NDArray[np.complexfloating],
+        delta_x: float
+    ) -> NDArray[np.complexfloating]:
         """
-        Compute analytical gradients ∂E/∂A, ∂E/∂Δx, ∂E/∂Δσ.
+        Compute gradient δE/δχ* for wavefunction optimization.
         
-        These are derived directly from the energy functional.
-        No phenomenological parameters involved!
-        
-        Returns:
-            (dE_dA, dE_ddelta_x, dE_ddelta_sigma)
+        This is the CORRECT gradient from actual energy terms.
         """
-        A_sq = A ** 2
+        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        A = np.sqrt(max(A_sq, 1e-10))
+        k_eff = self.compute_k_eff(chi)
         
-        # === ∂E/∂A ===
+        # === SUBSPACE GRADIENTS ===
         
-        # E_kin = (ℏ²/2m) × A²/Δσ² → dE_kin/dA = (ℏ²/m) × A/Δσ²
-        dE_kin_dA = (self.hbar**2 / self.m_eff) * A / (delta_sigma**2)
+        # δE_kinetic/δχ* = T χ
+        T_chi = self.operators.apply_kinetic(chi)
         
-        # E_pot = V₀ × A² → dE_pot/dA = 2V₀A
-        dE_pot_dA = 2 * self.V0 * A
+        # δE_potential/δχ* = V(σ) χ
+        V_chi = self.V_grid * chi
         
-        # E_nl = (g₁/2) × A⁴/Δσ → dE_nl/dA = 2g₁A³/Δσ
-        dE_nl_dA = 2 * self.g1 * A**3 / delta_sigma
+        # δE_nonlinear/δχ* = g₁|χ|² χ
+        NL_chi = self.g1 * np.abs(chi)**2 * chi
         
-        # E_circ = g₂k²A² → dE_circ/dA = 2g₂k²A
-        dE_circ_dA = 2 * self.g2 * (k_eff**2) * A
+        # δE_circulation/δχ* = 2g₂ Re[J*] ∂χ/∂σ
+        dchi = self.grid.first_derivative(chi)
+        J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
+        circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
         
-        dE_subspace_dA = dE_kin_dA + dE_pot_dA + dE_nl_dA + dE_circ_dA
+        grad_subspace = T_chi + V_chi + NL_chi + circ_grad
         
-        # E_spatial = ℏ²/(2βA²Δx²) → dE_spatial/dA = -ℏ²/(βA³Δx²)
-        if A > 1e-10 and delta_x > 1e-10:
-            dE_spatial_dA = -self.hbar**2 / (self.beta * A**3 * delta_x**2)
-        else:
-            dE_spatial_dA = 0
-        
-        # E_coupling = -αk_eff×A → dE_coupling/dA = -αk_eff
-        dE_coupling_dA = -self.alpha * k_eff
-        
-        # E_curvature = κ(βA²)²/Δx = κβ²A⁴/Δx → dE_curv/dA = 4κβ²A³/Δx
-        if delta_x > 1e-10:
-            dE_curvature_dA = 4 * self.kappa * self.beta**2 * A**3 / delta_x
-        else:
-            dE_curvature_dA = 0
-        
-        dE_dA = dE_subspace_dA + dE_spatial_dA + dE_coupling_dA + dE_curvature_dA
-        
-        # === ∂E/∂Δx ===
-        
-        # E_spatial = ℏ²/(2βA²Δx²) → dE_spatial/dΔx = -ℏ²/(βA²Δx³)
-        # E_curvature = κβ²A⁴/Δx → dE_curv/dΔx = -κβ²A⁴/Δx²
+        # === SPATIAL GRADIENT ===
+        # E_spatial = ℏ²/(2βA²Δx²) → δE_spatial/δχ* = -ℏ²/(βA⁴Δx²) × χ
         if A_sq > 1e-10 and delta_x > 1e-10:
-            dE_spatial_ddx = -self.hbar**2 / (self.beta * A_sq * delta_x**3)
-            dE_curvature_ddx = -self.kappa * self.beta**2 * A_sq**2 / (delta_x**2)
+            grad_spatial = -self.hbar**2 / (self.beta * A_sq**2 * delta_x**2) * chi
         else:
-            dE_spatial_ddx = 0
-            dE_curvature_ddx = 0
+            grad_spatial = np.zeros_like(chi)
         
-        dE_ddelta_x = dE_spatial_ddx + dE_curvature_ddx
-        
-        # === ∂E/∂Δσ ===
-        
-        # E_kin = (ℏ²/2m) × A²/Δσ² → dE_kin/dΔσ = -(ℏ²/m) × A²/Δσ³
-        # E_nl = (g₁/2) × A⁴/Δσ → dE_nl/dΔσ = -(g₁/2) × A⁴/Δσ²
-        if delta_sigma > 1e-10:
-            dE_kin_dds = -(self.hbar**2 / self.m_eff) * A_sq / (delta_sigma**3)
-            dE_nl_dds = -(self.g1 / 2) * A_sq**2 / (delta_sigma**2)
+        # === COUPLING GRADIENT ===
+        # E_coupling = -α × k_eff × A
+        # This is complex because k_eff depends on χ
+        # Simplified: δE_coupling/δχ* ≈ -α × k_eff / (2A) × χ
+        if A > 1e-10:
+            grad_coupling = -self.alpha * k_eff / (2 * A) * chi
         else:
-            dE_kin_dds = 0
-            dE_nl_dds = 0
+            grad_coupling = np.zeros_like(chi)
         
-        dE_ddelta_sigma = dE_kin_dds + dE_nl_dds
+        # === CURVATURE GRADIENT ===
+        # E_curvature = κ(βA²)²/Δx → δE_curv/δχ* = 4κβ²A²/Δx × χ
+        if delta_x > 1e-10:
+            grad_curvature = 4 * self.kappa * self.beta**2 * A_sq / delta_x * chi
+        else:
+            grad_curvature = np.zeros_like(chi)
         
-        return (dE_dA, dE_ddelta_x, dE_ddelta_sigma)
+        return grad_subspace + grad_spatial + grad_coupling + grad_curvature
     
     def minimize(
         self,
-        k_eff: float,
-        initial_A: float = 0.5,
-        initial_dx: float = 1.0,
-        initial_ds: float = 0.5,
+        chi_initial: NDArray[np.complexfloating],
         max_iter: int = 20000,
         tol: float = 1e-10,
         verbose: bool = False
     ) -> MinimizationResult:
         """
-        Find equilibrium (A*, Δx*, Δσ*) by gradient descent.
-        
-        Minimizes E_total over all three variables simultaneously.
+        Minimize energy over wavefunction χ and spatial extent Δx.
         
         Args:
-            k_eff: Effective winding (from particle-specific wavefunction)
-            initial_A: Starting amplitude
-            initial_dx: Starting spatial extent
-            initial_ds: Starting subspace width
+            chi_initial: Initial wavefunction (from particle-specific initialization)
             max_iter: Maximum iterations
             tol: Convergence tolerance
             verbose: Print progress
             
         Returns:
-            MinimizationResult with equilibrium values and energy breakdown
+            MinimizationResult with optimized wavefunction and energies
         """
-        # Initialize variables
-        A = initial_A
-        delta_x = initial_dx
-        delta_sigma = initial_ds
+        # Initialize
+        chi = chi_initial.copy()
+        delta_x = 1.0  # Initial spatial extent
         
         # Step sizes
-        dt_A = 0.001
+        dt_chi = 0.001
         dt_dx = 0.001
-        dt_ds = 0.001
         
         # Initial energy
-        energy = self.compute_energy(A, delta_x, delta_sigma, k_eff)
+        energy = self.compute_energy(chi, delta_x)
         E_old = energy.E_total
         
         converged = False
         final_residual = float('inf')
         
         for iteration in range(max_iter):
-            # Compute gradients
-            dE_dA, dE_ddx, dE_dds = self.compute_gradients(A, delta_x, delta_sigma, k_eff)
+            # === OPTIMIZE WAVEFUNCTION χ ===
+            grad_chi = self.compute_wavefunction_gradient(chi, delta_x)
+            chi_new = chi - dt_chi * grad_chi
             
-            # Gradient descent
-            A_new = A - dt_A * dE_dA
+            # === OPTIMIZE Δx ===
+            # ∂E/∂Δx = -ℏ²/(βA²Δx³) - κ(βA²)²/Δx²
+            A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+            if A_sq > 1e-10 and delta_x > 1e-10:
+                dE_ddx = -self.hbar**2 / (self.beta * A_sq * delta_x**3)
+                dE_ddx -= self.kappa * (self.beta * A_sq)**2 / (delta_x**2)
+            else:
+                dE_ddx = 0
+            
             delta_x_new = delta_x - dt_dx * dE_ddx
-            delta_sigma_new = delta_sigma - dt_ds * dE_dds
             
-            # Enforce physical bounds
-            A_new = max(A_new, 1e-6)
+            # Enforce bounds on Δx
             delta_x_new = max(delta_x_new, 1e-6)
             delta_x_new = min(delta_x_new, 1e6)
-            delta_sigma_new = max(delta_sigma_new, 0.01)
-            delta_sigma_new = min(delta_sigma_new, 3.0)
             
             # Compute new energy
-            energy_new = self.compute_energy(A_new, delta_x_new, delta_sigma_new, k_eff)
+            energy_new = self.compute_energy(chi_new, delta_x_new)
             E_new = energy_new.E_total
             
             # Adaptive step size
             if E_new > E_old:
-                dt_A *= 0.5
+                dt_chi *= 0.5
                 dt_dx *= 0.5
-                dt_ds *= 0.5
-                if dt_A < 1e-15:
+                if dt_chi < 1e-15:
                     break
                 continue
             else:
-                dt_A = min(dt_A * 1.02, 0.01)
+                dt_chi = min(dt_chi * 1.02, 0.01)
                 dt_dx = min(dt_dx * 1.02, 0.01)
-                dt_ds = min(dt_ds * 1.02, 0.01)
+            
+            # Update
+            chi = chi_new
+            delta_x = delta_x_new
             
             # Convergence check
             dE = abs(E_new - E_old)
             final_residual = dE
             
             if verbose and iteration % 2000 == 0:
-                print(f"  Iter {iteration}: E={E_new:.6f}, A={A_new:.6f}, "
-                      f"Δx={delta_x_new:.6g}, Δσ={delta_sigma_new:.4f}")
+                A = np.sqrt(np.sum(np.abs(chi)**2) * self.grid.dsigma)
+                k_eff = self.compute_k_eff(chi)
+                print(f"  Iter {iteration}: E={E_new:.6f}, A={A:.4f}, "
+                      f"k_eff={k_eff:.3f}, Δx={delta_x:.4g}")
             
             if dE < tol:
                 converged = True
-                A, delta_x, delta_sigma = A_new, delta_x_new, delta_sigma_new
                 energy = energy_new
                 break
             
-            A, delta_x, delta_sigma = A_new, delta_x_new, delta_sigma_new
             E_old = E_new
             energy = energy_new
         
+        # Final computations
+        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
+        A = np.sqrt(A_sq)
+        k_eff = self.compute_k_eff(chi)
+        delta_sigma = self.compute_delta_sigma(chi)
+        
         return MinimizationResult(
+            chi=chi,
             A=A,
-            A_squared=A**2,
+            A_squared=A_sq,
             delta_x=delta_x,
             delta_sigma=delta_sigma,
-            energy=energy,
             k_eff=k_eff,
+            energy=energy,
             converged=converged,
             iterations=iteration + 1,
             final_residual=final_residual,
         )
 
 
-def create_minimizer_from_constants() -> UniversalEnergyMinimizer:
+def create_minimizer_from_constants(
+    grid: SpectralGrid,
+    potential: ThreeWellPotential
+) -> WavefunctionEnergyMinimizer:
     """
     Create minimizer using pure first-principles parameters.
-    
-    Uses the derived formulas:
-    - κ = 1/β²
-    - α = 0.5 × β
-    - g₁ = α_em × β / m_e
     """
     from sfm_solver.core.sfm_global import SFM_CONSTANTS
     
@@ -389,12 +416,12 @@ def create_minimizer_from_constants() -> UniversalEnergyMinimizer:
     g1 = alpha_em * beta / electron_mass_gev
     g2 = SFM_CONSTANTS.g2_alpha
     
-    return UniversalEnergyMinimizer(
+    return WavefunctionEnergyMinimizer(
+        grid=grid,
+        potential=potential,
         alpha=alpha,
         beta=beta,
         kappa=kappa,
         g1=g1,
         g2=g2,
-        V0=1.0,
     )
-

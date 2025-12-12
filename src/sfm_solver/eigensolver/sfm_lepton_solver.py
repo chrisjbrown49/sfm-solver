@@ -1,23 +1,16 @@
 """
 SFM Lepton Solver - Pure First-Principles Implementation.
 
-CRITICAL REQUIREMENTS (from Tier1_Lepton_Solver_Fix_Plan.md):
-============================================================
-A. ALL predictions must EMERGE from first principles of the Single-Field Model.
-   NO phenomenological parameters are permitted.
+CRITICAL: Uses WAVEFUNCTION-BASED energy minimization.
 
-B. Uses ONLY fundamental parameters derived from first principles:
-   - β, κ = 1/β², α = C × β, g₁, g₂, V₀
-   These are shared across ALL solvers (lepton, baryon, meson).
+The actual wavefunction structure matters:
+- ONE peak at a well with k=1 winding
+- Actual ∫V(σ)|χ|² captures single-well interaction
+- Actual ∫|χ|⁴ captures nonlinear self-interaction
+- k_eff emerges from ∫|∂χ/∂σ|²
 
-C. Uses the UNIVERSAL energy minimizer to minimize E_total(A, Δx, Δσ).
-
-PHYSICS:
-========
-- Single wavefunction with k=1 winding
-- Spatial mode n = 1, 2, 3 for electron, muon, tau
-- k_eff = n × k emerges from coupling mechanism
-- Mass from m = β × A²
+This is fundamentally different from mesons (2 peaks) and baryons (3 peaks)!
+The lepton occupies ONE well, not multiple wells like hadrons.
 """
 
 import numpy as np
@@ -27,15 +20,13 @@ from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.core.sfm_global import SFM_CONSTANTS
-from sfm_solver.core.energy_minimizer import UniversalEnergyMinimizer, MinimizationResult
+from sfm_solver.core.energy_minimizer import WavefunctionEnergyMinimizer
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
-# Lepton winding number - k=1 for all charged leptons
 LEPTON_WINDING = 1
 
-# Lepton spatial modes
 LEPTON_SPATIAL_MODE = {
     'electron': 1,
     'muon': 2,
@@ -49,7 +40,7 @@ class SFMLeptonState:
     chi: NDArray[np.complexfloating]
     particle: str
     
-    # From universal minimizer
+    # From minimizer
     amplitude: float
     amplitude_squared: float
     delta_x: float
@@ -81,12 +72,16 @@ class SFMLeptonState:
 
 class SFMLeptonSolver:
     """
-    Pure first-principles lepton solver using universal energy minimizer.
+    Lepton solver using WAVEFUNCTION-BASED energy minimization.
     
-    NO PHENOMENOLOGICAL PARAMETERS - all mass ratios must EMERGE.
+    Key difference from hadrons:
+    - ONE peak (single particle) vs TWO (meson) or THREE (baryon)
+    - Occupies ONE well of the three-well potential
+    - Different overlap with V(σ), different ∫|χ|⁴
     """
     
     LEPTON_K = 1
+    WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]
     
     def __init__(
         self,
@@ -101,11 +96,7 @@ class SFMLeptonSolver:
         hbar: float = 1.0,
         use_physical: Optional[bool] = None,
     ):
-        """
-        Initialize with ONLY fundamental parameters.
-        
-        NO solver-specific calibration allowed!
-        """
+        """Initialize with fundamental parameters."""
         if grid is None:
             grid = SpectralGrid(N=128)
         if potential is None:
@@ -118,10 +109,8 @@ class SFMLeptonSolver:
             use_physical = SFM_CONSTANTS.use_physical
         self.use_physical = use_physical
         
-        # Get fundamental parameters
         self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
         
-        # Pure first-principles derivations
         alpha_em = 1.0 / 137.036
         electron_mass_gev = 0.000511
         
@@ -133,20 +122,20 @@ class SFMLeptonSolver:
         self.m_eff = m_eff
         self.hbar = hbar
         
-        # Create universal minimizer
-        self.minimizer = UniversalEnergyMinimizer(
+        # Create WAVEFUNCTION-BASED minimizer
+        self.minimizer = WavefunctionEnergyMinimizer(
+            grid=grid,
+            potential=potential,
             alpha=self.alpha,
             beta=self.beta,
             kappa=self.kappa,
             g1=self.g1,
             g2=self.g2,
-            V0=1.0,
             m_eff=m_eff,
             hbar=hbar,
         )
         
         self.operators = SpectralOperators(grid, m_eff, hbar)
-        self._V_grid = potential(grid.sigma)
     
     def _initialize_lepton_wavefunction(
         self,
@@ -154,24 +143,48 @@ class SFMLeptonSolver:
         initial_amplitude: float = 1.0
     ) -> NDArray[np.complexfloating]:
         """
-        Initialize lepton wavefunction with k=1 winding.
+        Initialize lepton as ONE-PEAK wavefunction with RADIAL NODES.
         
-        Leptons are single-particle states:
-        - Localized at one well
-        - k=1 winding
-        - Spatial mode n affects coupling (creates mass hierarchy)
+        Different spatial modes n create different wavefunction structures:
+        - n=1 (electron): Ground state, no radial nodes
+        - n=2 (muon): First excitation, 1 radial node
+        - n=3 (tau): Second excitation, 2 radial nodes
+        
+        The nodes create DIFFERENT integrals:
+        - Different ∫V(σ)|χ|² (node positions vs potential structure)
+        - Different ∫|χ|⁴ (nodes reduce overlap → smaller integral)
+        - Different ∫|∇χ|² (more nodes → higher kinetic energy)
+        
+        This is the physics of the lepton mass hierarchy!
         """
         sigma = self.grid.sigma
         
-        # Lepton localized in first well
-        well_pos = 0.0
-        width = 0.5
+        # Lepton at first well
+        well_pos = self.WELL_POSITIONS[0]
         
-        # Gaussian envelope
+        # Width narrows with generation (more localized)
+        width = 0.5 / n_spatial
+        
+        # Gaussian envelope at ONE well
         dist = np.angle(np.exp(1j * (sigma - well_pos)))
         envelope = np.exp(-0.5 * (dist / width)**2)
         
-        # Winding factor
+        # Add radial nodes for excited states!
+        # This is crucial - nodes create different overlap integrals
+        if n_spatial >= 2:
+            # Hermite polynomial structure (nodes)
+            # n=2: one node at center → H₁(x) ~ x
+            # n=3: two nodes → H₂(x) ~ x² - 1
+            x = dist / width
+            if n_spatial == 2:
+                radial_structure = x  # One node at center
+            elif n_spatial == 3:
+                radial_structure = x**2 - 1.0  # Two nodes
+            else:
+                radial_structure = np.polynomial.hermite.hermval(x, [0]*(n_spatial-1) + [1])
+            envelope = envelope * radial_structure
+        
+        # k=1 winding
         winding = np.exp(1j * self.LEPTON_K * sigma)
         
         chi = envelope * winding
@@ -183,18 +196,6 @@ class SFMLeptonSolver:
         
         return chi
     
-    def _compute_k_eff(self, chi: NDArray[np.complexfloating], n_spatial: int) -> float:
-        """
-        Compute effective winding for leptons.
-        
-        For leptons, k_eff = n × k from the coupling mechanism.
-        The spatial mode n multiplies the base winding k.
-        
-        This is the SIMPLE theoretical form - no phenomenological enhancement!
-        """
-        # Simple form: k_eff = n × k
-        return float(n_spatial * self.LEPTON_K)
-    
     def solve_lepton(
         self,
         particle: str = 'electron',
@@ -204,38 +205,34 @@ class SFMLeptonSolver:
         verbose: bool = False
     ) -> SFMLeptonState:
         """
-        Solve for lepton using UNIVERSAL energy minimizer.
+        Solve for lepton using wavefunction-based minimization.
         
-        Steps:
-        1. Initialize lepton wavefunction (lepton-specific)
-        2. Compute k_eff = n × k (lepton-specific)
-        3. Use UNIVERSAL minimizer (same for all particles!)
+        The ONE-PEAK structure creates different physics than hadrons:
+        - Occupies ONE well only
+        - Different ∫V|χ|² (sees only one well minimum)
+        - Different ∫|χ|⁴ (single concentrated peak)
         """
         n_spatial = LEPTON_SPATIAL_MODE.get(particle, 1)
         
         if verbose:
             print("=" * 60)
-            print(f"LEPTON SOLVER (First-Principles): {particle.upper()}")
-            print(f"  Winding k = {self.LEPTON_K}")
-            print(f"  Spatial mode n = {n_spatial}")
-            print(f"  Using UNIVERSAL energy minimizer")
+            print(f"LEPTON SOLVER (Wavefunction-Based): {particle.upper()}")
+            print(f"  ONE-PEAK structure at ONE well")
+            print(f"  k = {self.LEPTON_K}, n_spatial = {n_spatial}")
+            print(f"  Energy from ACTUAL INTEGRALS over χ")
             print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}, κ={self.kappa:.6g}")
-            print("  NO phenomenological parameters!")
             print("=" * 60)
         
-        # Step 1: Initialize lepton wavefunction
-        chi = self._initialize_lepton_wavefunction(n_spatial, initial_amplitude)
-        
-        # Step 2: Compute k_eff = n × k (SIMPLE!)
-        k_eff = self._compute_k_eff(chi, n_spatial)
+        # Initialize ONE-PEAK lepton wavefunction
+        chi_initial = self._initialize_lepton_wavefunction(n_spatial, initial_amplitude)
         
         if verbose:
-            print(f"  k_eff = n × k = {n_spatial} × {self.LEPTON_K} = {k_eff}")
+            k_eff_init = self.minimizer.compute_k_eff(chi_initial)
+            print(f"  Initial k_eff: {k_eff_init:.4f}")
         
-        # Step 3: Use UNIVERSAL minimizer
+        # Minimize using WAVEFUNCTION-BASED minimizer
         result = self.minimizer.minimize(
-            k_eff=k_eff,
-            initial_A=np.sqrt(initial_amplitude),
+            chi_initial=chi_initial,
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
@@ -245,13 +242,16 @@ class SFMLeptonSolver:
             mass_mev = self.beta * result.A_squared * 1000
             print(f"\n  Results:")
             print(f"    A² = {result.A_squared:.6f}")
+            print(f"    k_eff = {result.k_eff:.4f} (EMERGENT)")
             print(f"    Δx = {result.delta_x:.6g}")
-            print(f"    Δσ = {result.delta_sigma:.4f}")
+            print(f"    Δσ = {result.delta_sigma:.4f} (EMERGENT)")
             print(f"    Mass = {mass_mev:.2f} MeV")
+            print(f"    E_potential = {result.energy.E_potential:.4f} (from ∫V|χ|²)")
+            print(f"    E_nonlinear = {result.energy.E_nonlinear:.4f} (from ∫|χ|⁴)")
             print(f"    Converged: {result.converged}")
         
         return SFMLeptonState(
-            chi=chi,
+            chi=result.chi,
             particle=particle,
             amplitude=result.A,
             amplitude_squared=result.A_squared,
@@ -267,7 +267,7 @@ class SFMLeptonSolver:
             energy_nonlinear=result.energy.E_nonlinear,
             energy_circulation=result.energy.E_circulation,
             k=self.LEPTON_K,
-            k_eff=k_eff,
+            k_eff=result.k_eff,
             n_spatial=n_spatial,
             converged=result.converged,
             iterations=result.iterations,
@@ -275,15 +275,12 @@ class SFMLeptonSolver:
         )
     
     def solve_electron(self, **kwargs) -> SFMLeptonState:
-        """Solve for electron (n=1)."""
         return self.solve_lepton(particle='electron', **kwargs)
     
     def solve_muon(self, **kwargs) -> SFMLeptonState:
-        """Solve for muon (n=2)."""
         return self.solve_lepton(particle='muon', **kwargs)
     
     def solve_tau(self, **kwargs) -> SFMLeptonState:
-        """Solve for tau (n=3)."""
         return self.solve_lepton(particle='tau', **kwargs)
     
     def solve_lepton_spectrum(
@@ -291,28 +288,17 @@ class SFMLeptonSolver:
         verbose: bool = True,
         **kwargs
     ) -> Dict[str, SFMLeptonState]:
-        """Solve for all three charged leptons."""
+        """Solve for all three leptons."""
         results = {}
-        particles = ['electron', 'muon', 'tau']
-        
-        if verbose:
-            print("=" * 60)
-            print("SFM LEPTON SPECTRUM SOLVER (First-Principles)")
-            print("  Using UNIVERSAL energy minimizer")
-            print("  NO phenomenological parameters!")
-            print("=" * 60)
-        
-        for particle in particles:
-            state = self.solve_lepton(particle=particle, verbose=verbose, **kwargs)
-            results[particle] = state
-        
+        for particle in ['electron', 'muon', 'tau']:
+            results[particle] = self.solve_lepton(particle=particle, verbose=verbose, **kwargs)
         return results
     
     def compute_mass_ratios(
         self,
         results: Dict[str, SFMLeptonState]
     ) -> Dict[str, float]:
-        """Compute mass ratios from results."""
+        """Compute mass ratios."""
         e_A2 = results['electron'].amplitude_squared
         mu_A2 = results['muon'].amplitude_squared
         tau_A2 = results['tau'].amplitude_squared
@@ -325,7 +311,7 @@ class SFMLeptonSolver:
 
 
 def solve_lepton_masses(verbose: bool = True) -> Dict[str, float]:
-    """Convenience function to solve for lepton mass ratios."""
+    """Convenience function."""
     solver = SFMLeptonSolver()
     results = solver.solve_lepton_spectrum(verbose=verbose)
     ratios = solver.compute_mass_ratios(results)
