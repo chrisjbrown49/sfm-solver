@@ -230,10 +230,11 @@ class UniversalEnergyMinimizer:
                 dchi_j = D1 @ chi_j
                 
                 # IMAGINARY part carries the winding!
+                # Use R_ij WITH ITS SIGN (not abs) to get correct E_coupling sign
                 integral = np.sum(np.conj(chi_i) * dchi_j) * dsigma
-                coupling_factor += abs(R_ij) * np.imag(integral)
+                coupling_factor += np.real(R_ij) * np.imag(integral)
         
-        return float(coupling_factor)
+        return float(np.real(coupling_factor))
     
     def _compute_coupling_energy_from_structure_v2(
         self,
@@ -282,6 +283,7 @@ class UniversalEnergyMinimizer:
                     continue
                 
                 # Get coupling matrix element using CORRECT indices
+                # Use R_ij WITH SIGN (not |R_ij|) to get correct coupling sign
                 R_ij = spatial_coupling[idx_i, idx_j]
                 if abs(R_ij) < 1e-10:
                     continue
@@ -291,11 +293,12 @@ class UniversalEnergyMinimizer:
                 
                 dchi_j = D1 @ chi_j
                 
-                # IMAGINARY part carries the winding!
+                # IMAGINARY part carries the winding
+                # Use R_ij WITH ITS SIGN (not abs) to get correct E_coupling sign
                 integral = np.sum(np.conj(chi_i) * dchi_j) * dsigma
-                coupling_factor += abs(R_ij) * np.imag(integral)
+                coupling_factor += np.real(R_ij) * np.imag(integral)
         
-        return float(coupling_factor)
+        return float(np.real(coupling_factor))
     
     def compute_energy(
         self,
