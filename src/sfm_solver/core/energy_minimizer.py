@@ -1,13 +1,19 @@
 """
 Universal Energy Minimizer for SFM Particles.
 
-CRITICAL PHYSICS:
-- Quantum numbers (n, k) are INPUTS that define which particle
-- n = spatial mode number (1,2,3 for electron/muon/tau)
-- k = topological winding number (1 for leptons, varies for quarks)
-- E_coupling uses these quantum numbers DIRECTLY, not computed from gradients
-- Wavefunction structure affects E_kinetic, E_potential, E_nonlinear through actual integrals
-- Minimize over (A, Δx, Δσ) with (n, k) as fixed inputs
+CRITICAL FIX: E_coupling is now computed from ACTUAL WAVEFUNCTIONS:
+  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
+
+This separates into:
+  E_coupling = -α × [spatial_factor] × [subspace_factor]
+
+Where:
+- spatial_factor = ∫ (dφ/dr) φ r² dr  (from radial wavefunction with n nodes)
+- subspace_factor = Re[∫ χ* (∂χ/∂σ) dσ]  (from subspace wavefunction)
+
+The mass hierarchy EMERGES from the wavefunction structures:
+- Different n → different radial nodes → different spatial_factor
+- Different χ structure (1/2/3 peaks) → different subspace_factor
 """
 
 import numpy as np
@@ -16,6 +22,7 @@ from dataclasses import dataclass
 from typing import Tuple, Optional
 
 from sfm_solver.core.grid import SpectralGrid
+from sfm_solver.core.spatial_wavefunction import SpatialWavefunction, SpatialGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.eigensolver.spectral import SpectralOperators
 
@@ -29,11 +36,15 @@ class EnergyBreakdown:
     E_coupling: float
     E_curvature: float
     
-    # Subspace components (from actual integrals)
-    E_kinetic: float      # ∫(ℏ²/2m)|∇χ|² dσ
-    E_potential: float    # ∫V(σ)|χ|² dσ
-    E_nonlinear: float    # (g₁/2)∫|χ|⁴ dσ
-    E_circulation: float  # g₂|∫χ*∂χ/∂σ|²
+    # Subspace components
+    E_kinetic: float
+    E_potential: float
+    E_nonlinear: float
+    E_circulation: float
+    
+    # Coupling components (for debugging)
+    spatial_factor: float
+    subspace_factor: float
 
 
 @dataclass
@@ -47,9 +58,8 @@ class MinimizationResult:
     delta_x: float
     delta_sigma: float
     
-    # INPUT quantum numbers (not computed!)
+    # Spatial mode (for reference)
     n_spatial: int
-    k_winding: int
     
     # Energy breakdown
     energy: EnergyBreakdown
@@ -62,18 +72,14 @@ class MinimizationResult:
 
 class WavefunctionEnergyMinimizer:
     """
-    Energy minimizer with quantum numbers as inputs.
+    Energy minimizer using actual wavefunctions for coupling.
     
     Key physics:
-    - (n, k) are quantum numbers that DEFINE which particle
-    - E_coupling = -α × f(n) × k × A uses these directly
-    - Wavefunction structure affects subspace energies via integrals
-    - Minimize E_total(A, Δx, Δσ) with (n, k) fixed
+    - φ_n(r): Spatial wavefunction with n-1 radial nodes
+    - χ(σ): Subspace wavefunction (single or composite)
+    - E_coupling emerges from ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
+    - No input quantum numbers needed - everything from wavefunctions!
     """
-    
-    # Spatial mode enhancement power for leptons
-    # From research notes: f(n) = n^p where p ≈ 8.75
-    SPATIAL_MODE_POWER = 8.75
     
     def __init__(
         self,
@@ -86,8 +92,10 @@ class WavefunctionEnergyMinimizer:
         g2: float,
         m_eff: float = 1.0,
         hbar: float = 1.0,
+        r_max: float = 10.0,
+        N_r: int = 256,
     ):
-        """Initialize with fundamental parameters."""
+        """Initialize with fundamental parameters and spatial grid."""
         self.grid = grid
         self.potential = potential
         self.V_grid = potential(grid.sigma)
@@ -100,27 +108,42 @@ class WavefunctionEnergyMinimizer:
         self.m_eff = m_eff
         self.hbar = hbar
         
+        # Create spatial grid for radial wavefunctions
+        self.r_grid = SpatialGrid.create(r_max=r_max, N=N_r)
+        
         self.operators = SpectralOperators(grid, m_eff, hbar)
+    
+    def _compute_subspace_gradient(self, chi: NDArray[np.complexfloating]) -> NDArray[np.complexfloating]:
+        """Compute ∂χ/∂σ using spectral method."""
+        return self.grid.first_derivative(chi)
+    
+    def _compute_subspace_factor(self, chi: NDArray[np.complexfloating]) -> float:
+        """
+        Compute subspace coupling factor: Im[∫ χ* (∂χ/∂σ) dσ]
+        
+        CRITICAL: The winding is encoded in the IMAGINARY part!
+        For χ ~ exp(ikσ): χ* ∂χ/∂σ = ik|χ|², so Im[...] = k∫|χ|²dσ
+        
+        This captures the "winding" of the subspace wavefunction.
+        For composite wavefunctions, interference is automatically included.
+        """
+        dchi = self._compute_subspace_gradient(chi)
+        factor = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
+        return float(np.imag(factor))  # IMAGINARY part carries winding!
     
     def compute_energy(
         self,
         chi: NDArray[np.complexfloating],
+        phi: SpatialWavefunction,
         delta_x: float,
-        n_spatial: int,
-        k_winding: int,
-        is_lepton: bool = True
     ) -> EnergyBreakdown:
         """
-        Compute E_total with quantum numbers (n, k) as inputs.
+        Compute E_total from actual wavefunctions.
         
-        Args:
-            chi: Wavefunction on grid
-            delta_x: Spatial extent parameter
-            n_spatial: Spatial mode quantum number (INPUT!)
-            k_winding: Topological winding quantum number (INPUT!)
-            is_lepton: True for leptons, False for hadrons (different coupling)
+        E_coupling is computed from the INTEGRAL over both wavefunctions,
+        not from input quantum numbers!
         """
-        # === AMPLITUDE FROM WAVEFUNCTION ===
+        # === AMPLITUDE FROM SUBSPACE WAVEFUNCTION ===
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(max(A_sq, 1e-10))
         
@@ -136,36 +159,35 @@ class WavefunctionEnergyMinimizer:
         # Nonlinear: (g₁/2)∫|χ|⁴ dσ
         E_nonlinear = (self.g1 / 2) * np.sum(np.abs(chi)**4) * self.grid.dsigma
         
-        # Circulation: g₂|J|² where J = ∫χ*∂χ/∂σ dσ
-        dchi = self.grid.first_derivative(chi)
+        # Circulation: g₂|∫χ*∂χ/∂σ|²
+        dchi = self._compute_subspace_gradient(chi)
         J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
         E_circulation = self.g2 * np.abs(J)**2
         
         E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
         
         # === SPATIAL ENERGY ===
-        # E_spatial = ℏ²/(2βA²Δx²)
         if A_sq > 1e-10 and delta_x > 1e-10:
             E_spatial = self.hbar**2 / (2 * self.beta * A_sq * delta_x**2)
         else:
             E_spatial = 1e10
         
-        # === COUPLING ENERGY ===
-        # E_coupling = -α × f(n) × k × A
-        # This uses QUANTUM NUMBERS directly, not computed values!
-        if is_lepton:
-            # Leptons: f(n) = n^p where p ≈ 8.75
-            f_n = float(n_spatial) ** self.SPATIAL_MODE_POWER
-            E_coupling = -self.alpha * f_n * k_winding * A
-        else:
-            # Hadrons: Different coupling physics
-            # For composites, the binding comes more from nonlinear term
-            # Coupling is weaker
-            f_n = float(n_spatial)  # Linear in n for hadrons
-            E_coupling = -self.alpha * f_n * k_winding * A
+        # === COUPLING ENERGY FROM ACTUAL INTEGRALS ===
+        # E_coupling = -α × [spatial_factor] × [subspace_factor]
+        
+        # Spatial factor: ∫ (dφ/dr) φ r² dr
+        r = self.r_grid.r
+        phi_vals = phi.evaluate(r)
+        dphi_vals = phi.gradient(r)
+        spatial_factor = np.trapz(dphi_vals * phi_vals * r**2, r) * 4 * np.pi
+        
+        # Subspace factor: Re[∫ χ* (∂χ/∂σ) dσ]
+        subspace_factor = self._compute_subspace_factor(chi)
+        
+        # Full coupling (emerges from wavefunctions!)
+        E_coupling = -self.alpha * spatial_factor * subspace_factor
         
         # === CURVATURE ENERGY ===
-        # E_curvature = κ × (βA²)² / Δx
         if delta_x > 1e-10:
             mass_sq = (self.beta * A_sq) ** 2
             E_curvature = self.kappa * mass_sq / delta_x
@@ -184,19 +206,17 @@ class WavefunctionEnergyMinimizer:
             E_potential=E_potential,
             E_nonlinear=E_nonlinear,
             E_circulation=E_circulation,
+            spatial_factor=spatial_factor,
+            subspace_factor=subspace_factor,
         )
     
-    def compute_wavefunction_gradient(
+    def _compute_wavefunction_gradient(
         self,
         chi: NDArray[np.complexfloating],
+        phi: SpatialWavefunction,
         delta_x: float,
-        n_spatial: int,
-        k_winding: int,
-        is_lepton: bool = True
     ) -> NDArray[np.complexfloating]:
-        """
-        Compute gradient δE/δχ* for wavefunction optimization.
-        """
+        """Compute gradient δE/δχ* for wavefunction optimization."""
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(max(A_sq, 1e-10))
         
@@ -205,7 +225,7 @@ class WavefunctionEnergyMinimizer:
         V_chi = self.V_grid * chi
         NL_chi = self.g1 * np.abs(chi)**2 * chi
         
-        dchi = self.grid.first_derivative(chi)
+        dchi = self._compute_subspace_gradient(chi)
         J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
         circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
         
@@ -218,17 +238,14 @@ class WavefunctionEnergyMinimizer:
             grad_spatial = np.zeros_like(chi)
         
         # === COUPLING GRADIENT ===
-        # E_coupling = -α × f(n) × k × A
-        # δE/δχ* = -α × f(n) × k / (2A) × χ
-        if is_lepton:
-            f_n = float(n_spatial) ** self.SPATIAL_MODE_POWER
-        else:
-            f_n = float(n_spatial)
+        # E_coupling = -α × spatial_factor × subspace_factor
+        # δE/δχ* = -α × spatial_factor × (∂χ/∂σ)
+        r = self.r_grid.r
+        phi_vals = phi.evaluate(r)
+        dphi_vals = phi.gradient(r)
+        spatial_factor = np.trapz(dphi_vals * phi_vals * r**2, r) * 4 * np.pi
         
-        if A > 1e-10:
-            grad_coupling = -self.alpha * f_n * k_winding / (2 * A) * chi
-        else:
-            grad_coupling = np.zeros_like(chi)
+        grad_coupling = -self.alpha * spatial_factor * dchi
         
         # === CURVATURE GRADIENT ===
         if delta_x > 1e-10:
@@ -242,41 +259,44 @@ class WavefunctionEnergyMinimizer:
         self,
         chi_initial: NDArray[np.complexfloating],
         n_spatial: int,
-        k_winding: int,
-        is_lepton: bool = True,
+        a0: float = 1.0,
         max_iter: int = 20000,
         tol: float = 1e-10,
         verbose: bool = False
     ) -> MinimizationResult:
         """
-        Minimize energy over (A, Δx, Δσ) with quantum numbers (n, k) fixed.
+        Minimize energy over χ and Δx.
         
         Args:
-            chi_initial: Initial wavefunction
-            n_spatial: Spatial mode quantum number (INPUT - defines particle!)
-            k_winding: Topological winding number (INPUT - defines particle!)
-            is_lepton: True for leptons, False for hadrons
+            chi_initial: Initial subspace wavefunction
+            n_spatial: Spatial mode number (determines radial node structure)
+            a0: Characteristic length scale for spatial wavefunction
+            max_iter: Maximum iterations
+            tol: Convergence tolerance
+            verbose: Print progress
         """
+        # Create spatial wavefunction with n radial nodes
+        phi = SpatialWavefunction(n=n_spatial, a0=a0)
+        
         chi = chi_initial.copy()
         delta_x = 1.0
         
-        dt_chi = 0.0001  # Smaller step for stability
+        dt_chi = 0.0001
         dt_dx = 0.0001
         
-        energy = self.compute_energy(chi, delta_x, n_spatial, k_winding, is_lepton)
+        energy = self.compute_energy(chi, phi, delta_x)
         E_old = energy.E_total
         
         converged = False
         final_residual = float('inf')
         
         if verbose:
-            print(f"  Minimizing with n={n_spatial}, k={k_winding}")
-            f_n = n_spatial ** self.SPATIAL_MODE_POWER if is_lepton else n_spatial
-            print(f"  f(n) = {f_n:.2f}")
+            print(f"  Minimizing with n_spatial={n_spatial}")
+            print(f"  Spatial factor (from φ_{n_spatial}): {energy.spatial_factor:.4g}")
         
         for iteration in range(max_iter):
-            # === OPTIMIZE WAVEFUNCTION χ ===
-            grad_chi = self.compute_wavefunction_gradient(chi, delta_x, n_spatial, k_winding, is_lepton)
+            # === OPTIMIZE χ ===
+            grad_chi = self._compute_wavefunction_gradient(chi, phi, delta_x)
             chi_new = chi - dt_chi * grad_chi
             
             # === OPTIMIZE Δx ===
@@ -291,7 +311,7 @@ class WavefunctionEnergyMinimizer:
             delta_x_new = max(delta_x_new, 1e-6)
             delta_x_new = min(delta_x_new, 1e6)
             
-            energy_new = self.compute_energy(chi_new, delta_x_new, n_spatial, k_winding, is_lepton)
+            energy_new = self.compute_energy(chi_new, phi, delta_x_new)
             E_new = energy_new.E_total
             
             # Adaptive step size
@@ -313,7 +333,8 @@ class WavefunctionEnergyMinimizer:
             
             if verbose and iteration % 2000 == 0:
                 A = np.sqrt(np.sum(np.abs(chi)**2) * self.grid.dsigma)
-                print(f"  Iter {iteration}: E={E_new:.4f}, A={A:.6f}, Δx={delta_x:.4g}")
+                print(f"  Iter {iteration}: E={E_new:.4f}, A={A:.6f}, "
+                      f"E_coup={energy_new.E_coupling:.4g}")
             
             if dE < tol:
                 converged = True
@@ -323,10 +344,11 @@ class WavefunctionEnergyMinimizer:
             E_old = E_new
             energy = energy_new
         
+        # Final values
         A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         A = np.sqrt(A_sq)
         
-        # Compute emergent Δσ from wavefunction shape
+        # Compute Δσ from wavefunction
         sigma = self.grid.sigma
         chi_sq = np.abs(chi)**2
         norm = np.sum(chi_sq) * self.grid.dsigma
@@ -344,7 +366,6 @@ class WavefunctionEnergyMinimizer:
             delta_x=delta_x,
             delta_sigma=delta_sigma,
             n_spatial=n_spatial,
-            k_winding=k_winding,
             energy=energy,
             converged=converged,
             iterations=iteration + 1,

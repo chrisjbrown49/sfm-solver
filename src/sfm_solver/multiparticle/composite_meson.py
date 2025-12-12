@@ -2,11 +2,14 @@
 Composite Meson Solver for SFM - Pure First-Principles Implementation.
 
 CRITICAL PHYSICS:
-- Mesons are QUARK-ANTIQUARK composites
-- Quantum numbers: k_net = k_quark + k_antiquark
-- n = generation (1 for pion, 2 for charm, 3 for bottom)
-- Binding from NONLINEAR term (∫|χ_q+χ_q̄|⁴)
-- Different generations have different effective coupling
+- E_coupling computed from ACTUAL WAVEFUNCTIONS:
+  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
+
+- χ(σ) = χ_q + χ_q̄ is the TWO-PEAK composite wavefunction
+- For neutral mesons (q q̄ with opposite winding):
+  * ∂χ/∂σ = ik(χ_q - χ_q̄) captures interference
+  * subspace_factor could be zero OR non-zero depending on envelope asymmetry
+  * EMERGES from wavefunction, not imposed!
 """
 
 import numpy as np
@@ -27,6 +30,7 @@ QUARK_WINDING = {
     'b': +2, 't': -1,
 }
 
+# Quark generation
 QUARK_GENERATION = {
     'u': 1, 'd': 1,
     'c': 2, 's': 2,
@@ -53,9 +57,9 @@ class CompositeMesonState:
     quark: str
     antiquark: str
     
-    # Input quantum numbers
-    n_spatial: int  # Generation
-    k_net: int      # Net winding (charge related)
+    # Spatial mode
+    n_spatial: int
+    generation: int
     
     # From minimizer
     amplitude: float
@@ -74,13 +78,15 @@ class CompositeMesonState:
     energy_nonlinear: float
     energy_circulation: float
     
+    # Coupling components
+    spatial_factor: float
+    subspace_factor: float
+    
     # Winding structure
     k_quark: int
     k_antiquark: int
-    k_eff: float  # For compatibility
-    
-    # Generation
-    generation: int
+    k_net: int
+    k_eff: float
     
     # Convergence
     converged: bool
@@ -90,12 +96,15 @@ class CompositeMesonState:
 
 class CompositeMesonSolver:
     """
-    Meson solver using quantum numbers as inputs.
+    Meson solver using actual wavefunctions for coupling.
     
-    For mesons:
-    - n = generation (determines effective coupling)
-    - k_net = k_quark - k_antiquark (antiquark has opposite sign)
-    - Binding from NONLINEAR term: 2-body interference
+    Key physics:
+    - χ = χ_q + χ_q̄ (quark + antiquark with different windings)
+    - Antiquark has OPPOSITE winding from quark
+    - ∂χ/∂σ captures interference:
+      * For π⁺ (ud̄): different windings, net effect from interference
+      * For J/ψ (cc̄): opposite windings, partial cancellation
+    - E_coupling emerges from the wavefunction structure!
     """
     
     WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]
@@ -134,6 +143,7 @@ class CompositeMesonSolver:
         self.m_eff = m_eff
         self.hbar = hbar
         
+        # Create minimizer
         self.minimizer = WavefunctionEnergyMinimizer(
             grid=grid,
             potential=potential,
@@ -147,10 +157,10 @@ class CompositeMesonSolver:
         )
     
     def _get_quark_windings(self, quark: str, antiquark: str) -> Tuple[int, int, int]:
-        """Get winding numbers. Antiquarks have opposite sign."""
+        """Get winding numbers. Antiquarks have OPPOSITE sign."""
         k_q = QUARK_WINDING.get(quark, 0)
         antiquark_base = antiquark.replace('_bar', '')
-        k_qbar = -QUARK_WINDING.get(antiquark_base, 0)
+        k_qbar = -QUARK_WINDING.get(antiquark_base, 0)  # Opposite!
         k_net = k_q + k_qbar
         return k_q, k_qbar, k_net
     
@@ -158,10 +168,13 @@ class CompositeMesonSolver:
         self,
         quark: str,
         antiquark: str,
-        initial_amplitude: float = 1.0
+        initial_amplitude: float = 0.01
     ) -> NDArray[np.complexfloating]:
         """
         Initialize meson as TWO-PEAK composite wavefunction.
+        
+        The quark and antiquark each contribute a peak with their winding.
+        The interference in ∂χ/∂σ naturally captures the physics!
         """
         sigma = self.grid.sigma
         
@@ -180,8 +193,10 @@ class CompositeMesonSolver:
         envelope_qbar = np.exp(-0.5 * (dist_qbar / width)**2)
         chi_qbar = envelope_qbar * np.exp(1j * k_qbar * sigma)
         
+        # TWO-PEAK composite
         chi = chi_q + chi_qbar
         
+        # Scale to initial amplitude
         current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         if current_amp_sq > 1e-10:
             chi *= np.sqrt(initial_amplitude / current_amp_sq)
@@ -197,7 +212,13 @@ class CompositeMesonSolver:
         verbose: bool = False
     ) -> CompositeMesonState:
         """
-        Solve for meson with quantum numbers as inputs.
+        Solve for meson.
+        
+        The composite wavefunction χ = χ_q + χ_q̄ captures all the physics:
+        - Different quark types have different windings
+        - Antiquarks have opposite winding from quarks
+        - ∂χ/∂σ naturally captures interference effects
+        - No need to pass k_net separately!
         """
         config = MESON_CONFIGS.get(meson_type, MESON_CONFIGS['pion_plus'])
         quark = config['quark']
@@ -206,27 +227,24 @@ class CompositeMesonSolver:
         k_q, k_qbar, k_net = self._get_quark_windings(quark, antiquark)
         generation = max(QUARK_GENERATION.get(quark, 1),
                         QUARK_GENERATION.get(antiquark, 1))
-        
-        # n_spatial = generation for mesons
         n_spatial = generation
         
         if verbose:
             print("=" * 60)
             print(f"MESON SOLVER: {meson_type.upper()}")
-            print(f"  Quarks: {quark} (k={k_q}), {antiquark}-bar (k={k_qbar})")
-            print(f"  Quantum numbers: n={n_spatial}, k_net={k_net}")
+            print(f"  TWO-PEAK composite: {quark}(k={k_q}) + {antiquark}-bar(k={k_qbar})")
+            print(f"  Spatial mode n={n_spatial} (generation {generation})")
+            print(f"  E_coupling from actual wavefunction integrals")
             print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}")
             print("=" * 60)
         
         # Initialize TWO-PEAK composite wavefunction
         chi_initial = self._initialize_meson(quark, antiquark, initial_amplitude)
         
-        # Minimize - is_lepton=False for composites
+        # Minimize
         result = self.minimizer.minimize(
             chi_initial=chi_initial,
             n_spatial=n_spatial,
-            k_winding=max(abs(k_net), 1),  # At least 1 for coupling
-            is_lepton=False,
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
@@ -237,6 +255,8 @@ class CompositeMesonSolver:
             print(f"\n  Results:")
             print(f"    A² = {result.A_squared:.6g}")
             print(f"    Mass = {mass_mev:.2f} MeV (exp: {config['mass_mev']:.2f})")
+            print(f"    spatial_factor = {result.energy.spatial_factor:.4g}")
+            print(f"    subspace_factor = {result.energy.subspace_factor:.4g}")
             print(f"    Converged: {result.converged}")
         
         return CompositeMesonState(
@@ -245,7 +265,7 @@ class CompositeMesonSolver:
             quark=quark,
             antiquark=antiquark,
             n_spatial=n_spatial,
-            k_net=k_net,
+            generation=generation,
             amplitude=result.A,
             amplitude_squared=result.A_squared,
             delta_x=result.delta_x,
@@ -259,10 +279,12 @@ class CompositeMesonSolver:
             energy_potential=result.energy.E_potential,
             energy_nonlinear=result.energy.E_nonlinear,
             energy_circulation=result.energy.E_circulation,
+            spatial_factor=result.energy.spatial_factor,
+            subspace_factor=result.energy.subspace_factor,
             k_quark=k_q,
             k_antiquark=k_qbar,
-            k_eff=float(abs(k_net)),
-            generation=generation,
+            k_net=k_net,
+            k_eff=abs(result.energy.subspace_factor),
             converged=result.converged,
             iterations=result.iterations,
             final_residual=result.final_residual,
