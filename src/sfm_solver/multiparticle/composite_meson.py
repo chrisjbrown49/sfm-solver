@@ -198,14 +198,15 @@ class CompositeMesonSolver:
         envelope_q = np.exp(-0.5 * (dist_q / width)**2)
         
         # Radial structure based on quark generation
+        # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero
+        x_q = dist_q / width
+        modulation = 0.5  # Keeps envelope between 0.5 and 1.5
         if n_q == 1:
-            radial_q = np.ones_like(dist_q)
+            radial_q = np.ones_like(dist_q)  # No oscillation
         elif n_q == 2:
-            x = dist_q / width
-            radial_q = x  # One node
+            radial_q = 1.0 + modulation * np.cos(np.pi * x_q)  # One period
         else:
-            x = dist_q / width
-            radial_q = x**2 - 1.0  # Two nodes
+            radial_q = 1.0 + modulation * np.cos(2 * np.pi * x_q)  # Two periods
         
         chi_q = envelope_q * radial_q * np.exp(1j * k_q * sigma)
         
@@ -215,14 +216,14 @@ class CompositeMesonSolver:
         envelope_qbar = np.exp(-0.5 * (dist_qbar / width)**2)
         
         # Radial structure based on antiquark generation (same as quark)
+        # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero
+        x_qbar = dist_qbar / width
         if n_qbar == 1:
-            radial_qbar = np.ones_like(dist_qbar)
+            radial_qbar = np.ones_like(dist_qbar)  # No oscillation
         elif n_qbar == 2:
-            x = dist_qbar / width
-            radial_qbar = x  # One node
+            radial_qbar = 1.0 + modulation * np.cos(np.pi * x_qbar)  # One period
         else:
-            x = dist_qbar / width
-            radial_qbar = x**2 - 1.0  # Two nodes
+            radial_qbar = 1.0 + modulation * np.cos(2 * np.pi * x_qbar)  # Two periods
         
         chi_qbar = envelope_qbar * radial_qbar * np.exp(1j * k_qbar * sigma)
         

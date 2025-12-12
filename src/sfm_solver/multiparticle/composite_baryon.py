@@ -177,15 +177,21 @@ class CompositeBaryonSolver:
             envelope = np.exp(-0.5 * (dist / width)**2)
             
             # Radial structure f_n based on quark generation (like leptons!)
-            # n=1: no nodes, n=2: one node, n=3: two nodes
+            # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero:
+            # n=1: constant (no oscillation)
+            # n=2: one oscillation period → larger gradients
+            # n=3: two oscillation periods → even larger gradients
+            # 
+            # Form: f_n = 1 + modulation * cos((n-1) * pi * x / width)
+            # This stays positive (between 0.5 and 1.5), smooth, differentiable
+            x = dist / width
+            modulation = 0.5  # Keeps envelope between 0.5 and 1.5
             if n_quark == 1:
-                radial = np.ones_like(dist)  # No nodes
+                radial = np.ones_like(dist)  # No oscillation
             elif n_quark == 2:
-                x = dist / width
-                radial = x  # One node at center (like H_1)
+                radial = 1.0 + modulation * np.cos(np.pi * x)  # One period
             else:  # n_quark >= 3
-                x = dist / width
-                radial = x**2 - 1.0  # Two nodes (like H_2)
+                radial = 1.0 + modulation * np.cos(2 * np.pi * x)  # Two periods
             
             # Full quark wavefunction: envelope × radial × winding × color
             phase = k * sigma + color_phase
