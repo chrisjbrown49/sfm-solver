@@ -1,19 +1,23 @@
 """
 Universal Energy Minimizer for SFM Particles.
 
-CRITICAL FIX: E_coupling is now computed from ACTUAL WAVEFUNCTIONS:
-  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
+CRITICAL: E_coupling computed from ACTUAL WAVEFUNCTIONS using gradient strength.
 
-This separates into:
   E_coupling = -α × [spatial_factor] × [subspace_factor]
 
 Where:
-- spatial_factor = ∫ (dφ/dr) φ r² dr  (from radial wavefunction with n nodes)
-- subspace_factor = Re[∫ χ* (∂χ/∂σ) dσ]  (from subspace wavefunction)
+- spatial_factor = √(∫ (dφ/dr)² r² dr)  = RMS gradient strength
+  - INCREASES with n for harmonic oscillator states (1.22, 1.87, 2.35 for n=1,2,3)
+  - This drives the mass hierarchy: higher n → stronger coupling → larger A → larger mass
 
-The mass hierarchy EMERGES from the wavefunction structures:
-- Different n → different radial nodes → different spatial_factor
-- Different χ structure (1/2/3 peaks) → different subspace_factor
+- subspace_factor = Im[∫ χ* (∂χ/∂σ) dσ]  = effective winding (can be + or -)
+  - For χ ~ e^(ikσ): gives k (winding number)
+  - For composite: captures net winding and interference
+
+The mass hierarchy EMERGES from harmonic oscillator physics:
+- All modes have SAME Gaussian envelope (same spatial extent)
+- Higher n → more oscillations → larger |dφ/dr|² → stronger coupling
+- This is the SFM mechanism for lepton/quark generations!
 """
 
 import numpy as np
@@ -175,16 +179,21 @@ class WavefunctionEnergyMinimizer:
         # === COUPLING ENERGY FROM ACTUAL INTEGRALS ===
         # E_coupling = -α × [spatial_factor] × [subspace_factor]
         
-        # Spatial factor: ∫ (dφ/dr) φ r² dr
+        # Spatial factor: √(∫ (dφ/dr)² r² dr) = RMS gradient strength
+        # CRITICAL: This INCREASES with n for harmonic oscillator states!
+        #   n=1: √1.5 ≈ 1.22
+        #   n=2: √3.5 ≈ 1.87
+        #   n=3: √5.5 ≈ 2.35
         r = self.r_grid.r
-        phi_vals = phi.evaluate(r)
         dphi_vals = phi.gradient(r)
-        spatial_factor = np.trapz(dphi_vals * phi_vals * r**2, r) * 4 * np.pi
+        gradient_integral = np.trapz(dphi_vals**2 * r**2, r) * 4 * np.pi
+        spatial_factor = np.sqrt(gradient_integral)  # Always positive, increases with n
         
-        # Subspace factor: Re[∫ χ* (∂χ/∂σ) dσ]
+        # Subspace factor: Im[∫ χ* (∂χ/∂σ) dσ] = effective winding
         subspace_factor = self._compute_subspace_factor(chi)
         
         # Full coupling (emerges from wavefunctions!)
+        # Sign of E_coupling determined by subspace_factor (winding)
         E_coupling = -self.alpha * spatial_factor * subspace_factor
         
         # === CURVATURE ENERGY ===
@@ -238,14 +247,18 @@ class WavefunctionEnergyMinimizer:
             grad_spatial = np.zeros_like(chi)
         
         # === COUPLING GRADIENT ===
-        # E_coupling = -α × spatial_factor × subspace_factor
-        # δE/δχ* = -α × spatial_factor × (∂χ/∂σ)
+        # E_coupling = -α × spatial_factor × Im[∫χ*(∂χ/∂σ)dσ]
+        # δE/δχ* = -α × spatial_factor × Im_part_gradient
         r = self.r_grid.r
-        phi_vals = phi.evaluate(r)
         dphi_vals = phi.gradient(r)
-        spatial_factor = np.trapz(dphi_vals * phi_vals * r**2, r) * 4 * np.pi
+        gradient_integral = np.trapz(dphi_vals**2 * r**2, r) * 4 * np.pi
+        spatial_factor = np.sqrt(gradient_integral)
         
-        grad_coupling = -self.alpha * spatial_factor * dchi
+        # Gradient of Im[∫χ*(∂χ/∂σ)dσ] w.r.t. χ* is (1/2i)(∂χ/∂σ)
+        # But simpler: dE/dχ* = -α × spatial_factor × i × (∂χ/∂σ) for imaginary part
+        # Using variational derivative: δIm[∫χ*(∂χ/∂σ)dσ]/δχ* = (1/2i)∂χ/∂σ = -i/2 × ∂χ/∂σ
+        grad_coupling = -self.alpha * spatial_factor * (-1j/2) * dchi
+        grad_coupling = np.real(grad_coupling) + 1j*np.imag(grad_coupling)  # Keep complex
         
         # === CURVATURE GRADIENT ===
         if delta_x > 1e-10:

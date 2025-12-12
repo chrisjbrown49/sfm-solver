@@ -1,21 +1,34 @@
 """
 Spatial Wavefunction for SFM Particles.
 
-This module provides explicit spatial wavefunctions φ_n(r) with radial node structure.
+This module provides explicit spatial wavefunctions φ_n(r) with radial node structure
+using 3D HARMONIC OSCILLATOR states.
+
 The number of radial nodes determines the generation/spatial mode:
 
   n=1: Ground state, no radial nodes (electron, u/d quarks)
   n=2: First excited state, 1 radial node (muon, c/s quarks)
   n=3: Second excited state, 2 radial nodes (tau, b/t quarks)
 
-The gradient ∇φ_n naturally scales differently for different n, which creates
-the mass hierarchy when combined with the subspace wavefunction gradient ∂χ/∂σ.
+CRITICAL PHYSICS (SFM):
+Unlike hydrogen-like wavefunctions that spread out for higher n, harmonic oscillator
+states maintain the SAME spatial extent (Gaussian envelope) but have MORE oscillations
+for higher n. This creates:
+
+  - Higher n → more oscillations → larger gradients
+  - Larger gradients → stronger spatial-subspace coupling
+  - Stronger coupling → larger subspace amplitude A
+  - Larger A → greater mass → greater spacetime curvature
+  - Greater curvature → reduced spatial radius (self-consistent!)
+
+This is the mechanism for the lepton/quark mass hierarchy in SFM.
 """
 
 import numpy as np
 from numpy.typing import NDArray
 from typing import Tuple, Optional
 from dataclasses import dataclass
+from scipy.special import genlaguerre
 
 
 @dataclass
@@ -36,11 +49,18 @@ class SpatialGrid:
 
 class SpatialWavefunction:
     """
-    Radial wavefunction φ_n(r) with n-1 radial nodes.
+    Radial wavefunction φ_n(r) using 3D HARMONIC OSCILLATOR states.
     
-    Based on hydrogen-like radial functions, but with adjustable scale.
-    The key physics: higher n means more nodes, which means larger gradients,
-    which creates stronger spatial-subspace coupling.
+    For s-wave (l=0) 3D harmonic oscillator:
+    
+      φ_n(r) = N × L_{n-1}^{1/2}(r²/a₀²) × exp(-r²/(2a₀²))
+    
+    Where L_k^α(x) are generalized Laguerre polynomials.
+    
+    Key property: ALL modes share the same Gaussian envelope, but higher n
+    has more oscillations INSIDE this envelope, creating larger gradients.
+    
+    This is the correct physics for SFM mass hierarchy!
     """
     
     def __init__(self, n: int, a0: float = 1.0):
@@ -49,7 +69,7 @@ class SpatialWavefunction:
         
         Args:
             n: Principal quantum number (n=1,2,3 for e/μ/τ or gen 1/2/3)
-            a0: Characteristic length scale (like Bohr radius)
+            a0: Characteristic length scale (harmonic oscillator length)
         """
         self.n = n
         self.a0 = a0
@@ -60,32 +80,33 @@ class SpatialWavefunction:
     
     def evaluate(self, r: NDArray[np.floating]) -> NDArray[np.floating]:
         """
-        Compute radial wavefunction φ_n(r).
+        Compute radial wavefunction φ_n(r) using 3D harmonic oscillator states.
         
-        Using hydrogen-like radial functions (simplified, s-wave only):
-        n=1: φ₁ ∝ exp(-r/a₀)
-        n=2: φ₂ ∝ (1 - r/(2a₀)) exp(-r/(2a₀))
-        n=3: φ₃ ∝ (1 - 2r/(3a₀) + 2r²/(27a₀²)) exp(-r/(3a₀))
+        For s-wave (l=0):
+          n=1: φ₁ ∝ exp(-r²/(2a₀²))                    - Gaussian, no nodes
+          n=2: φ₂ ∝ (3/2 - r²/a₀²) exp(-r²/(2a₀²))    - 1 node
+          n=3: φ₃ ∝ polynomial(r²) exp(-r²/(2a₀²))    - 2 nodes
+        
+        All share the SAME Gaussian envelope, different polynomial prefactors.
         """
-        rho = r / self.a0
+        # Dimensionless coordinate
+        x = (r / self.a0) ** 2  # r²/a₀²
         
-        if self.n == 1:
-            # Ground state: no nodes
-            phi = np.exp(-rho)
-        elif self.n == 2:
-            # First excited: 1 node at r = 2a₀
-            phi = (1 - rho/2) * np.exp(-rho/2)
-        elif self.n == 3:
-            # Second excited: 2 nodes
-            phi = (1 - 2*rho/3 + 2*rho**2/27) * np.exp(-rho/3)
-        else:
-            # General case using Laguerre polynomials (simplified)
-            # L_{n-1}^1(2r/(n*a0)) * exp(-r/(n*a0))
-            x = 2*rho/self.n
-            L = self._laguerre(self.n - 1, x)
-            phi = L * np.exp(-rho/self.n)
+        # Gaussian envelope (same for all n!)
+        envelope = np.exp(-x / 2)
         
-        # Normalize
+        # Generalized Laguerre polynomial L_{n-1}^{1/2}(x)
+        # Using scipy's genlaguerre for numerical stability
+        k = self.n - 1  # polynomial degree (n-1 nodes)
+        alpha = 0.5     # for 3D harmonic oscillator s-wave
+        
+        # Compute Laguerre polynomial
+        L = genlaguerre(k, alpha)(x)
+        
+        # Full wavefunction
+        phi = L * envelope
+        
+        # Normalize: ∫|φ|² r² dr = 1/(4π)
         norm = np.sqrt(np.trapz(phi**2 * r**2, r) * 4 * np.pi)
         if norm > 1e-10:
             phi = phi / norm
@@ -94,75 +115,90 @@ class SpatialWavefunction:
     
     def gradient(self, r: NDArray[np.floating]) -> NDArray[np.floating]:
         """
-        Compute radial gradient dφ_n/dr.
+        Compute radial gradient dφ_n/dr analytically.
         
-        This is the KEY quantity - it scales differently for different n,
-        creating the mass hierarchy through the coupling integral.
+        For φ_n(r) = L_{n-1}^{1/2}(r²/a₀²) × exp(-r²/(2a₀²)):
+        
+        dφ/dr = exp(-r²/(2a₀²)) × [dL/dx × 2r/a₀² - L × r/a₀²]
+              = exp(-r²/(2a₀²)) × (2r/a₀²) × [dL/dx - L/2]
+        
+        Where dL_{k}^{α}/dx = -L_{k-1}^{α+1}(x) for k ≥ 1.
+        
+        This is the KEY quantity - higher n means more oscillations in L,
+        which means larger |dφ/dr|, creating stronger coupling!
         """
-        rho = r / self.a0
+        x = (r / self.a0) ** 2  # r²/a₀²
+        envelope = np.exp(-x / 2)
         
-        if self.n == 1:
-            # d/dr[exp(-r/a₀)] = -1/a₀ exp(-r/a₀)
-            dphi = -1/self.a0 * np.exp(-rho)
-        elif self.n == 2:
-            # d/dr[(1-r/2a₀)exp(-r/2a₀)]
-            dphi = (-1/(2*self.a0) - (1-rho/2)*(-1/(2*self.a0))) * np.exp(-rho/2)
-            dphi = (1/(2*self.a0)) * (rho/2 - 1 - (1 - rho/2)) * np.exp(-rho/2)
-            # Simplified: derivative of (1-x/2)e^(-x/2) where x = r/a0
-            # = -1/2 e^(-x/2) + (1-x/2)(-1/2)e^(-x/2) = -1/2 e^(-x/2)(1 + 1 - x/2)
-            # = -1/2 e^(-x/2)(2 - x/2) = -(1 - x/4) e^(-x/2)
-            dphi = -1/self.a0 * (1 - rho/4) * np.exp(-rho/2)
-        elif self.n == 3:
-            # Numerical derivative for n=3 (more complex)
-            phi = self.evaluate(r)
-            dphi = np.gradient(phi, r)
+        k = self.n - 1
+        alpha = 0.5
+        
+        # Laguerre polynomial
+        L = genlaguerre(k, alpha)(x)
+        
+        # Derivative of Laguerre: dL_k^α/dx = -L_{k-1}^{α+1}(x) for k ≥ 1
+        if k >= 1:
+            dL_dx = -genlaguerre(k - 1, alpha + 1)(x)
         else:
-            phi = self.evaluate(r)
-            dphi = np.gradient(phi, r)
+            dL_dx = np.zeros_like(x)
+        
+        # Chain rule: dφ/dr = d(L·env)/dr
+        # = envelope × [dL/dx × dx/dr - L × x × d(envelope)/dx × dx/dr / envelope]
+        # where dx/dr = 2r/a₀²
+        dx_dr = 2 * r / self.a0**2
+        
+        # dφ/dr = envelope × [dL/dx × dx/dr + L × (-r/a₀²)]
+        #       = envelope × [dL/dx × 2r/a₀² - L × r/a₀²]
+        dphi = envelope * (dL_dx * dx_dr - L * r / self.a0**2)
+        
+        # Apply same normalization as evaluate()
+        phi = self.evaluate(r)
+        phi_unnorm = L * envelope
+        norm = np.sqrt(np.trapz(phi_unnorm**2 * r**2, r) * 4 * np.pi)
+        if norm > 1e-10:
+            dphi = dphi / norm
         
         return dphi
     
     def _laguerre(self, n: int, x: NDArray[np.floating]) -> NDArray[np.floating]:
-        """Compute generalized Laguerre polynomial L_n^1(x)."""
-        if n == 0:
-            return np.ones_like(x)
-        elif n == 1:
-            return 2 - x
-        else:
-            # Recurrence relation
-            L0 = np.ones_like(x)
-            L1 = 2 - x
-            for k in range(2, n + 1):
-                L2 = ((2*k + 1 - x) * L1 - (k + 1) * L0) / k
-                L0, L1 = L1, L2
-            return L1
+        """Compute generalized Laguerre polynomial L_n^{1/2}(x)."""
+        # Use scipy for numerical stability
+        return genlaguerre(n, 0.5)(x)
     
     def compute_gradient_integral(self, r: NDArray[np.floating]) -> float:
         """
-        Compute the spatial gradient integral ∫ (dφ/dr)² φ² r² dr.
+        Compute the spatial gradient integral ∫ (dφ/dr)² r² dr.
         
-        This measures how "active" the spatial gradient is, weighted by
-        the wavefunction amplitude. Higher n → more nodes → larger integral.
+        This measures the "kinetic energy" contribution from spatial gradients.
+        For harmonic oscillator states:
+          - Higher n → more oscillations → larger |dφ/dr|² → larger integral
+          - This is the mechanism for enhanced coupling in higher generations!
         """
-        phi = self.evaluate(r)
         dphi = self.gradient(r)
         
-        integrand = dphi**2 * phi**2 * r**2
+        integrand = dphi**2 * r**2
         return float(np.trapz(integrand, r) * 4 * np.pi)
     
     def compute_coupling_factor(self, r: NDArray[np.floating]) -> float:
         """
-        Compute ∫ (dφ/dr) φ r² dr.
+        Compute √(∫ (dφ/dr)² r² dr) = RMS gradient strength.
         
-        This is the spatial part of the coupling integral:
-        E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
-                   = -α × [∫(dφ/dr)φ r² dr] × [∫(∂χ/∂σ)χ dσ]
+        This is the spatial part of the coupling:
+        E_coupling = -α × [RMS_gradient] × [subspace_winding]
+        
+        For HARMONIC OSCILLATOR states:
+          n=1: √1.5 ≈ 1.22  (ground state, no nodes)
+          n=2: √3.5 ≈ 1.87  (1 node, ~1.5× stronger)
+          n=3: √5.5 ≈ 2.35  (2 nodes, ~1.9× stronger)
+        
+        This INCREASING coupling with n is the mechanism for mass hierarchy!
+        Higher n → more oscillations → larger gradients → stronger coupling
+        → larger subspace amplitude → larger mass
         """
-        phi = self.evaluate(r)
         dphi = self.gradient(r)
         
-        integrand = dphi * phi * r**2
-        return float(np.trapz(integrand, r) * 4 * np.pi)
+        gradient_integral = np.trapz(dphi**2 * r**2, r) * 4 * np.pi
+        return float(np.sqrt(gradient_integral))
 
 
 def compute_spatial_subspace_coupling(
@@ -176,14 +212,12 @@ def compute_spatial_subspace_coupling(
     """
     Compute the full spatial-subspace coupling energy:
     
-    E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
-    
-    For radial φ and periodic χ, this separates:
     E_coupling = -α × [spatial_factor] × [subspace_factor]
     
     Where:
-    - spatial_factor = ∫ (dφ/dr) φ r² dr
-    - subspace_factor = ∫ (∂χ/∂σ) χ* dσ  (real part)
+    - spatial_factor = √(∫ (dφ/dr)² r² dr) = RMS gradient strength
+      INCREASES with n for harmonic oscillator states!
+    - subspace_factor = Im[∫ χ* (∂χ/∂σ) dσ] = effective winding
     
     Args:
         phi: Spatial wavefunction object
@@ -194,14 +228,14 @@ def compute_spatial_subspace_coupling(
         alpha: Coupling constant
         
     Returns:
-        E_coupling energy (negative drives amplitude up)
+        E_coupling energy (sign determined by winding)
     """
-    # Spatial factor: ∫ (dφ/dr) φ r² dr
-    phi_vals = phi.evaluate(r_grid)
+    # Spatial factor: √(∫ (dφ/dr)² r² dr) - RMS gradient strength
     dphi_vals = phi.gradient(r_grid)
-    spatial_factor = np.trapz(dphi_vals * phi_vals * r_grid**2, r_grid) * 4 * np.pi
+    gradient_integral = np.trapz(dphi_vals**2 * r_grid**2, r_grid) * 4 * np.pi
+    spatial_factor = np.sqrt(gradient_integral)
     
-    # Subspace factor: ∫ χ* (∂χ/∂σ) dσ
+    # Subspace factor: Im[∫ χ* (∂χ/∂σ) dσ] - effective winding
     # Use spectral derivative
     N = len(chi)
     k = np.fft.fftfreq(N, dsigma / (2 * np.pi)) * 2 * np.pi
@@ -209,7 +243,8 @@ def compute_spatial_subspace_coupling(
     dchi_hat = 1j * k * chi_hat
     dchi = np.fft.ifft(dchi_hat)
     
-    subspace_factor = np.real(np.sum(np.conj(chi) * dchi) * dsigma)
+    # IMAGINARY part carries the winding information!
+    subspace_factor = np.imag(np.sum(np.conj(chi) * dchi) * dsigma)
     
     # Full coupling
     E_coupling = -alpha * spatial_factor * subspace_factor
@@ -228,12 +263,14 @@ def compute_coupling_gradient_chi(
     """
     Compute gradient of E_coupling with respect to χ*.
     
-    δE_coupling/δχ* = -α × [spatial_factor] × (∂χ/∂σ)
+    E_coupling = -α × spatial_factor × Im[∫χ*(∂χ/∂σ)dσ]
+    
+    The gradient w.r.t. χ* involves the imaginary part operator.
     """
-    # Spatial factor
-    phi_vals = phi.evaluate(r_grid)
+    # Spatial factor (RMS gradient strength)
     dphi_vals = phi.gradient(r_grid)
-    spatial_factor = np.trapz(dphi_vals * phi_vals * r_grid**2, r_grid) * 4 * np.pi
+    gradient_integral = np.trapz(dphi_vals**2 * r_grid**2, r_grid) * 4 * np.pi
+    spatial_factor = np.sqrt(gradient_integral)
     
     # Subspace derivative
     N = len(chi)
@@ -242,8 +279,9 @@ def compute_coupling_gradient_chi(
     dchi_hat = 1j * k * chi_hat
     dchi = np.fft.ifft(dchi_hat)
     
-    # Gradient
-    grad = -alpha * spatial_factor * dchi
+    # Gradient of Im[∫χ*(∂χ/∂σ)dσ] w.r.t. χ*
+    # For f = Im[∫χ*g dσ], δf/δχ* = (1/2i)g = -i/2 × g
+    grad = -alpha * spatial_factor * (-1j/2) * dchi
     
     return grad
 
