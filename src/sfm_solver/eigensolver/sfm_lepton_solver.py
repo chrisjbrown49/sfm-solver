@@ -1,40 +1,33 @@
 """
-SFM Lepton Solver with Physics-Based Energy Functional.
+SFM Lepton Solver - Pure First-Principles Implementation.
 
-Implements the simplified two-term energy balance:
-    E_total = E_subspace + E_coupling
+CRITICAL REQUIREMENTS (from Tier1_Lepton_Solver_Fix_Plan.md):
+============================================================
+A. ALL predictions must EMERGE from the first principles of the Single-Field
+   Model theoretical framework. NO phenomenological parameters are permitted.
 
-NOTE: E_spatial and E_curvature are NOT minimized!
-      Δx is derived from mass via Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
-      Mass is the fundamental output: m = β × A²
+B. The solver uses ONLY the fundamental parameters already derived:
+   - β: Fundamental mass scale (optimized for all particles)
+   - κ = 1/β²: Curvature coupling
+   - α = C × β: Spacetime-subspace coupling
+   - g₁ = α_em × β / m_e: Nonlinear self-interaction
+   - g₂ = α_em / 2: Circulation coupling
+   - V₀ = 1.0 GeV: Three-well potential depth
 
-The lepton mass hierarchy (e, μ, τ) emerges from:
-1. All leptons have k=1 winding number
-2. Different spatial modes n=1,2,3 create different coupling strengths
-3. The coupling energy E_coupling ∝ -α × f(n) × k × A drives the mass hierarchy
+These parameters are shared across ALL solvers (lepton, baryon, meson).
+No solver-specific parameters are allowed.
 
-Coupling Enhancement (from "A Beautiful Balance"):
-==================================================
-The spatial mode structure creates coupling enhancement through oscillatory
-gradients. The theoretical scaling law is:
+ENERGY FUNCTIONAL (from "Research Note - A Beautiful Balance"):
+===============================================================
+E_total(A, Δx, Δσ) = E_subspace + E_spatial + E_coupling + E_curvature
 
-    f(n) = n^a × e^(b×(n-1))
+We minimize over ALL THREE variables:
+- A: Wavefunction amplitude (from χ)
+- Δx: Spatial localization scale
+- Δσ: Subspace wavefunction width
 
-where:
-- a ≈ 8.75: reflects how spatial mode overlap integrals scale with n
-- b ≈ -0.73: reflects curvature energy suppression (prevents unlimited mass growth)
-
-This gives the mass ratios:
-- m_μ/m_e = 2^a × e^b ≈ 206.8
-- m_τ/m_e = 3^a × e^(2b) ≈ 3477
-
-The exponential term e^(b×(n-1)) is NOT phenomenological - it emerges from
-the curvature energy contribution in the full four-term energy balance.
-
-Note: Leptons use different scaling than mesons because:
-- Leptons: Single particles, spatial mode excitations → steep n^8.75 scaling
-- Mesons: Composite bound states, breathing modes → gentler n^(2/3) WKB scaling
-This difference is physically correct, NOT an inconsistency.
+The mass hierarchy m_μ/m_e ≈ 207 and m_τ/m_e ≈ 3477 must EMERGE from
+solving this energy minimization, not be imposed.
 """
 
 import numpy as np
@@ -49,16 +42,13 @@ from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
 # Lepton winding number - k=1 for all charged leptons
-# This is the fundamental difference from quarks (k=3,5)
 LEPTON_WINDING = 1
 
-# Lepton spatial modes (from SFM coupling mechanism)
-# The same mechanism that creates the lepton mass hierarchy
-# via H_coupling = -α ∂²/∂r∂σ
+# Lepton spatial modes
 LEPTON_SPATIAL_MODE = {
-    'electron': 1,  # n = 1, ground state spatial structure
-    'muon': 2,      # n = 2, first radial excitation (one node)
-    'tau': 3,       # n = 3, second radial excitation (two nodes)
+    'electron': 1,  # n = 1
+    'muon': 2,      # n = 2
+    'tau': 3,       # n = 3
 }
 
 
@@ -67,24 +57,25 @@ class SFMLeptonState:
     """
     Result of SFM lepton solver.
     
-    Contains the equilibrium amplitude, energy breakdown, and 
-    derived quantities. The amplitude A² is the key output -
-    mass is then m = β × A².
+    Contains the equilibrium values of all three optimization variables
+    (A, Δx, Δσ) and the energy breakdown.
     """
     # Wavefunction and particle identity
     chi: NDArray[np.complexfloating]
-    particle: str  # 'electron', 'muon', or 'tau'
+    particle: str
     
-    # Amplitude (NOT normalized to 1!)
-    amplitude: float       # A = sqrt(A²)
-    amplitude_squared: float  # A² = ∫|χ|² dσ - determines mass via m = β×A²
+    # The THREE optimization variables
+    amplitude: float           # A = sqrt(A²)
+    amplitude_squared: float   # A² - determines mass via m = β×A²
+    delta_x: float            # Spatial localization (OPTIMIZED, not derived!)
+    delta_sigma: float        # Subspace width (OPTIMIZED!)
     
     # Complete four-term energy breakdown
     energy_total: float
-    energy_subspace: float     # Kinetic + potential + nonlinear + circulation
-    energy_spatial: float      # Localization: ℏ²/(2βA²Δx²)
-    energy_coupling: float     # Stabilizing: -α×f(n)×k_eff×A
-    energy_curvature: float    # Enhanced 5D gravity: κ×(βA²)²/Δx
+    energy_subspace: float
+    energy_spatial: float
+    energy_coupling: float
+    energy_curvature: float
     
     # Subspace energy components
     energy_kinetic: float
@@ -93,15 +84,11 @@ class SFMLeptonState:
     energy_circulation: float
     
     # Winding structure
-    k: int = LEPTON_WINDING  # Winding number (always 1 for leptons)
-    k_eff: float = 1.0       # Effective winding from wavefunction gradient
+    k: int = LEPTON_WINDING
+    k_eff: float = 1.0
     
-    # Spatial structure
-    n_spatial: int = 1       # Spatial mode number (1=e, 2=μ, 3=τ)
-    delta_x: float = 1.0     # Spatial extent parameter
-    
-    # Generation coupling parameters (DERIVED, not fitted!)
-    coupling_enhancement: float = 1.0  # f(n) from spatial mode structure
+    # Spatial mode
+    n_spatial: int = 1
     
     # Convergence
     converged: bool = False
@@ -111,130 +98,30 @@ class SFMLeptonState:
 
 class SFMLeptonSolver:
     """
-    Lepton solver using physics-based four-term energy functional.
+    Pure first-principles lepton solver.
     
-    PHYSICS-BASED APPROACH (consistent with meson/baryon solvers):
-        E_total = E_subspace + E_spatial + E_coupling + E_curvature
+    Minimizes E_total(A, Δx, Δσ) over ALL THREE variables simultaneously.
     
-    The lepton mass hierarchy emerges from:
-    1. Different spatial modes n = 1, 2, 3 for e, μ, τ
-    2. Coupling enhancement f(n) that increases with n
-    3. Self-consistent energy minimization over amplitude A
-    
-    NO FITTED PARAMETERS (removed from old solver):
-    - power_a = 8.72 ❌
-    - exp_b = -0.71 ❌
-    - m(n) = m₀ × n^a × exp(b×n) ❌
-    
-    Instead, mass ratios EMERGE from the physics!
+    NO PHENOMENOLOGICAL PARAMETERS - mass ratios must EMERGE from physics!
     """
     
-    # Lepton winding number (k=1 for all charged leptons)
     LEPTON_K = 1
-    
-    # WKB exponents from linear confinement physics (for Δx scaling)
-    DELTA_X_EXPONENT = 2.0 / 3.0      # Δx ∝ n^(2/3) from WKB size scaling
-    RADIAL_EXPONENT = 1.0 / 3.0       # Gradient ∝ n^(1/3) from WKB
-    GENERATION_DILUTION = 2.0         # From Beautiful Equation dimension counting
-    
-    # Lepton coupling enhancement parameters from "A Beautiful Balance"
-    # The theoretical scaling law is: f(n) = n^a × e^(b×(n-1))
-    # 
-    # From the research notes:
-    # - a ≈ 8.75: reflects how spatial mode overlap integrals scale with n
-    # - b ≈ -0.73: reflects curvature energy suppression (prevents unlimited mass growth)
-    #
-    # These values give the exact mass ratios:
-    # - m_μ/m_e = 2^a × e^b = 206.768
-    # - m_τ/m_e = 3^a × e^(2b) = 3477.23
-    #
-    # The exponential term is NOT phenomenological - it emerges from the
-    # curvature energy contribution in the full four-term energy balance.
-    GEN_POWER_A = 8.75     # Power law exponent (overlap integrals)
-    GEN_POWER_B = -0.73    # Exponential suppression (curvature energy)
-    
-    # Nonlinear dilution exponent for spatial mode spreading
-    #
-    # For higher spatial modes, the wavefunction spreads over larger Δσ,
-    # reducing the |χ|⁴ density and weakening the nonlinear self-interaction.
-    #
-    # The theoretical f(n) = n^8.75 × e^(-0.73(n-1)) was derived from the FULL
-    # four-term energy balance including curvature. In our simplified two-term
-    # model (E_subspace + E_coupling), we need g1 dilution to compensate.
-    #
-    # From numerical optimization to match experimental mass ratios:
-    #   p = 4.38 gives:
-    #   - m_μ/m_e = 207.5 (target: 206.8, 0.3% error) ✓
-    #   - m_τ/m_e = 3322 (target: 3477, 4.5% error) ✓
-    #
-    # Physical interpretation: g1_eff = g1 / n^p encodes the combined effect of:
-    # - Wavefunction spreading over larger Δσ (reduces |χ|⁴ density)
-    # - Curvature energy suppression (implicit in our simplified model)
-    G1_DILUTION_EXPONENT = 4.38  # g1_eff = g1 / n^4.38
     
     def __init__(
         self,
         grid: Optional[SpectralGrid] = None,
         potential: Optional[ThreeWellPotential] = None,
-        g1: Optional[float] = None,  # Nonlinear coupling (default: SFM_CONSTANTS.g1)
-        g2: Optional[float] = None,  # Circulation coupling (default: SFM_CONSTANTS.g2_alpha)
-        alpha: Optional[float] = None,  # Subspace-spacetime coupling (None = use mode default)
-        beta: Optional[float] = None,   # Mass coupling (None = use mode default)
-        delta_x_base: float = 1.0, # Base spatial localization
-        kappa: Optional[float] = None,  # Enhanced gravity (None = use mode default)
-        m_eff: float = 1.0,        # Effective mass in subspace
-        hbar: float = 1.0,         # Reduced Planck constant
-        c: float = 1.0,            # Speed of light
-        use_physical: Optional[bool] = None,  # None = inherit from SFM_CONSTANTS.use_physical
+        g1: Optional[float] = None,
+        g2: Optional[float] = None,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        kappa: Optional[float] = None,
+        m_eff: float = 1.0,
+        hbar: float = 1.0,
+        c: float = 1.0,
+        use_physical: Optional[bool] = None,
     ):
-        """
-        Initialize lepton solver with physics-based parameters.
-        
-        PARAMETER MODES:
-        ================
-        
-        1. PHYSICAL MODE (default, use_physical=True or None):
-           Uses first-principles parameters from SFM theory.
-           - α (alpha) = SFM_CONSTANTS.alpha_coupling_base ≈ 18.8 GeV
-           - β (beta) = SFM_CONSTANTS.beta_physical = M_W ≈ 80.4 GeV
-           - κ (kappa) = SFM_CONSTANTS.kappa_physical ≈ 0.012 GeV⁻¹
-           - Amplitudes EMERGE from energy minimization
-           - m = β × A² gives ABSOLUTE MASSES
-        
-        2. NORMALIZED MODE (use_physical=False):
-           Uses dimensionless parameters calibrated for numerical stability.
-           - α (alpha) = 2.5 (calibrated for lepton ratios)
-           - β (beta) = 1.0 (normalized)
-           - κ (kappa) = 0.10 (calibrated)
-           - Predicts MASS RATIOS correctly
-        
-        The default mode is controlled by SFM_CONSTANTS.DEFAULT_USE_PHYSICAL (True).
-        
-        ALL EM COUPLING CONSTANTS (g₁, g₂):
-        ===================================
-        Derived from fine structure constant α_EM ≈ 1/137:
-        - g₁ = α_EM (from Research Note Section 9.2)
-        - g₂ = α_EM (for self-energy in single particle)
-        
-        Reference: docs/First_Principles_Parameter_Derivation.md
-        
-        Args:
-            grid: SpectralGrid for subspace discretization. If None, creates default.
-            potential: Three-well potential. If None, creates default.
-            g1: Nonlinear self-interaction strength.
-            g2: Circulation coupling strength.
-            alpha: Subspace-spacetime coupling. If None, uses mode default.
-            beta: Mass coupling constant. If None, uses mode default.
-            delta_x_base: Base spatial localization for n=1.
-            kappa: Enhanced gravity coupling. If None, uses mode default.
-            m_eff: Effective mass in subspace Hamiltonian.
-            hbar: Reduced Planck constant (1.0 in natural units).
-            c: Speed of light (1.0 in natural units).
-            use_physical: If True, use first-principles physical parameters.
-                         If False, use normalized parameters.
-                         If None (default), inherit from SFM_CONSTANTS.use_physical.
-        """
-        # Create defaults if not provided
+        """Initialize with first-principles parameters only."""
         if grid is None:
             grid = SpectralGrid(N=128)
         if potential is None:
@@ -243,451 +130,343 @@ class SFMLeptonSolver:
         self.grid = grid
         self.potential = potential
         
-        # Inherit global mode if not specified
         if use_physical is None:
             use_physical = SFM_CONSTANTS.use_physical
         self.use_physical = use_physical
         
-        # Use derived first-principles values from SFM_CONSTANTS if not specified
         self.g1 = g1 if g1 is not None else SFM_CONSTANTS.g1
-        self.g2 = g2 if g2 is not None else SFM_CONSTANTS.g2_alpha  # Use α for self-energy
+        self.g2 = g2 if g2 is not None else SFM_CONSTANTS.g2_alpha
         
-        # Set mode-dependent parameters
         if use_physical:
-            # PHYSICAL MODE: Use first-principles values from SFM theory
             self.alpha = alpha if alpha is not None else SFM_CONSTANTS.alpha_coupling_base
             self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
             self.kappa = kappa if kappa is not None else SFM_CONSTANTS.kappa_physical
         else:
-            # NORMALIZED MODE: Use calibrated values for numerical stability
             self.alpha = alpha if alpha is not None else 2.5
             self.beta = beta if beta is not None else 1.0
             self.kappa = kappa if kappa is not None else 0.10
         
-        self.delta_x_base = delta_x_base
         self.m_eff = m_eff
         self.hbar = hbar
         self.c = c
         
-        # Create spectral operators
         self.operators = SpectralOperators(grid, m_eff, hbar)
         self._V_grid = potential(grid.sigma)
     
-    def _initialize_lepton_wavefunction(
+    def _create_wavefunction(
         self,
-        n_spatial: int,
-        initial_amplitude: float = 1.0
+        A: float,
+        delta_sigma: float,
+        well_pos: float = 0.0
     ) -> NDArray[np.complexfloating]:
         """
-        Initialize lepton wavefunction with k=1 winding.
+        Create parameterized wavefunction with specified amplitude and width.
         
-        Leptons are simpler than mesons/baryons:
-        - Single winding k=1
-        - Localized in one of the wells
-        - The spatial mode n affects the coupling, not the subspace structure
+        χ(σ) = A × exp(-(σ-σ₀)²/(2Δσ²)) × exp(ikσ)
         
         Args:
-            n_spatial: Spatial mode number (1=e, 2=μ, 3=τ).
-            initial_amplitude: Initial amplitude scale.
+            A: Amplitude (determines mass via m = β×A²)
+            delta_sigma: Width in subspace
+            well_pos: Center position in subspace
             
         Returns:
-            Initial wavefunction on the grid.
+            Wavefunction array
         """
         sigma = self.grid.sigma
-        N = len(sigma)
         
-        # Lepton localized in first well with k=1 winding
-        well_pos = 0.0
-        width = 0.5  # Localization width
-        
-        # Gaussian envelope at well
+        # Gaussian envelope with specified width
         dist = np.angle(np.exp(1j * (sigma - well_pos)))
-        envelope = np.exp(-0.5 * (dist / width)**2)
+        envelope = np.exp(-0.5 * (dist / delta_sigma)**2)
         
-        # Winding factor e^(ikσ) with k=1
+        # Winding factor e^(ikσ)
         winding = np.exp(1j * self.LEPTON_K * sigma)
         
         chi = envelope * winding
         
-        # Scale to desired initial amplitude
+        # Normalize to get amplitude A
         current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
         if current_amp_sq > 1e-10:
-            chi *= np.sqrt(initial_amplitude / current_amp_sq)
+            chi *= A / np.sqrt(current_amp_sq)
         
         return chi
     
-    def _compute_k_eff_from_wavefunction(
-        self,
-        chi: NDArray[np.complexfloating]
-    ) -> float:
-        """
-        Compute effective winding number from actual wavefunction gradient.
-        
-        k²_eff = ∫|∂χ/∂σ|² dσ / ∫|χ|² dσ
-        
-        For pure winding χ = A e^(ikσ), this gives k_eff = |k| = 1 for leptons.
-        For more complex wavefunctions, k_eff captures the actual gradient structure.
-        
-        This is EMERGENT from the wavefunction, not assumed!
-        """
-        # Compute wavefunction gradient
-        dchi_dsigma = self.grid.first_derivative(chi)
-        
-        # ∫|∂χ/∂σ|² dσ (measures "waviness")
-        numerator = np.sum(np.abs(dchi_dsigma)**2) * self.grid.dsigma
-        
-        # ∫|χ|² dσ (normalization)
+    def _compute_k_eff(self, chi: NDArray[np.complexfloating]) -> float:
+        """Compute effective winding from wavefunction gradient."""
+        dchi = self.grid.first_derivative(chi)
+        numerator = np.sum(np.abs(dchi)**2) * self.grid.dsigma
         denominator = np.sum(np.abs(chi)**2) * self.grid.dsigma
         
         if denominator < 1e-10:
-            return 1.0  # Default for leptons
-        
-        k_eff = np.sqrt(numerator / denominator)
-        return float(k_eff)
+            return 1.0
+        return float(np.sqrt(numerator / denominator))
     
-    def _compute_circulation(
-        self,
-        chi: NDArray[np.complexfloating]
-    ) -> complex:
-        """
-        Compute circulation integral.
-        
-        J = ∫ χ* (dχ/dσ) dσ
-        
-        For χ = A e^(ikσ), J = ik × A²
-        """
+    def _compute_circulation(self, chi: NDArray[np.complexfloating]) -> complex:
+        """Compute circulation: J = ∫ χ* (dχ/dσ) dσ"""
         dchi = self.grid.first_derivative(chi)
-        J = np.sum(np.conj(chi) * dchi) * self.grid.dsigma
-        return J
-    
-    def _compute_coupling_enhancement(self, n_spatial: int) -> float:
-        """
-        Compute how spatial mode structure enhances coupling.
-        
-        From "A Beautiful Balance" and Math Formulation Part A:
-        - n=1 (electron): Smooth gradients → minimal coupling  
-        - n=2 (muon): One radial node → oscillatory gradients → enhanced coupling
-        - n=3 (tau): Two radial nodes → more oscillatory → further enhanced
-        
-        The theoretical scaling law from "A Beautiful Balance" is:
-        
-            f(n) = n^a × e^(b×(n-1))
-        
-        where:
-        - a ≈ 8.75: reflects how spatial mode overlap integrals scale with n
-        - b ≈ -0.73: reflects curvature energy suppression
-        
-        The exponential term prevents unlimited mass growth in higher modes.
-        This is NOT phenomenological - it emerges from the curvature energy
-        contribution in the full four-term energy balance.
-        
-        Results:
-        - f(1) = 1.0 (electron, ground state)
-        - f(2) = 2^8.75 × e^(-0.73) ≈ 208 → m_μ/m_e ≈ 207
-        - f(3) = 3^8.75 × e^(-1.46) ≈ 3050 → m_τ/m_e ≈ 3477
-        """
-        if n_spatial <= 1:
-            return 1.0
-        
-        # Full theoretical formula from "A Beautiful Balance":
-        # f(n) = n^a × e^(b×(n-1))
-        # 
-        # Power law term: spatial mode overlap integrals
-        power_term = n_spatial ** self.GEN_POWER_A
-        
-        # Exponential suppression: curvature energy prevents runaway
-        exp_term = np.exp(self.GEN_POWER_B * (n_spatial - 1))
-        
-        enhancement = power_term * exp_term
-        
-        return enhancement
-    
-    def _compute_radial_factor(self, n_spatial: int) -> float:
-        """
-        Compute radial correction factor g(n).
-        
-        From WKB analysis of linear confinement:
-        g(n) = 1 + (n^(1/3) - 1) / n^2
-        
-        This accounts for how the radial gradient structure affects
-        the coupling energy.
-        """
-        if n_spatial <= 1:
-            return 1.0
-        
-        # Radial gradient enhancement from linear confinement (WKB)
-        radial_factor = n_spatial ** self.RADIAL_EXPONENT - 1.0
-        
-        # Generation dilution (larger n → more compact spatial structure)
-        generation_dilution = n_spatial ** self.GENERATION_DILUTION
-        
-        g_n = 1.0 + radial_factor / generation_dilution
-        
-        return g_n
+        return np.sum(np.conj(chi) * dchi) * self.grid.dsigma
     
     def _compute_energy(
         self,
-        chi: NDArray[np.complexfloating],
-        n_spatial: int,
-        delta_x: float
-    ) -> Tuple[float, float, float, float, float, float, float, float, float, float, float]:
+        A: float,
+        delta_x: float,
+        delta_sigma: float,
+        n_spatial: int
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
         """
-        Complete four-term energy functional for leptons.
+        Compute E_total(A, Δx, Δσ) - the full four-term energy.
         
-        From "A Beautiful Balance":
-            E_total = E_subspace + E_spatial + E_coupling + E_curvature
+        All three variables are independent inputs - NO slaving of Δx to A!
         
         Args:
-            chi: Subspace wavefunction
-            n_spatial: Spatial mode number (1=e, 2=μ, 3=τ)
-            delta_x: Spatial extent parameter
+            A: Amplitude
+            delta_x: Spatial localization (independent variable!)
+            delta_sigma: Subspace width (independent variable!)
+            n_spatial: Spatial mode number (1, 2, or 3)
             
         Returns:
-            Tuple of (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
-                     E_kin, E_pot, E_nl, E_circ, A_sq, k_eff)
+            (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
+             E_kin, E_pot, E_nl, E_circ, k_eff)
         """
-        # === AMPLITUDE ===
-        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        A = np.sqrt(max(A_sq, 1e-10))
+        # Create wavefunction with specified A and Δσ
+        chi = self._create_wavefunction(A, delta_sigma)
         
-        # === k_eff FROM WAVEFUNCTION (EMERGENT!) ===
-        k_eff = self._compute_k_eff_from_wavefunction(chi)
+        A_sq = A ** 2
+        k_eff = self._compute_k_eff(chi)
         
-        # === COUPLING ENHANCEMENT FROM SPATIAL MODE ===
-        f_n = self._compute_coupling_enhancement(n_spatial)
-        g_n = self._compute_radial_factor(n_spatial)
+        # === SUBSPACE ENERGY ===
         
-        # === SUBSPACE ENERGY COMPONENTS ===
+        # Kinetic: ℏ²/(2m_eff) × A²/Δσ²
+        # For Gaussian: ⟨∇²⟩ ~ 1/Δσ²
+        E_kin = (self.hbar**2 / (2 * self.m_eff)) * A_sq / (delta_sigma**2)
         
-        # Kinetic: ∫(ℏ²/2m)|∇χ|² dσ
-        T_chi = self.operators.apply_kinetic(chi)
-        E_kin = np.real(self.grid.inner_product(chi, T_chi))
+        # Potential: V₀ × A² (average potential energy)
+        V0 = 1.0  # Three-well depth
+        E_pot = V0 * A_sq
         
-        # Potential: ∫V(σ)|χ|² dσ
-        E_pot = np.real(np.sum(self._V_grid * np.abs(chi)**2) * self.grid.dsigma)
+        # Nonlinear: (g₁/2) × A⁴ / Δσ
+        # For |χ|⁴: integral ~ A⁴/Δσ for Gaussian
+        E_nl = (self.g1 / 2) * A_sq**2 / delta_sigma
         
-        # === NONLINEAR TERM WITH SPATIAL MODE DILUTION ===
-        #
-        # KEY PHYSICS: For higher spatial modes, the wavefunction spreads over
-        # larger Δσ ~ n × L₀. The nonlinear term weakens due to:
-        # 1. Lower |χ|⁴ density from spread wavefunction
-        # 2. Curvature energy effects (implicit in our simplified model)
-        #
-        # From equilibrium analysis of m ~ sqrt(f(n) × n^p):
-        #   g1_eff = g1 / n^p where p ≈ 7.5
-        #
-        # This strong dilution compensates for our simplified two-term model
-        # (the original f(n) derivation included curvature energy).
-        #
-        g1_eff = self.g1 / (n_spatial ** self.G1_DILUTION_EXPONENT)
-        E_nl = (g1_eff / 2) * np.sum(np.abs(chi)**4) * self.grid.dsigma
-        
-        # Circulation: g₂|J|² where J = ∫χ*∂χ/∂σ dσ
-        J = self._compute_circulation(chi)
-        E_circ = self.g2 * np.abs(J)**2
+        # Circulation: g₂ × k² × A²
+        E_circ = self.g2 * (self.LEPTON_K ** 2) * A_sq
         
         E_subspace = E_kin + E_pot + E_nl + E_circ
         
-        # === COUPLING ENERGY (from Math Formulation Part A, Section 2.1.7) ===
-        # E_coupling = -α × f(n) × g(n) × k_eff × A
-        # f(n) creates the mass hierarchy via different spatial mode numbers
-        # g(n) is the radial correction factor
-        E_coupling = -self.alpha * f_n * g_n * k_eff * A
+        # === SPATIAL ENERGY ===
+        # E_spatial = ℏ²/(2βA²Δx²)
+        if A_sq > 1e-10 and delta_x > 1e-10:
+            E_spatial = self.hbar**2 / (2 * self.beta * A_sq * delta_x**2)
+        else:
+            E_spatial = 1e10  # Large penalty for invalid values
         
-        # === NO E_spatial OR E_curvature IN MINIMIZATION ===
-        # 
-        # Key insight: Δx is NOT an independent variable - it's determined
-        # by the Compton wavelength: Δx = ℏ/(mc) = 1/(βA²)
-        # 
-        # The spatial and curvature energies are derived quantities,
-        # not part of the energy functional to minimize.
-        # They emerge from the mass-size relationship after equilibrium.
-        E_spatial = 0.0  # Not part of minimization
-        E_curvature = 0.0  # Not part of minimization
+        # === COUPLING ENERGY ===
+        # E_coupling = -α × n × k × A
+        E_coupling = -self.alpha * n_spatial * self.LEPTON_K * A
         
-        # Total energy: only subspace + coupling
-        E_total = E_subspace + E_coupling
+        # === CURVATURE ENERGY ===
+        # E_curvature = κ × (βA²)² / Δx
+        if delta_x > 1e-10:
+            mass_sq = (self.beta * A_sq) ** 2
+            E_curvature = self.kappa * mass_sq / delta_x
+        else:
+            E_curvature = 1e10  # Large penalty
+        
+        E_total = E_subspace + E_spatial + E_coupling + E_curvature
         
         return (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
-                E_kin, E_pot, E_nl, E_circ, A_sq, k_eff)
+                E_kin, E_pot, E_nl, E_circ, k_eff)
     
-    def _compute_gradient(
-        self,
-        chi: NDArray[np.complexfloating],
-        n_spatial: int,
-        delta_x: float
-    ) -> NDArray[np.complexfloating]:
-        """
-        Compute energy gradient δE/δχ* for all four terms.
-        
-        δE_total/δχ* = δE_subspace/δχ* + δE_coupling/δχ*
-        
-        NOTE: No spatial or curvature gradients - Δx is derived from mass.
-        """
-        # Amplitude
-        A_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        A = np.sqrt(max(A_sq, 1e-10))
-        
-        # k_eff from wavefunction
-        k_eff = self._compute_k_eff_from_wavefunction(chi)
-        
-        # Coupling factors
-        f_n = self._compute_coupling_enhancement(n_spatial)
-        g_n = self._compute_radial_factor(n_spatial)
-        
-        # === SUBSPACE GRADIENT ===
-        # δE_kin/δχ* = T χ
-        T_chi = self.operators.apply_kinetic(chi)
-        
-        # δE_pot/δχ* = V χ
-        V_chi = self._V_grid * chi
-        
-        # δE_nl/δχ* = g₁_eff|χ|²χ (with spatial mode dilution)
-        # Same dilution as energy: g1_eff = g1/n^p
-        g1_eff = self.g1 / (n_spatial ** self.G1_DILUTION_EXPONENT)
-        NL_chi = g1_eff * np.abs(chi)**2 * chi
-        
-        # δE_circ/δχ* = 2g₂ Re[J*] ∂χ/∂σ
-        dchi = self.grid.first_derivative(chi)
-        J = self._compute_circulation(chi)
-        circ_grad = 2 * self.g2 * np.real(np.conj(J)) * dchi
-        
-        grad_subspace = T_chi + V_chi + NL_chi + circ_grad
-        
-        # === COUPLING GRADIENT ===
-        # δE_coupling/δχ* = -α×f(n)×g(n)×k_eff/(2A) × χ
-        grad_coupling = -self.alpha * f_n * g_n * k_eff / (2 * A + 1e-10) * chi
-        
-        # === NO SPATIAL OR CURVATURE GRADIENTS ===
-        # These terms are not part of the energy functional to minimize.
-        # Δx is derived from mass via Compton wavelength, not minimized.
-        
-        return grad_subspace + grad_coupling
-    
-    def _compute_equilibrium_delta_x(
+    def _compute_gradients(
         self,
         A: float,
+        delta_x: float,
+        delta_sigma: float,
         n_spatial: int
-    ) -> float:
+    ) -> Tuple[float, float, float]:
         """
-        Compute equilibrium Δx from energy balance.
+        Compute gradients ∂E/∂A, ∂E/∂Δx, ∂E/∂Δσ analytically.
         
-        At equilibrium, ∂E_total/∂Δx = 0 gives:
-        Δx ∝ A⁻⁶ (from balancing E_spatial and E_curvature)
-        
-        With WKB scaling for spatial modes:
-        Δx_n = Δx_base × n^(2/3) × A⁻⁶_relative
+        Returns:
+            (dE_dA, dE_ddelta_x, dE_ddelta_sigma)
         """
-        # Base scaling with spatial mode
-        delta_x = self.delta_x_base * (n_spatial ** self.DELTA_X_EXPONENT)
+        A_sq = A ** 2
         
-        return delta_x
+        # === ∂E_subspace/∂A ===
+        # E_kin = (ℏ²/2m) × A²/Δσ² → dE_kin/dA = (ℏ²/m) × A/Δσ²
+        dE_kin_dA = (self.hbar**2 / self.m_eff) * A / (delta_sigma**2)
+        
+        # E_pot = V₀ × A² → dE_pot/dA = 2V₀A
+        V0 = 1.0
+        dE_pot_dA = 2 * V0 * A
+        
+        # E_nl = (g₁/2) × A⁴/Δσ → dE_nl/dA = 2g₁A³/Δσ
+        dE_nl_dA = 2 * self.g1 * A**3 / delta_sigma
+        
+        # E_circ = g₂k²A² → dE_circ/dA = 2g₂k²A
+        dE_circ_dA = 2 * self.g2 * (self.LEPTON_K**2) * A
+        
+        dE_subspace_dA = dE_kin_dA + dE_pot_dA + dE_nl_dA + dE_circ_dA
+        
+        # === ∂E_spatial/∂A ===
+        # E_spatial = ℏ²/(2βA²Δx²) → dE_spatial/dA = -ℏ²/(βA³Δx²)
+        if A > 1e-10 and delta_x > 1e-10:
+            dE_spatial_dA = -self.hbar**2 / (self.beta * A**3 * delta_x**2)
+        else:
+            dE_spatial_dA = 0
+        
+        # === ∂E_coupling/∂A ===
+        # E_coupling = -αnkA → dE_coupling/dA = -αnk
+        dE_coupling_dA = -self.alpha * n_spatial * self.LEPTON_K
+        
+        # === ∂E_curvature/∂A ===
+        # E_curvature = κ(βA²)²/Δx = κβ²A⁴/Δx → dE_curv/dA = 4κβ²A³/Δx
+        if delta_x > 1e-10:
+            dE_curvature_dA = 4 * self.kappa * self.beta**2 * A**3 / delta_x
+        else:
+            dE_curvature_dA = 0
+        
+        dE_dA = dE_subspace_dA + dE_spatial_dA + dE_coupling_dA + dE_curvature_dA
+        
+        # === ∂E/∂Δx ===
+        # E_spatial = ℏ²/(2βA²Δx²) → dE_spatial/dΔx = -ℏ²/(βA²Δx³)
+        # E_curvature = κβ²A⁴/Δx → dE_curv/dΔx = -κβ²A⁴/Δx²
+        if A_sq > 1e-10 and delta_x > 1e-10:
+            dE_spatial_ddx = -self.hbar**2 / (self.beta * A_sq * delta_x**3)
+            dE_curvature_ddx = -self.kappa * self.beta**2 * A_sq**2 / (delta_x**2)
+        else:
+            dE_spatial_ddx = 0
+            dE_curvature_ddx = 0
+        
+        dE_ddelta_x = dE_spatial_ddx + dE_curvature_ddx
+        
+        # === ∂E/∂Δσ ===
+        # E_kin = (ℏ²/2m) × A²/Δσ² → dE_kin/dΔσ = -(ℏ²/m) × A²/Δσ³
+        # E_nl = (g₁/2) × A⁴/Δσ → dE_nl/dΔσ = -(g₁/2) × A⁴/Δσ²
+        if delta_sigma > 1e-10:
+            dE_kin_dds = -(self.hbar**2 / self.m_eff) * A_sq / (delta_sigma**3)
+            dE_nl_dds = -(self.g1 / 2) * A_sq**2 / (delta_sigma**2)
+        else:
+            dE_kin_dds = 0
+            dE_nl_dds = 0
+        
+        dE_ddelta_sigma = dE_kin_dds + dE_nl_dds
+        
+        return (dE_dA, dE_ddelta_x, dE_ddelta_sigma)
     
     def solve_lepton(
         self,
         particle: str = 'electron',
-        max_iter: int = 5000,
-        tol: float = 1e-8,
-        dt: float = 0.001,
-        initial_amplitude: float = 1.0,
+        max_iter: int = 10000,
+        tol: float = 1e-10,
         verbose: bool = False
     ) -> SFMLeptonState:
         """
-        Solve for a lepton using energy minimization.
+        Solve for a lepton by minimizing E_total(A, Δx, Δσ).
+        
+        All three variables are optimized simultaneously!
         
         Args:
             particle: 'electron', 'muon', or 'tau'
-            max_iter: Maximum gradient descent iterations
+            max_iter: Maximum iterations
             tol: Convergence tolerance
-            dt: Initial step size for gradient descent
-            initial_amplitude: Starting amplitude
             verbose: Print progress
             
         Returns:
-            SFMLeptonState with equilibrium amplitude and energy breakdown.
+            SFMLeptonState with equilibrium values.
         """
-        # Get spatial mode number
         n_spatial = LEPTON_SPATIAL_MODE.get(particle, 1)
         
-        # Compute spatial extent for this mode
-        delta_x = self._compute_equilibrium_delta_x(initial_amplitude, n_spatial)
+        # Initial values for the THREE optimization variables
+        A = 0.5           # Initial amplitude
+        delta_x = 1.0     # Initial spatial scale
+        delta_sigma = 0.5 # Initial subspace width
         
-        # Coupling parameters
-        f_n = self._compute_coupling_enhancement(n_spatial)
-        g_n = self._compute_radial_factor(n_spatial)
+        # Step sizes for each variable
+        dt_A = 0.001
+        dt_dx = 0.001
+        dt_ds = 0.001
         
         if verbose:
             print("=" * 60)
             print(f"SFM LEPTON SOLVER: {particle.upper()}")
-            print(f"  Winding k = {self.LEPTON_K}")
             print(f"  Spatial mode n = {n_spatial}")
-            print(f"  Coupling enhancement f(n) = {f_n:.4f}")
-            print(f"  Radial factor g(n) = {g_n:.4f}")
-            print(f"  Spatial extent Δx = {delta_x:.4f}")
-            print(f"  Parameters: α={self.alpha}, β={self.beta}, κ={self.kappa}")
+            print(f"  Optimizing E_total(A, Δx, Δσ) over ALL THREE variables")
+            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}, κ={self.kappa:.6g}")
             print("=" * 60)
         
-        # Initialize wavefunction
-        chi = self._initialize_lepton_wavefunction(n_spatial, initial_amplitude)
-        
-        # Initial energy computation
-        result = self._compute_energy(chi, n_spatial, delta_x)
+        # Initial energy
+        result = self._compute_energy(A, delta_x, delta_sigma, n_spatial)
         E_old = result[0]
-        A_sq = result[9]
-        k_eff = result[10]
         
         converged = False
         final_residual = float('inf')
         
         for iteration in range(max_iter):
-            # Gradient descent
-            gradient = self._compute_gradient(chi, n_spatial, delta_x)
-            chi_new = chi - dt * gradient
+            # Compute gradients
+            dE_dA, dE_ddx, dE_dds = self._compute_gradients(A, delta_x, delta_sigma, n_spatial)
+            
+            # Gradient descent on all three variables
+            A_new = A - dt_A * dE_dA
+            delta_x_new = delta_x - dt_dx * dE_ddx
+            delta_sigma_new = delta_sigma - dt_ds * dE_dds
+            
+            # Enforce physical bounds
+            A_new = max(A_new, 1e-6)
+            delta_x_new = max(delta_x_new, 1e-6)
+            delta_x_new = min(delta_x_new, 1e6)
+            delta_sigma_new = max(delta_sigma_new, 0.01)
+            delta_sigma_new = min(delta_sigma_new, 3.0)  # Can't be wider than the period
             
             # Compute new energy
-            result = self._compute_energy(chi_new, n_spatial, delta_x)
-            E_new, E_sub, E_spat, E_coup, E_curv, E_kin, E_pot, E_nl, E_circ, A_sq_new, k_eff_new = result
+            result = self._compute_energy(A_new, delta_x_new, delta_sigma_new, n_spatial)
+            E_new = result[0]
             
             # Adaptive step size
             if E_new > E_old:
-                dt *= 0.5
-                if dt < 1e-12:
-                    if verbose:
-                        print(f"  Step size too small at iteration {iteration}")
+                dt_A *= 0.5
+                dt_dx *= 0.5
+                dt_ds *= 0.5
+                if dt_A < 1e-15:
                     break
                 continue
             else:
-                dt = min(dt * 1.05, 0.01)
+                dt_A = min(dt_A * 1.02, 0.01)
+                dt_dx = min(dt_dx * 1.02, 0.01)
+                dt_ds = min(dt_ds * 1.02, 0.01)
             
             # Convergence check
             dE = abs(E_new - E_old)
             final_residual = dE
             
-            if verbose and iteration % 500 == 0:
-                print(f"  Iter {iteration}: E={E_new:.6f}, A²={A_sq_new:.6f}, "
-                      f"k_eff={k_eff_new:.3f}, dE={dE:.2e}")
+            if verbose and iteration % 1000 == 0:
+                print(f"  Iter {iteration}: E={E_new:.6f}, A={A_new:.6f}, "
+                      f"Δx={delta_x_new:.6g}, Δσ={delta_sigma_new:.4f}, dE={dE:.2e}")
             
             if dE < tol:
                 converged = True
-                chi = chi_new
+                A, delta_x, delta_sigma = A_new, delta_x_new, delta_sigma_new
                 break
             
-            chi = chi_new
+            A, delta_x, delta_sigma = A_new, delta_x_new, delta_sigma_new
             E_old = E_new
         
         # Final energy computation
-        result = self._compute_energy(chi, n_spatial, delta_x)
+        result = self._compute_energy(A, delta_x, delta_sigma, n_spatial)
         (E_total, E_subspace, E_spatial, E_coupling, E_curvature,
-         E_kin, E_pot, E_nl, E_circ, A_sq, k_eff) = result
+         E_kin, E_pot, E_nl, E_circ, k_eff) = result
         
-        A = np.sqrt(A_sq)
+        A_sq = A ** 2
+        
+        # Create wavefunction for output
+        chi = self._create_wavefunction(A, delta_sigma)
         
         if verbose:
             print("\n" + "=" * 60)
             print(f"RESULTS: {particle.upper()}")
             print(f"  Amplitude A = {A:.6f}")
             print(f"  Amplitude A² = {A_sq:.6f}")
-            print(f"  k_eff = {k_eff:.4f}")
+            print(f"  Δx = {delta_x:.6g} (OPTIMIZED)")
+            print(f"  Δσ = {delta_sigma:.6f} (OPTIMIZED)")
             print(f"  E_total = {E_total:.6f}")
             print(f"    E_subspace = {E_subspace:.6f}")
             print(f"      E_kinetic = {E_kin:.6f}")
@@ -705,6 +484,8 @@ class SFMLeptonSolver:
             particle=particle,
             amplitude=A,
             amplitude_squared=float(A_sq),
+            delta_x=float(delta_x),
+            delta_sigma=float(delta_sigma),
             energy_total=float(E_total),
             energy_subspace=float(E_subspace),
             energy_spatial=float(E_spatial),
@@ -717,8 +498,6 @@ class SFMLeptonSolver:
             k=self.LEPTON_K,
             k_eff=float(k_eff),
             n_spatial=n_spatial,
-            delta_x=delta_x,
-            coupling_enhancement=f_n,
             converged=converged,
             iterations=iteration + 1,
             final_residual=float(final_residual),
@@ -742,7 +521,7 @@ class SFMLeptonSolver:
         **kwargs
     ) -> Dict[str, SFMLeptonState]:
         """
-        Solve for all three charged leptons and compute mass ratios.
+        Solve for all three charged leptons.
         
         Returns:
             Dictionary with 'electron', 'muon', 'tau' states.
@@ -753,8 +532,8 @@ class SFMLeptonSolver:
         if verbose:
             print("=" * 60)
             print("SFM LEPTON SPECTRUM SOLVER")
-            print("  Physics-based four-term energy functional")
-            print("  Mass ratios EMERGE from energy minimization")
+            print("  Minimizing E_total(A, Δx, Δσ) over ALL THREE variables")
+            print("  NO phenomenological parameters!")
             print("=" * 60)
         
         for particle in particles:
@@ -763,21 +542,23 @@ class SFMLeptonSolver:
             state = self.solve_lepton(particle=particle, verbose=verbose, **kwargs)
             results[particle] = state
         
-        # Compute mass ratios
+        # Display mass ratios
         if verbose:
             e_A2 = results['electron'].amplitude_squared
             mu_A2 = results['muon'].amplitude_squared
             tau_A2 = results['tau'].amplitude_squared
             
             print("\n" + "=" * 60)
-            print("EMERGENT MASS RATIOS (from A² ratios):")
+            print("EMERGENT MASS RATIOS:")
             print(f"  A²_e = {e_A2:.6f}")
             print(f"  A²_μ = {mu_A2:.6f}")
             print(f"  A²_τ = {tau_A2:.6f}")
-            print()
-            print(f"  m_μ/m_e = A²_μ/A²_e = {mu_A2/e_A2:.4f} (target: 206.768)")
-            print(f"  m_τ/m_e = A²_τ/A²_e = {tau_A2/e_A2:.4f} (target: 3477.15)")
-            print(f"  m_τ/m_μ = A²_τ/A²_μ = {tau_A2/mu_A2:.4f} (target: 16.82)")
+            
+            if e_A2 > 1e-10:
+                print(f"\n  m_μ/m_e = {mu_A2/e_A2:.4f} (target: 206.768)")
+                print(f"  m_τ/m_e = {tau_A2/e_A2:.4f} (target: 3477.23)")
+                if mu_A2 > 1e-10:
+                    print(f"  m_τ/m_μ = {tau_A2/mu_A2:.4f} (target: 16.817)")
             print("=" * 60)
         
         return results
@@ -786,39 +567,24 @@ class SFMLeptonSolver:
         self,
         results: Dict[str, SFMLeptonState]
     ) -> Dict[str, float]:
-        """
-        Compute mass ratios from solver results.
-        
-        Args:
-            results: Dictionary of lepton states from solve_lepton_spectrum.
-            
-        Returns:
-            Dictionary with mass ratios.
-        """
+        """Compute mass ratios from solver results."""
         e_A2 = results['electron'].amplitude_squared
         mu_A2 = results['muon'].amplitude_squared
         tau_A2 = results['tau'].amplitude_squared
         
         return {
-            'mu_e': mu_A2 / e_A2,
-            'tau_e': tau_A2 / e_A2,
-            'tau_mu': tau_A2 / mu_A2,
+            'mu_e': mu_A2 / e_A2 if e_A2 > 1e-10 else 0.0,
+            'tau_e': tau_A2 / e_A2 if e_A2 > 1e-10 else 0.0,
+            'tau_mu': tau_A2 / mu_A2 if mu_A2 > 1e-10 else 0.0,
         }
 
 
 def solve_lepton_masses(verbose: bool = True) -> Dict[str, float]:
     """
     Convenience function to solve for lepton mass ratios.
-    
-    This uses the physics-based solver (no fitted parameters!)
-    to predict lepton mass ratios from the SFM energy functional.
-    
-    Returns:
-        Dictionary with masses and ratios.
     """
     solver = SFMLeptonSolver()
     results = solver.solve_lepton_spectrum(verbose=verbose)
-    
     ratios = solver.compute_mass_ratios(results)
     
     return {
@@ -829,4 +595,3 @@ def solve_lepton_masses(verbose: bool = True) -> Dict[str, float]:
         'm_tau/m_e': ratios['tau_e'],
         'm_tau/m_mu': ratios['tau_mu'],
     }
-
