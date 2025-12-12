@@ -1,15 +1,12 @@
 """
 Composite Baryon Solver for SFM - Pure First-Principles Implementation.
 
-CRITICAL: Uses WAVEFUNCTION-BASED energy minimization.
-
-The actual wavefunction structure matters:
-- Three peaks at wells with color phases
-- Actual ∫V(σ)|χ|² captures three-well interaction
-- Actual ∫|χ|⁴ captures nonlinear self-interaction
-- k_eff emerges from ∫|∂χ/∂σ|²
-
-This is fundamentally different from parameterized approximations!
+CRITICAL PHYSICS:
+- Baryons are THREE-QUARK composites
+- Quantum numbers: k_total = sum of quark windings
+- Binding comes primarily from NONLINEAR term (∫|χ₁+χ₂+χ₃|⁴)
+- Three quarks with color phases create constructive interference
+- Coupling is weaker than leptons (different physics)
 """
 
 import numpy as np
@@ -25,12 +22,12 @@ from sfm_solver.potentials.three_well import ThreeWellPotential
 
 # Quark winding numbers (SIGNED)
 QUARK_WINDING = {
-    'u': +5,
-    'd': -3,
+    'u': +2,  # Up quark: +2/3 charge → k = +2
+    'd': -1,  # Down quark: -1/3 charge → k = -1
 }
 
-PROTON_QUARKS = ['u', 'u', 'd']
-NEUTRON_QUARKS = ['u', 'd', 'd']
+PROTON_QUARKS = ['u', 'u', 'd']  # k_total = 2+2-1 = 3
+NEUTRON_QUARKS = ['u', 'd', 'd']  # k_total = 2-1-1 = 0
 
 
 @dataclass
@@ -39,11 +36,16 @@ class CompositeBaryonState:
     chi_baryon: NDArray[np.complexfloating]
     quark_types: Tuple[str, str, str]
     
+    # Input quantum numbers
+    n_spatial: int
+    k_total: int
+    
     # From minimizer
     amplitude: float
     amplitude_squared: float
     delta_x: float
     delta_sigma: float
+    k_eff: float  # For compatibility
     
     # Energy breakdown
     energy_total: float
@@ -55,9 +57,6 @@ class CompositeBaryonState:
     energy_potential: float
     energy_nonlinear: float
     energy_circulation: float
-    
-    # Emergent k_eff
-    k_eff: float
     
     # Color structure
     phases: Tuple[float, float, float]
@@ -72,10 +71,13 @@ class CompositeBaryonState:
 
 class CompositeBaryonSolver:
     """
-    Baryon solver using WAVEFUNCTION-BASED energy minimization.
+    Baryon solver using quantum numbers as inputs.
     
-    The key difference: energy is computed from ACTUAL INTEGRALS
-    over the three-peak baryon wavefunction, not approximations.
+    For baryons (composite particles):
+    - k_total = sum of quark windings (determines electric charge)
+    - n_spatial = 1 for ground state (u,d quarks)
+    - Binding from NONLINEAR term: constructive interference of 3 quarks
+    - Coupling is weaker than leptons
     """
     
     WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]
@@ -101,7 +103,6 @@ class CompositeBaryonSolver:
             use_physical = SFM_CONSTANTS.use_physical
         self.use_physical = use_physical
         
-        # Get/derive fundamental parameters
         self.beta = beta if beta is not None else SFM_CONSTANTS.beta_physical
         
         alpha_em = 1.0 / 137.036
@@ -115,7 +116,7 @@ class CompositeBaryonSolver:
         self.m_eff = m_eff
         self.hbar = hbar
         
-        # Create WAVEFUNCTION-BASED minimizer
+        # Create minimizer
         self.minimizer = WavefunctionEnergyMinimizer(
             grid=grid,
             potential=potential,
@@ -128,34 +129,43 @@ class CompositeBaryonSolver:
             hbar=hbar,
         )
     
+    def _compute_k_total(self, quark_types: List[str]) -> int:
+        """Compute net winding from quark content (for charge)."""
+        return sum(QUARK_WINDING.get(q, 0) for q in quark_types)
+    
+    def _compute_k_coupling(self, quark_types: List[str]) -> int:
+        """
+        Compute coupling strength from quark content.
+        
+        For composites, the coupling depends on the SUM OF MAGNITUDES,
+        not the net winding. This ensures neutral particles still couple!
+        """
+        return sum(abs(QUARK_WINDING.get(q, 0)) for q in quark_types)
+    
     def _initialize_baryon(
         self,
         quark_types: List[str],
         initial_amplitude: float = 1.0
     ) -> NDArray[np.complexfloating]:
         """
-        Initialize baryon wavefunction with THREE peaks at wells.
+        Initialize baryon as THREE-PEAK composite wavefunction.
         
-        This creates the distinctive baryon structure:
-        - Peak at each well (σ = 0, 2π/3, 4π/3)
-        - Each peak has quark-specific winding
-        - Color phases (0, 2π/3, 4π/3) for neutrality
+        Three peaks at wells with:
+        - Color phases (0, 2π/3, 4π/3) for color neutrality
+        - Each peak has its quark's winding
         """
         sigma = self.grid.sigma
         N = len(sigma)
         
         chi = np.zeros(N, dtype=complex)
-        width = 0.5  # Initial width (structure will evolve)
+        width = 0.5
         
         for i, (well_pos, quark) in enumerate(zip(self.WELL_POSITIONS, quark_types)):
-            k = QUARK_WINDING.get(quark, 3)
+            k = QUARK_WINDING.get(quark, 0)
             color_phase = i * 2 * np.pi / 3
             
-            # Gaussian at well
             dist = np.angle(np.exp(1j * (sigma - well_pos)))
             envelope = np.exp(-0.5 * (dist / width)**2)
-            
-            # Winding + color phase
             phase = k * sigma + color_phase
             chi += envelope * np.exp(1j * phase)
         
@@ -183,15 +193,11 @@ class CompositeBaryonSolver:
         quark_types: List[str] = None,
         max_iter: int = 20000,
         tol: float = 1e-10,
-        initial_amplitude: float = 1.0,
+        initial_amplitude: float = 0.01,
         verbose: bool = False
     ) -> CompositeBaryonState:
         """
-        Solve for baryon using wavefunction-based minimization.
-        
-        The THREE-PEAK structure is crucial - it interacts with
-        the three-well potential in a specific way that determines
-        the baryon mass!
+        Solve for baryon with quark content as input.
         """
         if quark_types is None:
             quark_types = PROTON_QUARKS
@@ -199,24 +205,27 @@ class CompositeBaryonSolver:
         if len(quark_types) != 3:
             raise ValueError("quark_types must have exactly 3 elements")
         
+        # Compute quantum numbers
+        k_total = self._compute_k_total(quark_types)
+        n_spatial = 1  # Ground state for u,d quarks
+        
         if verbose:
             print("=" * 60)
-            print(f"BARYON SOLVER (Wavefunction-Based): {''.join(quark_types)}")
-            print(f"  THREE-PEAK structure at well positions")
-            print(f"  Energy from ACTUAL INTEGRALS over χ")
-            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}, κ={self.kappa:.6g}")
+            print(f"BARYON SOLVER: {''.join(quark_types)}")
+            print(f"  Quantum numbers: n={n_spatial}, k_total={k_total}")
+            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}")
             print("=" * 60)
         
-        # Initialize THREE-PEAK baryon wavefunction
+        # Initialize THREE-PEAK composite wavefunction
         chi_initial = self._initialize_baryon(quark_types, initial_amplitude)
         
-        if verbose:
-            k_eff_init = self.minimizer.compute_k_eff(chi_initial)
-            print(f"  Initial k_eff: {k_eff_init:.4f}")
-        
-        # Minimize using WAVEFUNCTION-BASED minimizer
+        # Minimize with (n, k) as inputs
+        # is_lepton=False means weaker coupling, binding from nonlinear
         result = self.minimizer.minimize(
             chi_initial=chi_initial,
+            n_spatial=n_spatial,
+            k_winding=abs(k_total),  # Use magnitude for coupling strength
+            is_lepton=False,
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
@@ -228,22 +237,20 @@ class CompositeBaryonSolver:
         if verbose:
             mass_mev = self.beta * result.A_squared * 1000
             print(f"\n  Results:")
-            print(f"    A² = {result.A_squared:.6f}")
-            print(f"    k_eff = {result.k_eff:.4f} (EMERGENT)")
-            print(f"    Δx = {result.delta_x:.6g}")
-            print(f"    Δσ = {result.delta_sigma:.4f} (EMERGENT)")
+            print(f"    A² = {result.A_squared:.6g}")
             print(f"    Mass = {mass_mev:.2f} MeV")
-            print(f"    E_potential = {result.energy.E_potential:.4f} (from ∫V|χ|²)")
-            print(f"    E_nonlinear = {result.energy.E_nonlinear:.4f} (from ∫|χ|⁴)")
             print(f"    Converged: {result.converged}")
         
         return CompositeBaryonState(
             chi_baryon=result.chi,
             quark_types=tuple(quark_types),
+            n_spatial=n_spatial,
+            k_total=k_total,
             amplitude=result.A,
             amplitude_squared=result.A_squared,
             delta_x=result.delta_x,
             delta_sigma=result.delta_sigma,
+            k_eff=float(abs(k_total)),
             energy_total=result.energy.E_total,
             energy_subspace=result.energy.E_subspace,
             energy_spatial=result.energy.E_spatial,
@@ -253,7 +260,6 @@ class CompositeBaryonSolver:
             energy_potential=result.energy.E_potential,
             energy_nonlinear=result.energy.E_nonlinear,
             energy_circulation=result.energy.E_circulation,
-            k_eff=result.k_eff,
             phases=phases,
             color_sum_magnitude=color_mag,
             is_color_neutral=color_mag < 0.1,
