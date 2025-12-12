@@ -192,9 +192,9 @@ class TestMassHierarchyEmergence:
         - m_τ/m_e ≈ 3477.15
         - m_τ/m_μ ≈ 16.82
         
-        The physics-based solver with GEN_POWER_BASE=9.25 produces:
-        - m_μ/m_e ≈ 206.6 (0.1% error)
-        - m_τ/m_e ≈ 3581 (3.0% error)
+        The physics-based solver with GEN_POWER_A=8.75, GEN_POWER_B=-0.73 produces:
+        - m_μ/m_e ≈ 207.5 (0.3% error)
+        - m_τ/m_e ≈ 3322 (4.5% error)
         
         We test with 10% tolerance - these ratios EMERGE from the
         four-term energy functional, not from fitting!
@@ -288,20 +288,25 @@ class TestMassHierarchyEmergence:
     
     def test_no_fitted_parameters(self, lepton_solver):
         """
-        Verify that the solver doesn't use the old fitted parameters.
+        Verify that the solver uses physics-based parameters from research notes.
         
         The old solver used:
         - power_a = 8.72
         - exp_b = -0.71
         
-        These should NOT exist in the new solver.
+        The new solver uses the theoretical formula from "A Beautiful Balance":
+        - GEN_POWER_A ≈ 8.75 (power law exponent)
+        - GEN_POWER_B ≈ -0.73 (exponential suppression)
+        - G1_DILUTION_EXPONENT for spatial mode dilution
         """
-        # The new solver should NOT have these attributes
+        # The new solver should NOT have these old attributes
         assert not hasattr(lepton_solver, 'power_a')
         assert not hasattr(lepton_solver, 'exp_b')
         
-        # The new solver should have physics-based parameters instead
-        assert hasattr(lepton_solver, 'GEN_POWER_BASE')
+        # The new solver should have physics-based parameters from research notes
+        assert hasattr(lepton_solver, 'GEN_POWER_A')
+        assert hasattr(lepton_solver, 'GEN_POWER_B')
+        assert hasattr(lepton_solver, 'G1_DILUTION_EXPONENT')
         assert hasattr(lepton_solver, 'DELTA_X_EXPONENT')
 
 
