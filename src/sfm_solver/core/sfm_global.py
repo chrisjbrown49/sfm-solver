@@ -510,7 +510,7 @@ class SFMGlobalConstants:
     # ELECTROMAGNETIC COUPLING (g₂) - DERIVED FROM FIRST PRINCIPLES
     # =========================================================================
     # 
-    # BREAKTHROUGH (December 2024): α_EM can be PREDICTED from SFM geometry!
+    # BREAKTHROUGH: α_EM can be predicted from SFM geometry!
     # 
     # The fine structure constant emerges from the 3-well structure:
     #     α_EM = √(8π × m_e / (3 × β))
