@@ -151,9 +151,13 @@ class CompositeBaryonSolver:
         """
         Initialize baryon as THREE-PEAK composite wavefunction.
         
-        Each quark contributes a peak at its well with:
-        - Its winding number (encoded in phase gradient)
+        Each quark χ_i contributes:
+        - Its winding number k_i (encoded in phase)
+        - Its radial structure f_n(σ) based on quark generation!
         - Color phase (0, 2π/3, 4π/3) for color neutrality
+        
+        CRITICAL: Heavier quarks (c, b) have more radial nodes in their
+        subspace wavefunction, just like muon/tau have more nodes than electron!
         """
         sigma = self.grid.sigma
         N = len(sigma)
@@ -163,12 +167,30 @@ class CompositeBaryonSolver:
         
         for i, (well_pos, quark) in enumerate(zip(self.WELL_POSITIONS, quark_types)):
             k = QUARK_WINDING.get(quark, 0)
+            n_quark = QUARK_GENERATION.get(quark, 1)  # Radial structure!
             color_phase = i * 2 * np.pi / 3
             
+            # Distance from well (periodic)
             dist = np.angle(np.exp(1j * (sigma - well_pos)))
+            
+            # Gaussian envelope
             envelope = np.exp(-0.5 * (dist / width)**2)
+            
+            # Radial structure f_n based on quark generation (like leptons!)
+            # n=1: no nodes, n=2: one node, n=3: two nodes
+            if n_quark == 1:
+                radial = np.ones_like(dist)  # No nodes
+            elif n_quark == 2:
+                x = dist / width
+                radial = x  # One node at center (like H_1)
+            else:  # n_quark >= 3
+                x = dist / width
+                radial = x**2 - 1.0  # Two nodes (like H_2)
+            
+            # Full quark wavefunction: envelope × radial × winding × color
             phase = k * sigma + color_phase
-            chi += envelope * np.exp(1j * phase)
+            chi_quark = envelope * radial * np.exp(1j * phase)
+            chi += chi_quark
         
         # Scale to initial amplitude
         current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
@@ -192,6 +214,7 @@ class CompositeBaryonSolver:
     def solve(
         self,
         quark_types: List[str] = None,
+        n_radial: int = 1,
         max_iter: int = 20000,
         tol: float = 1e-10,
         initial_amplitude: float = 0.01,
@@ -204,6 +227,11 @@ class CompositeBaryonSolver:
         - Each quark's winding is encoded in exp(i k σ)
         - Color phases create interference
         - ∂χ/∂σ naturally captures the effective winding
+        
+        Args:
+            quark_types: List of quark types ['u', 'u', 'd'] etc.
+            n_radial: Radial excitation quantum number (1 = ground state)
+                      This is INDEPENDENT of quark generation!
         """
         if quark_types is None:
             quark_types = PROTON_QUARKS
@@ -211,8 +239,10 @@ class CompositeBaryonSolver:
         if len(quark_types) != 3:
             raise ValueError("quark_types must have exactly 3 elements")
         
-        # Spatial mode from quark generations
-        n_spatial = max(QUARK_GENERATION.get(q, 1) for q in quark_types)
+        # Spatial mode = radial excitation (NOT quark generation!)
+        # Ground state baryons (proton, neutron, etc.) have n_spatial = 1
+        # Excited baryons (resonances) have n_spatial = 2, 3, etc.
+        n_spatial = n_radial
         k_total = sum(QUARK_WINDING.get(q, 0) for q in quark_types)
         
         if verbose:

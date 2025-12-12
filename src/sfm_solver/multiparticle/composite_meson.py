@@ -173,27 +173,60 @@ class CompositeMesonSolver:
         """
         Initialize meson as TWO-PEAK composite wavefunction.
         
-        The quark and antiquark each contribute a peak with their winding.
-        The interference in ∂χ/∂σ naturally captures the physics!
+        Each quark/antiquark χ_i contributes:
+        - Its winding number k_i (opposite for antiquark)
+        - Its radial structure f_n(σ) based on quark generation!
+        
+        CRITICAL: Heavier quarks (c, b) have more radial nodes in their
+        subspace wavefunction, just like muon/tau have more nodes than electron!
+        
+        Example - J/ψ vs Υ:
+        - J/ψ (cc̄): χ_c has f_2(σ) with one node
+        - Υ (bb̄): χ_b has f_3(σ) with two nodes
         """
         sigma = self.grid.sigma
         
         k_q, k_qbar, _ = self._get_quark_windings(quark, antiquark)
+        n_q = QUARK_GENERATION.get(quark, 1)
+        antiquark_base = antiquark.replace('_bar', '')
+        n_qbar = QUARK_GENERATION.get(antiquark_base, 1)
         width = 0.4
         
-        # Quark at well 0
+        # === QUARK at well 0 ===
         well_q = self.WELL_POSITIONS[0]
         dist_q = np.angle(np.exp(1j * (sigma - well_q)))
         envelope_q = np.exp(-0.5 * (dist_q / width)**2)
-        chi_q = envelope_q * np.exp(1j * k_q * sigma)
         
-        # Antiquark at well 1
+        # Radial structure based on quark generation
+        if n_q == 1:
+            radial_q = np.ones_like(dist_q)
+        elif n_q == 2:
+            x = dist_q / width
+            radial_q = x  # One node
+        else:
+            x = dist_q / width
+            radial_q = x**2 - 1.0  # Two nodes
+        
+        chi_q = envelope_q * radial_q * np.exp(1j * k_q * sigma)
+        
+        # === ANTIQUARK at well 1 ===
         well_qbar = self.WELL_POSITIONS[1]
         dist_qbar = np.angle(np.exp(1j * (sigma - well_qbar)))
         envelope_qbar = np.exp(-0.5 * (dist_qbar / width)**2)
-        chi_qbar = envelope_qbar * np.exp(1j * k_qbar * sigma)
         
-        # TWO-PEAK composite
+        # Radial structure based on antiquark generation (same as quark)
+        if n_qbar == 1:
+            radial_qbar = np.ones_like(dist_qbar)
+        elif n_qbar == 2:
+            x = dist_qbar / width
+            radial_qbar = x  # One node
+        else:
+            x = dist_qbar / width
+            radial_qbar = x**2 - 1.0  # Two nodes
+        
+        chi_qbar = envelope_qbar * radial_qbar * np.exp(1j * k_qbar * sigma)
+        
+        # TWO-PEAK composite with radial structure
         chi = chi_q + chi_qbar
         
         # Scale to initial amplitude
@@ -206,6 +239,7 @@ class CompositeMesonSolver:
     def solve(
         self,
         meson_type: str = 'pion_plus',
+        n_radial: int = None,
         max_iter: int = 20000,
         tol: float = 1e-10,
         initial_amplitude: float = 0.01,
@@ -218,7 +252,11 @@ class CompositeMesonSolver:
         - Different quark types have different windings
         - Antiquarks have opposite winding from quarks
         - ∂χ/∂σ naturally captures interference effects
-        - No need to pass k_net separately!
+        
+        Args:
+            meson_type: Type of meson ('pion_plus', 'jpsi', etc.)
+            n_radial: Radial excitation (1 = ground state like J/ψ 1S, 2 = first excited like ψ(2S))
+                      If None, determined from meson_type (1S vs 2S)
         """
         config = MESON_CONFIGS.get(meson_type, MESON_CONFIGS['pion_plus'])
         quark = config['quark']
@@ -227,7 +265,16 @@ class CompositeMesonSolver:
         k_q, k_qbar, k_net = self._get_quark_windings(quark, antiquark)
         generation = max(QUARK_GENERATION.get(quark, 1),
                         QUARK_GENERATION.get(antiquark, 1))
-        n_spatial = generation
+        
+        # Spatial mode = radial excitation (NOT quark generation!)
+        # Ground state mesons (π, J/ψ 1S, Υ 1S) have n_spatial = 1
+        # Excited states (ψ(2S), Υ(2S)) have n_spatial = 2
+        if n_radial is not None:
+            n_spatial = n_radial
+        elif '2s' in meson_type.lower():
+            n_spatial = 2  # Radially excited state
+        else:
+            n_spatial = 1  # Ground state
         
         if verbose:
             print("=" * 60)
