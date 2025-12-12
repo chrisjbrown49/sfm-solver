@@ -1,16 +1,15 @@
 """
-SFM Lepton Solver - Pure First-Principles Implementation.
+SFM Lepton Solver - Using Non-Separable Wavefunction Architecture.
+
+ARCHITECTURE:
+Stage 1: NonSeparableWavefunctionSolver finds wavefunction STRUCTURE
+Stage 2: UniversalEnergyMinimizer optimizes SCALE (A, dx, ds)
 
 CRITICAL PHYSICS:
-- E_coupling computed from ACTUAL WAVEFUNCTIONS:
-  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
-
-- Spatial wavefunction φ_n(r) has n-1 radial nodes:
-  * Electron (n=1): no nodes, small gradient
-  * Muon (n=2): 1 node, larger gradient  
-  * Tau (n=3): 2 nodes, largest gradient
-
-- Mass hierarchy EMERGES from the gradient structure!
+- Wavefunction is NON-SEPARABLE: psi = Sum R_nl Y_lm chi_nlm(sigma)
+- Each angular component (n,l,m) has its OWN subspace function
+- Coupling emerges from cross-terms between l=0 and l=1 components
+- Mass hierarchy from radial node structure in spatial wavefunction
 """
 
 import numpy as np
@@ -20,9 +19,9 @@ from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.core.sfm_global import SFM_CONSTANTS
-from sfm_solver.core.energy_minimizer import WavefunctionEnergyMinimizer
+from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+from sfm_solver.core.universal_energy_minimizer import UniversalEnergyMinimizer
 from sfm_solver.potentials.three_well import ThreeWellPotential
-from sfm_solver.eigensolver.spectral import SpectralOperators
 
 
 # Spatial mode for each lepton (determines radial node structure)
@@ -70,6 +69,9 @@ class SFMLeptonState:
     k_eff: float = 1.0
     k_winding: int = 1
     
+    # Angular composition (from non-separable solver)
+    l_composition: Dict[int, float] = None
+    
     # Convergence
     converged: bool = False
     iterations: int = 0
@@ -78,16 +80,17 @@ class SFMLeptonState:
 
 class SFMLeptonSolver:
     """
-    Lepton solver using actual wavefunctions for coupling.
+    Lepton solver using non-separable wavefunction architecture.
+    
+    Two-stage process:
+    1. NonSeparableWavefunctionSolver: Find entangled wavefunction structure
+    2. UniversalEnergyMinimizer: Optimize (A, dx, ds) for minimum energy
     
     Key physics:
-    - φ_n(r) has n-1 radial nodes (more nodes → larger gradient)
-    - χ(σ) is a single peak with k=1 winding
-    - E_coupling = -α × [∫(dφ/dr)φ r²dr] × [Re∫χ*(∂χ/∂σ)dσ]
-    - Mass hierarchy emerges from radial node structure!
+    - phi_n(r) has n-1 radial nodes (more nodes -> larger gradient)
+    - chi(sigma) has k=1 winding
+    - Mass hierarchy EMERGES from the gradient structure!
     """
-    
-    WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]
     
     def __init__(
         self,
@@ -127,52 +130,32 @@ class SFMLeptonSolver:
         
         self.m_eff = m_eff
         self.hbar = hbar
+        self.V0 = potential.V0
         
-        # Create minimizer
-        self.minimizer = WavefunctionEnergyMinimizer(
-            grid=grid,
-            potential=potential,
+        # Create non-separable wavefunction solver (Stage 1)
+        self.wf_solver = NonSeparableWavefunctionSolver(
             alpha=self.alpha,
             beta=self.beta,
             kappa=self.kappa,
             g1=self.g1,
             g2=self.g2,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # Create universal energy minimizer (Stage 2)
+        self.minimizer = UniversalEnergyMinimizer(
+            alpha=self.alpha,
+            beta=self.beta,
+            kappa=self.kappa,
+            g1=self.g1,
+            g2=self.g2,
+            V0=self.V0,
             m_eff=m_eff,
             hbar=hbar,
         )
-        
-        self.operators = SpectralOperators(grid, m_eff, hbar)
-    
-    def _initialize_lepton_wavefunction(
-        self,
-        initial_amplitude: float = 0.01
-    ) -> NDArray[np.complexfloating]:
-        """
-        Initialize lepton as ONE-PEAK wavefunction with k=1 winding.
-        
-        The subspace structure is the same for all leptons - what differs
-        is the SPATIAL wavefunction φ_n(r) which has different radial nodes.
-        """
-        sigma = self.grid.sigma
-        
-        well_pos = self.WELL_POSITIONS[0]
-        width = 0.5
-        
-        # Gaussian at one well
-        dist = np.angle(np.exp(1j * (sigma - well_pos)))
-        envelope = np.exp(-0.5 * (dist / width)**2)
-        
-        # k=1 winding
-        winding = np.exp(1j * sigma)
-        
-        chi = envelope * winding
-        
-        # Scale to initial amplitude
-        current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        if current_amp_sq > 1e-10:
-            chi *= np.sqrt(initial_amplitude / current_amp_sq)
-        
-        return chi
     
     def solve_lepton(
         self,
@@ -183,32 +166,55 @@ class SFMLeptonSolver:
         verbose: bool = False
     ) -> SFMLeptonState:
         """
-        Solve for lepton.
+        Solve for lepton using two-stage architecture.
         
-        The spatial mode n determines the radial wavefunction φ_n(r):
-        - electron: n=1, no radial nodes
-        - muon: n=2, 1 radial node
-        - tau: n=3, 2 radial nodes
+        Stage 1: Solve for wavefunction STRUCTURE (entangled components)
+        Stage 2: Minimize energy over SCALE (A, dx, ds)
         
-        Different radial structures → different coupling → different mass!
+        Args:
+            particle: 'electron', 'muon', or 'tau'
+            max_iter: Maximum iterations for energy minimization
+            tol: Convergence tolerance
+            initial_amplitude: Starting amplitude for minimization
+            verbose: Print progress
         """
         n_spatial = LEPTON_SPATIAL_MODE.get(particle, 1)
+        k_winding = LEPTON_WINDING
         
         if verbose:
             print("=" * 60)
             print(f"LEPTON SOLVER: {particle.upper()}")
-            print(f"  Spatial mode n={n_spatial} → φ_{n_spatial}(r) has {n_spatial-1} nodes")
-            print(f"  E_coupling from actual wavefunction integrals")
-            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}")
+            print(f"  Using non-separable wavefunction architecture")
+            print(f"  Spatial mode n={n_spatial} -> phi_{n_spatial}(r) has {n_spatial-1} nodes")
+            print(f"  Parameters: alpha={self.alpha:.4g}, beta={self.beta:.4g}")
             print("=" * 60)
         
-        # Initialize subspace wavefunction
-        chi_initial = self._initialize_lepton_wavefunction(initial_amplitude)
+        # === STAGE 1: Solve for wavefunction structure ===
+        if verbose:
+            print("\nStage 1: Solving wavefunction structure...")
         
-        # Minimize - spatial wavefunction created internally based on n_spatial
+        structure = self.wf_solver.solve_lepton(
+            n_target=n_spatial,
+            k_winding=k_winding,
+            verbose=verbose,
+        )
+        
+        if verbose:
+            print(f"  Angular composition: l=0: {structure.l_composition.get(0,0)*100:.1f}%, "
+                  f"l=1: {structure.l_composition.get(1,0)*100:.1f}%")
+            print(f"  k_eff from wavefunction: {structure.k_eff:.4f}")
+        
+        # === STAGE 2: Minimize energy over (A, dx, ds) ===
+        if verbose:
+            print("\nStage 2: Minimizing energy over (A, dx, ds)...")
+        
         result = self.minimizer.minimize(
-            chi_initial=chi_initial,
-            n_spatial=n_spatial,
+            structure=structure,
+            sigma_grid=self.wf_solver.get_sigma_grid(),
+            V_sigma=self.wf_solver.get_V_sigma(),
+            spatial_coupling=self.wf_solver.get_spatial_coupling_matrix(),
+            state_index_map=self.wf_solver.get_state_index_map(),
+            initial_A=np.sqrt(initial_amplitude),
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
@@ -217,35 +223,49 @@ class SFMLeptonSolver:
         if verbose:
             mass_mev = self.beta * result.A_squared * 1000
             print(f"\n  Results:")
-            print(f"    A² = {result.A_squared:.6g}")
+            print(f"    A^2 = {result.A_squared:.6g}")
             print(f"    Mass = {mass_mev:.4f} MeV")
-            print(f"    spatial_factor = {result.energy.spatial_factor:.4g}")
-            print(f"    subspace_factor = {result.energy.subspace_factor:.4g}")
-            print(f"    E_coupling = {result.energy.E_coupling:.4g}")
+            print(f"    E_coupling = {result.E_coupling:.4g}")
             print(f"    Converged: {result.converged}")
         
+        # Extract primary chi component for compatibility
+        primary_key = (n_spatial, 0, 0)
+        chi_primary = structure.chi_components.get(
+            primary_key, 
+            np.zeros(self.wf_solver.basis.N_sigma, dtype=complex)
+        )
+        
+        # Scale chi by converged amplitude
+        chi_scaled = chi_primary * result.A
+        
+        # E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
+        E_subspace = result.E_kinetic + result.E_potential + result.E_nonlinear + result.E_circulation
+        
         return SFMLeptonState(
-            chi=result.chi,
+            chi=chi_scaled,
             particle=particle,
             n_spatial=n_spatial,
             amplitude=result.A,
             amplitude_squared=result.A_squared,
             delta_x=result.delta_x,
             delta_sigma=result.delta_sigma,
-            energy_total=result.energy.E_total,
-            energy_subspace=result.energy.E_subspace,
-            energy_spatial=result.energy.E_spatial,
-            energy_coupling=result.energy.E_coupling,
-            energy_curvature=result.energy.E_curvature,
-            energy_kinetic=result.energy.E_kinetic,
-            energy_potential=result.energy.E_potential,
-            energy_nonlinear=result.energy.E_nonlinear,
-            energy_circulation=result.energy.E_circulation,
-            spatial_factor=result.energy.spatial_factor,
-            subspace_factor=result.energy.subspace_factor,
+            energy_total=result.E_total,
+            energy_subspace=E_subspace,
+            energy_spatial=result.E_spatial,
+            energy_coupling=result.E_coupling,
+            energy_curvature=result.E_curvature,
+            energy_kinetic=result.E_kinetic,
+            energy_potential=result.E_potential,
+            energy_nonlinear=result.E_nonlinear,
+            energy_circulation=result.E_circulation,
+            spatial_factor=0.0,  # Now computed internally
+            subspace_factor=structure.k_eff,
+            k_eff=structure.k_eff,
+            k_winding=k_winding,
+            l_composition=structure.l_composition,
             converged=result.converged,
             iterations=result.iterations,
-            final_residual=result.final_residual,
+            final_residual=0.0,
         )
     
     def solve_electron(self, **kwargs) -> SFMLeptonState:

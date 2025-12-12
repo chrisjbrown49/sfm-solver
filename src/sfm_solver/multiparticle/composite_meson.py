@@ -1,14 +1,14 @@
 """
-Composite Meson Solver for SFM - Pure First-Principles Implementation.
+Composite Meson Solver for SFM - Using Non-Separable Wavefunction Architecture.
+
+ARCHITECTURE:
+Stage 1: NonSeparableWavefunctionSolver finds wavefunction STRUCTURE
+Stage 2: UniversalEnergyMinimizer optimizes SCALE (A, dx, ds)
 
 CRITICAL PHYSICS:
-- E_coupling computed from ACTUAL WAVEFUNCTIONS:
-  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
-
-- χ(σ) = χ_q + χ_q̄ is the TWO-PEAK composite wavefunction
-- For neutral mesons (q q̄ with opposite winding):
-  * ∂χ/∂σ = ik(χ_q - χ_q̄) captures interference
-  * subspace_factor could be zero OR non-zero depending on envelope asymmetry
+- chi(sigma) = chi_q + chi_qbar is the TWO-PEAK composite wavefunction
+- For neutral mesons (q qbar with opposite winding):
+  * Interference captured by entangled wavefunction structure
   * EMERGES from wavefunction, not imposed!
 """
 
@@ -19,7 +19,8 @@ from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.core.sfm_global import SFM_CONSTANTS
-from sfm_solver.core.energy_minimizer import WavefunctionEnergyMinimizer
+from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+from sfm_solver.core.universal_energy_minimizer import UniversalEnergyMinimizer
 from sfm_solver.potentials.three_well import ThreeWellPotential
 
 
@@ -88,26 +89,28 @@ class CompositeMesonState:
     k_net: int
     k_eff: float
     
+    # Angular composition (from non-separable solver)
+    l_composition: Dict[int, float] = None
+    
     # Convergence
-    converged: bool
-    iterations: int
-    final_residual: float
+    converged: bool = False
+    iterations: int = 0
+    final_residual: float = 0.0
 
 
 class CompositeMesonSolver:
     """
-    Meson solver using actual wavefunctions for coupling.
+    Meson solver using non-separable wavefunction architecture.
+    
+    Two-stage process:
+    1. NonSeparableWavefunctionSolver: Find entangled wavefunction structure
+    2. UniversalEnergyMinimizer: Optimize (A, dx, ds) for minimum energy
     
     Key physics:
-    - χ = χ_q + χ_q̄ (quark + antiquark with different windings)
+    - chi = chi_q + chi_qbar (quark + antiquark with different windings)
     - Antiquark has OPPOSITE winding from quark
-    - ∂χ/∂σ captures interference:
-      * For π⁺ (ud̄): different windings, net effect from interference
-      * For J/ψ (cc̄): opposite windings, partial cancellation
-    - E_coupling emerges from the wavefunction structure!
+    - Interference captured by entangled wavefunction structure
     """
-    
-    WELL_POSITIONS = [0.0, 2*np.pi/3, 4*np.pi/3]
     
     def __init__(
         self,
@@ -142,16 +145,29 @@ class CompositeMesonSolver:
         
         self.m_eff = m_eff
         self.hbar = hbar
+        self.V0 = potential.V0
         
-        # Create minimizer
-        self.minimizer = WavefunctionEnergyMinimizer(
-            grid=grid,
-            potential=potential,
+        # Create non-separable wavefunction solver (Stage 1)
+        self.wf_solver = NonSeparableWavefunctionSolver(
             alpha=self.alpha,
             beta=self.beta,
             kappa=self.kappa,
             g1=self.g1,
             g2=self.g2,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # Create universal energy minimizer (Stage 2)
+        self.minimizer = UniversalEnergyMinimizer(
+            alpha=self.alpha,
+            beta=self.beta,
+            kappa=self.kappa,
+            g1=self.g1,
+            g2=self.g2,
+            V0=self.V0,
             m_eff=m_eff,
             hbar=hbar,
         )
@@ -164,79 +180,6 @@ class CompositeMesonSolver:
         k_net = k_q + k_qbar
         return k_q, k_qbar, k_net
     
-    def _initialize_meson(
-        self,
-        quark: str,
-        antiquark: str,
-        initial_amplitude: float = 0.01
-    ) -> NDArray[np.complexfloating]:
-        """
-        Initialize meson as TWO-PEAK composite wavefunction.
-        
-        Each quark/antiquark χ_i contributes:
-        - Its winding number k_i (opposite for antiquark)
-        - Its radial structure f_n(σ) based on quark generation!
-        
-        CRITICAL: Heavier quarks (c, b) have more radial nodes in their
-        subspace wavefunction, just like muon/tau have more nodes than electron!
-        
-        Example - J/ψ vs Υ:
-        - J/ψ (cc̄): χ_c has f_2(σ) with one node
-        - Υ (bb̄): χ_b has f_3(σ) with two nodes
-        """
-        sigma = self.grid.sigma
-        
-        k_q, k_qbar, _ = self._get_quark_windings(quark, antiquark)
-        n_q = QUARK_GENERATION.get(quark, 1)
-        antiquark_base = antiquark.replace('_bar', '')
-        n_qbar = QUARK_GENERATION.get(antiquark_base, 1)
-        width = 0.4
-        
-        # === QUARK at well 0 ===
-        well_q = self.WELL_POSITIONS[0]
-        dist_q = np.angle(np.exp(1j * (sigma - well_q)))
-        envelope_q = np.exp(-0.5 * (dist_q / width)**2)
-        
-        # Radial structure based on quark generation
-        # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero
-        x_q = dist_q / width
-        modulation = 0.5  # Keeps envelope between 0.5 and 1.5
-        if n_q == 1:
-            radial_q = np.ones_like(dist_q)  # No oscillation
-        elif n_q == 2:
-            radial_q = 1.0 + modulation * np.cos(np.pi * x_q)  # One period
-        else:
-            radial_q = 1.0 + modulation * np.cos(2 * np.pi * x_q)  # Two periods
-        
-        chi_q = envelope_q * radial_q * np.exp(1j * k_q * sigma)
-        
-        # === ANTIQUARK at well 1 ===
-        well_qbar = self.WELL_POSITIONS[1]
-        dist_qbar = np.angle(np.exp(1j * (sigma - well_qbar)))
-        envelope_qbar = np.exp(-0.5 * (dist_qbar / width)**2)
-        
-        # Radial structure based on antiquark generation (same as quark)
-        # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero
-        x_qbar = dist_qbar / width
-        if n_qbar == 1:
-            radial_qbar = np.ones_like(dist_qbar)  # No oscillation
-        elif n_qbar == 2:
-            radial_qbar = 1.0 + modulation * np.cos(np.pi * x_qbar)  # One period
-        else:
-            radial_qbar = 1.0 + modulation * np.cos(2 * np.pi * x_qbar)  # Two periods
-        
-        chi_qbar = envelope_qbar * radial_qbar * np.exp(1j * k_qbar * sigma)
-        
-        # TWO-PEAK composite with radial structure
-        chi = chi_q + chi_qbar
-        
-        # Scale to initial amplitude
-        current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        if current_amp_sq > 1e-10:
-            chi *= np.sqrt(initial_amplitude / current_amp_sq)
-        
-        return chi
-    
     def solve(
         self,
         meson_type: str = 'pion_plus',
@@ -247,16 +190,14 @@ class CompositeMesonSolver:
         verbose: bool = False
     ) -> CompositeMesonState:
         """
-        Solve for meson.
+        Solve for meson using two-stage architecture.
         
-        The composite wavefunction χ = χ_q + χ_q̄ captures all the physics:
-        - Different quark types have different windings
-        - Antiquarks have opposite winding from quarks
-        - ∂χ/∂σ naturally captures interference effects
+        Stage 1: Solve for wavefunction STRUCTURE (entangled components)
+        Stage 2: Minimize energy over SCALE (A, dx, ds)
         
         Args:
             meson_type: Type of meson ('pion_plus', 'jpsi', etc.)
-            n_radial: Radial excitation (1 = ground state like J/ψ 1S, 2 = first excited like ψ(2S))
+            n_radial: Radial excitation (1 = ground state, 2 = first excited)
                       If None, determined from meson_type (1S vs 2S)
         """
         config = MESON_CONFIGS.get(meson_type, MESON_CONFIGS['pion_plus'])
@@ -264,12 +205,11 @@ class CompositeMesonSolver:
         antiquark = config['antiquark']
         
         k_q, k_qbar, k_net = self._get_quark_windings(quark, antiquark)
-        generation = max(QUARK_GENERATION.get(quark, 1),
-                        QUARK_GENERATION.get(antiquark, 1))
+        quark_gen = QUARK_GENERATION.get(quark, 1)
+        antiquark_gen = QUARK_GENERATION.get(antiquark, 1)
+        generation = max(quark_gen, antiquark_gen)
         
         # Spatial mode = radial excitation (NOT quark generation!)
-        # Ground state mesons (π, J/ψ 1S, Υ 1S) have n_spatial = 1
-        # Excited states (ψ(2S), Υ(2S)) have n_spatial = 2
         if n_radial is not None:
             n_spatial = n_radial
         elif '2s' in meson_type.lower():
@@ -280,19 +220,41 @@ class CompositeMesonSolver:
         if verbose:
             print("=" * 60)
             print(f"MESON SOLVER: {meson_type.upper()}")
+            print(f"  Using non-separable wavefunction architecture")
             print(f"  TWO-PEAK composite: {quark}(k={k_q}) + {antiquark}-bar(k={k_qbar})")
             print(f"  Spatial mode n={n_spatial} (generation {generation})")
-            print(f"  E_coupling from actual wavefunction integrals")
-            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}")
+            print(f"  Parameters: alpha={self.alpha:.4g}, beta={self.beta:.4g}")
             print("=" * 60)
         
-        # Initialize TWO-PEAK composite wavefunction
-        chi_initial = self._initialize_meson(quark, antiquark, initial_amplitude)
+        # === STAGE 1: Solve for wavefunction structure ===
+        if verbose:
+            print("\nStage 1: Solving meson wavefunction structure...")
         
-        # Minimize
+        structure = self.wf_solver.solve_meson(
+            quark_gen=quark_gen,
+            antiquark_gen=antiquark_gen,
+            k_quark=k_q,
+            k_antiquark=k_qbar,
+            n_radial=n_spatial,
+            verbose=verbose,
+        )
+        
+        if verbose:
+            print(f"  Angular composition: l=0: {structure.l_composition.get(0,0)*100:.1f}%, "
+                  f"l=1: {structure.l_composition.get(1,0)*100:.1f}%")
+            print(f"  k_eff from wavefunction: {structure.k_eff:.4f}")
+        
+        # === STAGE 2: Minimize energy over (A, dx, ds) ===
+        if verbose:
+            print("\nStage 2: Minimizing energy over (A, dx, ds)...")
+        
         result = self.minimizer.minimize(
-            chi_initial=chi_initial,
-            n_spatial=n_spatial,
+            structure=structure,
+            sigma_grid=self.wf_solver.get_sigma_grid(),
+            V_sigma=self.wf_solver.get_V_sigma(),
+            spatial_coupling=self.wf_solver.get_spatial_coupling_matrix(),
+            state_index_map=self.wf_solver.get_state_index_map(),
+            initial_A=np.sqrt(initial_amplitude),
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
@@ -301,14 +263,26 @@ class CompositeMesonSolver:
         if verbose:
             mass_mev = self.beta * result.A_squared * 1000
             print(f"\n  Results:")
-            print(f"    A² = {result.A_squared:.6g}")
+            print(f"    A^2 = {result.A_squared:.6g}")
             print(f"    Mass = {mass_mev:.2f} MeV (exp: {config['mass_mev']:.2f})")
-            print(f"    spatial_factor = {result.energy.spatial_factor:.4g}")
-            print(f"    subspace_factor = {result.energy.subspace_factor:.4g}")
+            print(f"    E_coupling = {result.E_coupling:.4g}")
             print(f"    Converged: {result.converged}")
         
+        # Extract primary chi component for compatibility
+        primary_key = (n_spatial, 0, 0)
+        chi_primary = structure.chi_components.get(
+            primary_key,
+            np.zeros(self.wf_solver.basis.N_sigma, dtype=complex)
+        )
+        
+        # Scale chi by converged amplitude
+        chi_scaled = chi_primary * result.A
+        
+        # E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
+        E_subspace = result.E_kinetic + result.E_potential + result.E_nonlinear + result.E_circulation
+        
         return CompositeMesonState(
-            chi_meson=result.chi,
+            chi_meson=chi_scaled,
             meson_type=meson_type,
             quark=quark,
             antiquark=antiquark,
@@ -318,24 +292,25 @@ class CompositeMesonSolver:
             amplitude_squared=result.A_squared,
             delta_x=result.delta_x,
             delta_sigma=result.delta_sigma,
-            energy_total=result.energy.E_total,
-            energy_subspace=result.energy.E_subspace,
-            energy_spatial=result.energy.E_spatial,
-            energy_coupling=result.energy.E_coupling,
-            energy_curvature=result.energy.E_curvature,
-            energy_kinetic=result.energy.E_kinetic,
-            energy_potential=result.energy.E_potential,
-            energy_nonlinear=result.energy.E_nonlinear,
-            energy_circulation=result.energy.E_circulation,
-            spatial_factor=result.energy.spatial_factor,
-            subspace_factor=result.energy.subspace_factor,
+            energy_total=result.E_total,
+            energy_subspace=E_subspace,
+            energy_spatial=result.E_spatial,
+            energy_coupling=result.E_coupling,
+            energy_curvature=result.E_curvature,
+            energy_kinetic=result.E_kinetic,
+            energy_potential=result.E_potential,
+            energy_nonlinear=result.E_nonlinear,
+            energy_circulation=result.E_circulation,
+            spatial_factor=0.0,  # Now computed internally
+            subspace_factor=structure.k_eff,
             k_quark=k_q,
             k_antiquark=k_qbar,
             k_net=k_net,
-            k_eff=abs(result.energy.subspace_factor),
+            k_eff=abs(structure.k_eff),
+            l_composition=structure.l_composition,
             converged=result.converged,
             iterations=result.iterations,
-            final_residual=result.final_residual,
+            final_residual=0.0,
         )
     
     def solve_pion(self, **kwargs) -> CompositeMesonState:

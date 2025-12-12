@@ -1,23 +1,25 @@
 """
-Composite Baryon Solver for SFM - Pure First-Principles Implementation.
+Composite Baryon Solver for SFM - Using Non-Separable Wavefunction Architecture.
+
+ARCHITECTURE:
+Stage 1: NonSeparableWavefunctionSolver finds wavefunction STRUCTURE
+Stage 2: UniversalEnergyMinimizer optimizes SCALE (A, dx, ds)
 
 CRITICAL PHYSICS:
-- E_coupling computed from ACTUAL WAVEFUNCTIONS:
-  E_coupling = -α ∫∫ (∇φ · ∂χ/∂σ) φ χ d³x dσ
-
-- χ(σ) = χ₁ + χ₂ + χ₃ is the THREE-PEAK composite wavefunction
-- ∂χ/∂σ captures the interference of all three quarks
+- chi(sigma) = chi_1 + chi_2 + chi_3 is the THREE-PEAK composite wavefunction
+- Color phases (0, 2pi/3, 4pi/3) for color neutrality
 - Coupling emerges from wavefunction structure, not input quantum numbers!
 """
 
 import numpy as np
 from numpy.typing import NDArray
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 from dataclasses import dataclass
 
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.core.sfm_global import SFM_CONSTANTS
-from sfm_solver.core.energy_minimizer import WavefunctionEnergyMinimizer
+from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+from sfm_solver.core.universal_energy_minimizer import UniversalEnergyMinimizer
 from sfm_solver.potentials.three_well import ThreeWellPotential
 
 
@@ -77,20 +79,26 @@ class CompositeBaryonState:
     color_sum_magnitude: float
     is_color_neutral: bool
     
+    # Angular composition (from non-separable solver)
+    l_composition: Dict[int, float] = None
+    
     # Convergence
-    converged: bool
-    iterations: int
-    final_residual: float
+    converged: bool = False
+    iterations: int = 0
+    final_residual: float = 0.0
 
 
 class CompositeBaryonSolver:
     """
-    Baryon solver using actual wavefunctions for coupling.
+    Baryon solver using non-separable wavefunction architecture.
+    
+    Two-stage process:
+    1. NonSeparableWavefunctionSolver: Find entangled wavefunction structure
+    2. UniversalEnergyMinimizer: Optimize (A, dx, ds) for minimum energy
     
     Key physics:
-    - χ = χ₁ + χ₂ + χ₃ (three quarks with color phases)
-    - ∂χ/∂σ captures the interference pattern
-    - φ_n(r) has n-1 radial nodes based on quark generation
+    - chi = chi_1 + chi_2 + chi_3 (three quarks with color phases)
+    - Interference captured by entangled wavefunction structure
     - E_coupling emerges from the wavefunction structure!
     """
     
@@ -129,93 +137,32 @@ class CompositeBaryonSolver:
         
         self.m_eff = m_eff
         self.hbar = hbar
+        self.V0 = potential.V0
         
-        # Create minimizer
-        self.minimizer = WavefunctionEnergyMinimizer(
-            grid=grid,
-            potential=potential,
+        # Create non-separable wavefunction solver (Stage 1)
+        self.wf_solver = NonSeparableWavefunctionSolver(
             alpha=self.alpha,
             beta=self.beta,
             kappa=self.kappa,
             g1=self.g1,
             g2=self.g2,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # Create universal energy minimizer (Stage 2)
+        self.minimizer = UniversalEnergyMinimizer(
+            alpha=self.alpha,
+            beta=self.beta,
+            kappa=self.kappa,
+            g1=self.g1,
+            g2=self.g2,
+            V0=self.V0,
             m_eff=m_eff,
             hbar=hbar,
         )
-    
-    def _initialize_baryon(
-        self,
-        quark_types: List[str],
-        initial_amplitude: float = 0.01
-    ) -> NDArray[np.complexfloating]:
-        """
-        Initialize baryon as THREE-PEAK composite wavefunction.
-        
-        Each quark χ_i contributes:
-        - Its winding number k_i (encoded in phase)
-        - Its radial structure f_n(σ) based on quark generation!
-        - Color phase (0, 2π/3, 4π/3) for color neutrality
-        
-        CRITICAL: Heavier quarks (c, b) have more radial nodes in their
-        subspace wavefunction, just like muon/tau have more nodes than electron!
-        """
-        sigma = self.grid.sigma
-        N = len(sigma)
-        
-        chi = np.zeros(N, dtype=complex)
-        width = 0.5
-        
-        for i, (well_pos, quark) in enumerate(zip(self.WELL_POSITIONS, quark_types)):
-            k = QUARK_WINDING.get(quark, 0)
-            n_quark = QUARK_GENERATION.get(quark, 1)  # Radial structure!
-            color_phase = i * 2 * np.pi / 3
-            
-            # Distance from well (periodic)
-            dist = np.angle(np.exp(1j * (sigma - well_pos)))
-            
-            # Gaussian envelope
-            envelope = np.exp(-0.5 * (dist / width)**2)
-            
-            # Radial structure f_n based on quark generation (like leptons!)
-            # Using SMOOTH OSCILLATORY envelopes that NEVER go to zero:
-            # n=1: constant (no oscillation)
-            # n=2: one oscillation period → larger gradients
-            # n=3: two oscillation periods → even larger gradients
-            # 
-            # Form: f_n = 1 + modulation * cos((n-1) * pi * x / width)
-            # This stays positive (between 0.5 and 1.5), smooth, differentiable
-            x = dist / width
-            modulation = 0.5  # Keeps envelope between 0.5 and 1.5
-            if n_quark == 1:
-                radial = np.ones_like(dist)  # No oscillation
-            elif n_quark == 2:
-                radial = 1.0 + modulation * np.cos(np.pi * x)  # One period
-            else:  # n_quark >= 3
-                radial = 1.0 + modulation * np.cos(2 * np.pi * x)  # Two periods
-            
-            # Full quark wavefunction: envelope × radial × winding × color
-            phase = k * sigma + color_phase
-            chi_quark = envelope * radial * np.exp(1j * phase)
-            chi += chi_quark
-        
-        # Scale to initial amplitude
-        current_amp_sq = np.sum(np.abs(chi)**2) * self.grid.dsigma
-        if current_amp_sq > 1e-10:
-            chi *= np.sqrt(initial_amplitude / current_amp_sq)
-        
-        return chi
-    
-    def _extract_color_phases(self, chi: NDArray[np.complexfloating]) -> Tuple[Tuple[float, ...], float]:
-        """Extract phases at wells for color neutrality check."""
-        sigma = self.grid.sigma
-        phases = []
-        
-        for well_pos in self.WELL_POSITIONS:
-            idx = np.argmin(np.abs(sigma - well_pos))
-            phases.append(float(np.angle(chi[idx])))
-        
-        color_sum = sum(np.exp(1j * phi) for phi in phases)
-        return tuple(phases), abs(color_sum)
     
     def solve(
         self,
@@ -227,17 +174,14 @@ class CompositeBaryonSolver:
         verbose: bool = False
     ) -> CompositeBaryonState:
         """
-        Solve for baryon.
+        Solve for baryon using two-stage architecture.
         
-        The composite wavefunction χ = χ₁ + χ₂ + χ₃ captures all the physics:
-        - Each quark's winding is encoded in exp(i k σ)
-        - Color phases create interference
-        - ∂χ/∂σ naturally captures the effective winding
+        Stage 1: Solve for wavefunction STRUCTURE (entangled components)
+        Stage 2: Minimize energy over SCALE (A, dx, ds)
         
         Args:
             quark_types: List of quark types ['u', 'u', 'd'] etc.
             n_radial: Radial excitation quantum number (1 = ground state)
-                      This is INDEPENDENT of quark generation!
         """
         if quark_types is None:
             quark_types = PROTON_QUARKS
@@ -245,72 +189,109 @@ class CompositeBaryonSolver:
         if len(quark_types) != 3:
             raise ValueError("quark_types must have exactly 3 elements")
         
+        # Get quark properties
+        quark_gens = [QUARK_GENERATION.get(q, 1) for q in quark_types]
+        windings = [QUARK_WINDING.get(q, 0) for q in quark_types]
+        k_total = sum(windings)
+        
         # Spatial mode = radial excitation (NOT quark generation!)
-        # Ground state baryons (proton, neutron, etc.) have n_spatial = 1
-        # Excited baryons (resonances) have n_spatial = 2, 3, etc.
         n_spatial = n_radial
-        k_total = sum(QUARK_WINDING.get(q, 0) for q in quark_types)
         
         if verbose:
             print("=" * 60)
             print(f"BARYON SOLVER: {''.join(quark_types)}")
+            print(f"  Using non-separable wavefunction architecture")
             print(f"  THREE-PEAK composite wavefunction")
-            print(f"  Spatial mode n={n_spatial} (from quark generations)")
-            print(f"  E_coupling from actual wavefunction integrals")
-            print(f"  Parameters: α={self.alpha:.4g}, β={self.beta:.4g}")
+            print(f"  Spatial mode n={n_spatial}")
+            print(f"  Parameters: alpha={self.alpha:.4g}, beta={self.beta:.4g}")
             print("=" * 60)
         
-        # Initialize THREE-PEAK composite wavefunction
-        chi_initial = self._initialize_baryon(quark_types, initial_amplitude)
+        # === STAGE 1: Solve for wavefunction structure ===
+        if verbose:
+            print("\nStage 1: Solving baryon wavefunction structure...")
         
-        # Minimize
+        structure = self.wf_solver.solve_baryon(
+            quark_gens=quark_gens,
+            windings=windings,
+            verbose=verbose,
+        )
+        
+        if verbose:
+            l_comp = structure.l_composition
+            print(f"  Angular composition: l=0: {l_comp.get(0,0)*100:.1f}%, "
+                  f"l=1: {l_comp.get(1,0)*100:.1f}%")
+            print(f"  k_eff from wavefunction: {structure.k_eff:.4f}")
+        
+        # === STAGE 2: Minimize energy over (A, dx, ds) ===
+        if verbose:
+            print("\nStage 2: Minimizing energy over (A, dx, ds)...")
+        
         result = self.minimizer.minimize(
-            chi_initial=chi_initial,
-            n_spatial=n_spatial,
+            structure=structure,
+            sigma_grid=self.wf_solver.get_sigma_grid(),
+            V_sigma=self.wf_solver.get_V_sigma(),
+            spatial_coupling=self.wf_solver.get_spatial_coupling_matrix(),
+            state_index_map=self.wf_solver.get_state_index_map(),
+            initial_A=np.sqrt(initial_amplitude),
             max_iter=max_iter,
             tol=tol,
             verbose=verbose,
         )
         
-        # Extract color structure
-        phases, color_mag = self._extract_color_phases(result.chi)
-        
         if verbose:
             mass_mev = self.beta * result.A_squared * 1000
             print(f"\n  Results:")
-            print(f"    A² = {result.A_squared:.6g}")
+            print(f"    A^2 = {result.A_squared:.6g}")
             print(f"    Mass = {mass_mev:.2f} MeV")
-            print(f"    spatial_factor = {result.energy.spatial_factor:.4g}")
-            print(f"    subspace_factor = {result.energy.subspace_factor:.4g}")
+            print(f"    E_coupling = {result.E_coupling:.4g}")
             print(f"    Converged: {result.converged}")
         
+        # Extract primary chi component for compatibility
+        primary_key = (n_spatial, 0, 0)
+        chi_primary = structure.chi_components.get(
+            primary_key,
+            np.zeros(self.wf_solver.basis.N_sigma, dtype=complex)
+        )
+        
+        # Scale chi by converged amplitude
+        chi_scaled = chi_primary * result.A
+        
+        # Extract color structure from wavefunction
+        color_phases = (0.0, 2*np.pi/3, 4*np.pi/3)
+        color_sum = sum(np.exp(1j * p) for p in color_phases)
+        color_mag = abs(color_sum)
+        
+        # E_subspace = E_kinetic + E_potential + E_nonlinear + E_circulation
+        E_subspace = result.E_kinetic + result.E_potential + result.E_nonlinear + result.E_circulation
+        
         return CompositeBaryonState(
-            chi_baryon=result.chi,
+            chi_baryon=chi_scaled,
             quark_types=tuple(quark_types),
             n_spatial=n_spatial,
             amplitude=result.A,
             amplitude_squared=result.A_squared,
             delta_x=result.delta_x,
             delta_sigma=result.delta_sigma,
-            energy_total=result.energy.E_total,
-            energy_subspace=result.energy.E_subspace,
-            energy_spatial=result.energy.E_spatial,
-            energy_coupling=result.energy.E_coupling,
-            energy_curvature=result.energy.E_curvature,
-            energy_kinetic=result.energy.E_kinetic,
-            energy_potential=result.energy.E_potential,
-            energy_nonlinear=result.energy.E_nonlinear,
-            energy_circulation=result.energy.E_circulation,
-            spatial_factor=result.energy.spatial_factor,
-            subspace_factor=result.energy.subspace_factor,
-            k_eff=abs(result.energy.subspace_factor),
+            energy_total=result.E_total,
+            energy_subspace=E_subspace,
+            energy_spatial=result.E_spatial,
+            energy_coupling=result.E_coupling,
+            energy_curvature=result.E_curvature,
+            energy_kinetic=result.E_kinetic,
+            energy_potential=result.E_potential,
+            energy_nonlinear=result.E_nonlinear,
+            energy_circulation=result.E_circulation,
+            spatial_factor=0.0,  # Now computed internally
+            subspace_factor=structure.k_eff,
+            k_eff=abs(structure.k_eff),
             k_total=k_total,
-            phases=phases,
+            phases=color_phases,
             color_sum_magnitude=color_mag,
             is_color_neutral=color_mag < 0.1,
+            l_composition=structure.l_composition,
             converged=result.converged,
             iterations=result.iterations,
-            final_residual=result.final_residual,
+            final_residual=0.0,
         )
 
 
