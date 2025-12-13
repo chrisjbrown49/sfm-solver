@@ -51,6 +51,12 @@ class WavefunctionStructure:
     
     # Particle type
     particle_type: str  # 'lepton', 'meson', 'baryon'
+    
+    # Self-consistent iteration history (optional, for diagnostics)
+    convergence_history: Optional[Dict] = None
+    
+    # Final spatial scale (from self-consistent iteration)
+    delta_x_final: Optional[float] = None
 
 
 class NonSeparableWavefunctionSolver:
@@ -445,6 +451,453 @@ class NonSeparableWavefunctionSolver:
             converged=True,  # Perturbative is analytic
             iterations=1,
             particle_type='lepton',
+        )
+    
+    # =========================================================================
+    # SELF-CONSISTENT Δx ITERATION (Step 1-3 of missing physics fix)
+    # =========================================================================
+    
+    def _build_perturbative_structure(
+        self,
+        n_target: int,
+        k_winding: int,
+        spatial_coupling: NDArray,
+        resonance_width: float = 0.0,
+    ) -> Dict[Tuple[int, int, int], NDArray]:
+        """
+        Build perturbative wavefunction structure for given spatial coupling.
+        
+        This is the core perturbation theory calculation, separated so it
+        can be called multiple times with different spatial_coupling matrices
+        during self-consistent iteration.
+        
+        Args:
+            n_target: Target spatial quantum number
+            k_winding: Subspace winding number
+            spatial_coupling: Coupling matrix at current scale
+            resonance_width: Lorentzian width for resonance enhancement (0 = disabled)
+            
+        Returns:
+            Dictionary of χ components {(n,l,m): χ_{nlm}(σ)}
+        """
+        sigma = self.basis.sigma
+        dsigma = self.basis.dsigma
+        
+        target_key = (n_target, 0, 0)
+        target_idx = self.basis.state_index(n_target, 0, 0)
+        
+        # Primary s-wave component with Gaussian envelope and winding
+        # IMPORTANT: Keep UNNORMALIZED so A can be computed from total amplitude
+        # (normalization happens only at the end per plan)
+        envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
+        chi_primary = envelope * np.exp(1j * k_winding * sigma)
+        # No normalization here - let amplitude carry through
+        
+        chi_components = {target_key: chi_primary}
+        
+        # Energy scale for target state
+        E_target_0 = n_target ** 2
+        
+        # Spatial enhancement factor: higher n → more compact → stronger gradients
+        # This scales as n^1.5 from radial node structure
+        spatial_enhancement = (n_target / 1.0) ** 1.5
+        
+        # Induced components from perturbation theory
+        for i, state in enumerate(self.basis.spatial_states):
+            key = (state.n, state.l, state.m)
+            if key == target_key:
+                continue
+            
+            R_coupling = spatial_coupling[target_idx, i]
+            if abs(R_coupling) < 1e-10:
+                chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
+                continue
+            
+            # Energy denominator with l-penalty
+            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            E_denom = E_target_0 - E_state
+            
+            # Regularize small denominators
+            if abs(E_denom) < 0.5:
+                E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
+            
+            # Resonance enhancement (Step 3)
+            if resonance_width > 0:
+                # Lorentzian weighting: Γ / (E² + Γ²)
+                # Normalized so on-resonance gives factor of 1
+                resonance_factor = (resonance_width / 
+                                   (E_denom**2 + resonance_width**2))
+                resonance_factor = resonance_factor * resonance_width  # Normalize
+                effective_coupling = R_coupling * (1.0 + resonance_factor)
+            else:
+                effective_coupling = R_coupling
+            
+            # Induced component with SAME WINDING (first-principles: ∂/∂σ preserves k)
+            induced = (-self.alpha * effective_coupling * envelope * 
+                      np.exp(1j * k_winding * sigma) * 
+                      spatial_enhancement / E_denom)
+            
+            chi_components[key] = induced
+        
+        return chi_components
+    
+    def _build_perturbative_structure_with_nonlinear(
+        self,
+        n_target: int,
+        k_winding: int,
+        spatial_coupling: NDArray,
+        max_iter_nl: int = 10,
+        tol_nl: float = 1e-3,
+        resonance_width: float = 0.0,
+        verbose: bool = False,
+    ) -> Dict[Tuple[int, int, int], NDArray]:
+        """
+        Build perturbative wavefunction with nonlinear feedback iteration.
+        
+        The g₁|χ|⁴ term modifies effective energy levels, creating a
+        self-consistent problem that must be solved iteratively.
+        
+        This creates CASCADING AMPLIFICATION:
+        1. Initial: Compute induced components with kinetic E_denom
+        2. Iteration 1: Induced creates nonlinear density → shifts E_denom → larger induced
+        3. Iteration 2: Even larger induced → stronger density → smaller |E_denom|
+        4. Convergence: System finds self-consistent solution
+        
+        Higher n benefits MORE because:
+        - More induced components → stronger |χ_total|
+        - Stronger nonlinear density → larger shifts
+        - Creates n² or n³ scaling from feedback
+        
+        Args:
+            n_target: Target spatial quantum number
+            k_winding: Subspace winding number
+            spatial_coupling: Coupling matrix at current scale
+            max_iter_nl: Maximum nonlinear iterations
+            tol_nl: Convergence tolerance
+            resonance_width: Lorentzian width for resonance enhancement
+            verbose: Print progress
+            
+        Returns:
+            Dictionary of χ components with nonlinear corrections
+        """
+        sigma = self.basis.sigma
+        dsigma = self.basis.dsigma
+        
+        target_key = (n_target, 0, 0)
+        target_idx = self.basis.state_index(n_target, 0, 0)
+        
+        # === Initialize primary component ===
+        # IMPORTANT: Keep UNNORMALIZED so A can be computed from total amplitude
+        # (normalization happens only at the end per plan)
+        envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
+        chi_primary = envelope * np.exp(1j * k_winding * sigma)
+        # No normalization here - let amplitude carry through
+        
+        chi_components = {target_key: chi_primary}
+        
+        # Initialize all other states to zero
+        for state in self.basis.spatial_states:
+            key = (state.n, state.l, state.m)
+            if key not in chi_components:
+                chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
+        
+        # Base kinetic energy
+        E_target_0 = n_target ** 2
+        
+        # Spatial enhancement
+        spatial_enhancement = (n_target / 1.0) ** 1.5
+        
+        # === Nonlinear iteration loop ===
+        for iter_nl in range(max_iter_nl):
+            if verbose and iter_nl % 5 == 0:
+                print(f"    NL iteration {iter_nl+1}/{max_iter_nl}")
+            
+            # Compute total wavefunction
+            chi_total = np.zeros(len(sigma), dtype=complex)
+            for chi in chi_components.values():
+                chi_total += chi
+            
+            # Nonlinear density: g₁|χ|⁴
+            rho_nl = self.g1 * np.abs(chi_total)**4
+            
+            # Store old components for convergence check
+            chi_components_old = {k: v.copy() for k, v in chi_components.items()}
+            
+            # Nonlinear shift for target state
+            V_nl_target = np.sum(rho_nl * np.abs(chi_primary)**2) * dsigma
+            E_target_eff = E_target_0 + V_nl_target
+            
+            # Update induced components with nonlinear shifts
+            total_change = 0.0
+            
+            for i, state in enumerate(self.basis.spatial_states):
+                key = (state.n, state.l, state.m)
+                if key == target_key:
+                    continue
+                
+                R_coupling = spatial_coupling[target_idx, i]
+                if abs(R_coupling) < 1e-10:
+                    continue
+                
+                # Kinetic energy
+                E_state_kinetic = state.n ** 2 + state.l * (state.l + 1) * 3
+                
+                # Nonlinear shift for this state
+                chi_state = chi_components_old[key]
+                chi_state_norm = np.sum(np.abs(chi_state)**2) * dsigma
+                if chi_state_norm > 1e-10:
+                    V_nl_state = np.sum(rho_nl * np.abs(chi_state)**2) * dsigma
+                else:
+                    V_nl_state = 0.0
+                
+                # Effective energy with nonlinear correction
+                E_state_eff = E_state_kinetic + V_nl_state
+                
+                # Updated denominator
+                E_denom = E_target_eff - E_state_eff
+                
+                # Regularize
+                if abs(E_denom) < 0.5:
+                    E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
+                
+                # Resonance enhancement (Step 3)
+                if resonance_width > 0:
+                    resonance_factor = (resonance_width / 
+                                       (E_denom**2 + resonance_width**2))
+                    resonance_factor = resonance_factor * resonance_width
+                    effective_coupling = R_coupling * (1.0 + resonance_factor)
+                else:
+                    effective_coupling = R_coupling
+                
+                # Recompute induced component
+                induced = (-self.alpha * effective_coupling * envelope * 
+                          np.exp(1j * k_winding * sigma) * 
+                          spatial_enhancement / E_denom)
+                
+                # Track change for convergence
+                change = np.sum(np.abs(induced - chi_components_old[key])**2) * dsigma
+                total_change += change
+                
+                chi_components[key] = induced
+            
+            # Check convergence
+            if total_change < tol_nl:
+                if verbose:
+                    print(f"    ✓ NL converged after {iter_nl+1} iterations")
+                break
+        
+        else:
+            if verbose:
+                print(f"    ⚠ NL did not converge after {max_iter_nl} iterations")
+        
+        return chi_components
+    
+    def solve_lepton_self_consistent(
+        self,
+        n_target: int,
+        k_winding: int = 1,
+        max_iter_outer: int = 20,
+        max_iter_nl: int = 10,
+        tol_outer: float = 1e-4,
+        tol_nl: float = 1e-3,
+        resonance_width: float = 0.0,
+        verbose: bool = False,
+    ) -> WavefunctionStructure:
+        """
+        Solve for lepton wavefunction with self-consistent Δx iteration.
+        
+        IMPLEMENTATION FOLLOWS missing_physics_fix.md EXACTLY:
+        ======================================================
+        
+        The spatial scale Δx is determined self-consistently with amplitude A
+        through gravitational self-confinement: Δx ∝ 1/(βA²)^(3/2).
+        
+        This creates a feedback loop:
+            Larger A → Smaller Δx → Stronger gradients → Larger coupling → Even larger A
+        
+        This loop is what creates the dramatic mass hierarchy.
+        
+        KEY: A is computed directly from UNNORMALIZED chi_components,
+        not from energy minimization. Normalization only happens at the end.
+        
+        Args:
+            n_target: Target spatial quantum number (1=e, 2=mu, 3=tau)
+            k_winding: Subspace winding number (typically 1)
+            max_iter_outer: Maximum outer iterations
+            max_iter_nl: Maximum nonlinear iterations per step (Step 2)
+            tol_outer: Outer loop convergence tolerance
+            tol_nl: Nonlinear loop convergence tolerance
+            resonance_width: Lorentzian width for resonance enhancement (Step 3)
+            verbose: Print progress
+            
+        Returns:
+            WavefunctionStructure with self-consistently determined scale
+        """
+        if verbose:
+            print(f"\n=== Self-Consistent Lepton Solver (n={n_target}, k={k_winding}) ===")
+        
+        # === INITIAL CONDITIONS ===
+        # Start with Compton-like scale for first iteration (as per plan)
+        Delta_x_current = 1.0 / n_target  # Rough initial guess
+        A_current = 0.1
+        
+        # Convergence tracking
+        history = {
+            'Delta_x': [Delta_x_current],
+            'A': [A_current],
+            'spatial_coupling_max': [],
+        }
+        
+        final_iter = 0
+        
+        for iter_outer in range(max_iter_outer):
+            if verbose:
+                print(f"\n--- Outer Iteration {iter_outer+1}/{max_iter_outer} ---")
+                print(f"  Current dx = {Delta_x_current:.6f}")
+                print(f"  Current A = {A_current:.6f}")
+            
+            # === STEP 1: Compute spatial coupling at current scale ===
+            # (As specified in plan Section 1.2)
+            a_n = Delta_x_current / np.sqrt(2 * n_target + 1)
+            spatial_coupling = self.basis.compute_spatial_coupling_at_scale(a_n)
+            
+            # Track maximum coupling strength
+            max_coupling = np.max(np.abs(spatial_coupling))
+            history['spatial_coupling_max'].append(max_coupling)
+            
+            if verbose:
+                print(f"  Scale parameter a = {a_n:.6f}")
+                print(f"  Max |R_ij| = {max_coupling:.6f}")
+            
+            # === STEP 2: Build perturbative wavefunction ===
+            # Use nonlinear iteration if Step 2 is enabled (max_iter_nl > 0)
+            # Otherwise use simple perturbative structure (Step 1 only)
+            if max_iter_nl > 0:
+                chi_components = self._build_perturbative_structure_with_nonlinear(
+                    n_target, k_winding, spatial_coupling,
+                    max_iter_nl=max_iter_nl,
+                    tol_nl=tol_nl,
+                    resonance_width=resonance_width,
+                    verbose=verbose,
+                )
+            else:
+                chi_components = self._build_perturbative_structure(
+                    n_target, k_winding, spatial_coupling,
+                    resonance_width=resonance_width,
+                )
+            
+            # === STEP 3: Estimate amplitude from wavefunction ===
+            # (As specified in plan: A = sqrt(sum(integral(|chi|^2))))
+            # This is computed from the UNNORMALIZED chi_components!
+            A_new = np.sqrt(self._compute_total_amplitude(chi_components))
+            
+            if verbose:
+                print(f"  Estimated A = {A_new:.6f}")
+            
+            # === STEP 4: Update Δx from self-confinement ===
+            # (As specified in plan Section 1.2, lines 318-329)
+            # Δx = ℏ² / (G_eff × m³) where m = β × A²
+            m_estimate = self.beta * A_new**2
+            
+            # Self-confinement scale (in natural units where ℏ = c = 1)
+            # G_eff ~ kappa / beta² from dimensional analysis
+            G_eff = self.kappa / (self.beta**2)
+            
+            # From plan: Delta_x_new = 1.0 / (G_eff * m_estimate**3)**(1/3)
+            if G_eff > 0 and m_estimate > 1e-10:
+                Delta_x_new = 1.0 / (G_eff * m_estimate**3)**(1/3)
+            else:
+                Delta_x_new = Delta_x_current
+            
+            # Also ensure it doesn't exceed Compton wavelength
+            # (which would be unphysical - quantum pressure dominates for light particles)
+            if m_estimate > 1e-10:
+                lambda_compton = 1.0 / m_estimate
+                Delta_x_new = min(Delta_x_new, lambda_compton)
+            
+            if verbose:
+                print(f"  Estimated mass m = {m_estimate:.6f}")
+                print(f"  Self-confinement dx = {Delta_x_new:.6f}")
+                if m_estimate > 1e-10:
+                    print(f"  Compton wavelength = {1.0/m_estimate:.6f}")
+            
+            # === STEP 5: Check convergence ===
+            delta_A = abs(A_new - A_current)
+            delta_Dx = abs(Delta_x_new - Delta_x_current)
+            
+            if verbose:
+                print(f"  dA = {delta_A:.2e}, d(dx) = {delta_Dx:.2e}")
+            
+            if delta_A < tol_outer and delta_Dx < tol_outer:
+                if verbose:
+                    print(f"\n[CONVERGED] after {iter_outer+1} iterations")
+                final_iter = iter_outer
+                break
+            
+            # === STEP 6: Update with damping for stability ===
+            # Use mixing parameter to prevent oscillations (as per plan)
+            mixing = 0.3  # 30% new, 70% old
+            A_current = (1 - mixing) * A_current + mixing * A_new
+            Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
+            
+            history['A'].append(A_current)
+            history['Delta_x'].append(Delta_x_current)
+            final_iter = iter_outer
+        
+        else:
+            if verbose:
+                print(f"\n[WARNING] Did not converge after {max_iter_outer} iterations")
+        
+        # === STEP 7: Final wavefunction with converged Δx ===
+        # (As per plan: only normalize at the VERY END)
+        a_final = Delta_x_current / np.sqrt(2 * n_target + 1)
+        spatial_coupling_final = self.basis.compute_spatial_coupling_at_scale(a_final)
+        
+        if max_iter_nl > 0:
+            chi_components_final = self._build_perturbative_structure_with_nonlinear(
+                n_target, k_winding, spatial_coupling_final,
+                max_iter_nl=max_iter_nl,
+                tol_nl=tol_nl,
+                resonance_width=resonance_width,
+                verbose=False,
+            )
+        else:
+            chi_components_final = self._build_perturbative_structure(
+                n_target, k_winding, spatial_coupling_final,
+                resonance_width=resonance_width,
+            )
+        
+        # Normalize to unit total - ONLY AT THE END (as per plan)
+        chi_components_final = self._normalize_wavefunction(chi_components_final, 1.0)
+        
+        # Extract observables
+        l_composition = self._compute_l_composition(chi_components_final)
+        k_eff = self._compute_k_eff(chi_components_final)
+        
+        # structure_norm is the CONVERGED A from the self-consistent iteration
+        # This carries the mass information: m = beta * structure_norm^2
+        structure_norm = A_current
+        
+        if verbose:
+            print(f"\n=== Final Structure ===")
+            print(f"  dx = {Delta_x_current:.6f}")
+            print(f"  A = {A_current:.6f}")
+            print(f"  k_eff = {k_eff:.4f}")
+            print(f"  Angular composition: {l_composition}")
+            print(f"  l-composition: {l_composition}")
+        
+        return WavefunctionStructure(
+            chi_components=chi_components_final,
+            n_target=n_target,
+            k_winding=k_winding,
+            l_composition=l_composition,
+            k_eff=k_eff,
+            structure_norm=structure_norm,  # This is A, not normalized!
+            converged=(final_iter < max_iter_outer - 1),
+            iterations=final_iter + 1,
+            particle_type='lepton',
+            convergence_history=history,
+            delta_x_final=Delta_x_current,
         )
     
     def solve_meson(

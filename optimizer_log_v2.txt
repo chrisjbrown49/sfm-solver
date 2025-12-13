@@ -1,0 +1,1521 @@
+======================================================================
+SFM 4-PARAMETER OPTIMIZATION LOG
+Started: 2025-12-13 11:14:46
+======================================================================
+Calibration particles: ['electron', 'muon', 'pion', 'proton']
+Validation particles: ['tau', 'jpsi', 'neutron']
+Parameter bounds:
+  beta:  [0.001, 1.0] GeV
+  alpha: [0.0001, 100.0] GeV
+  kappa: [0.001, 2000.0] GeV^-2
+  g1:    [1.0, 50000.0]
+maxiter=50, popsize=10
+======================================================================
+
+
+======================================================================
+Eval 1 | Time: 2.2s | *** NEW BEST ***
+Parameters: beta=0.2822, alpha=56.180581, kappa=888.612794, g1=33444.77
+Total Error: 323.389166 (best so far: 323.389166)
+Particle predictions:
+  electron    : pred=9.67 MeV, exp=0.51 MeV, error=1792.1%
+  muon        : pred=20.86 MeV, exp=105.70 MeV, error=80.3%
+  pion        : pred=31.15 MeV, exp=140.00 MeV, error=77.8%
+  proton      : pred=3.65 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 2 | Time: 5.4s | 
+Parameters: beta=0.9537, alpha=35.490022, kappa=1697.145637, g1=3980.18
+Total Error: 1011.104720 (best so far: 323.389166)
+Particle predictions:
+  electron    : pred=16.74 MeV, exp=0.51 MeV, error=3176.0%
+  muon        : pred=225.98 MeV, exp=105.70 MeV, error=113.8%
+  pion        : pred=81.18 MeV, exp=140.00 MeV, error=42.0%
+  proton      : pred=15.56 MeV, exp=938.00 MeV, error=98.3%
+
+
+======================================================================
+Eval 3 | Time: 7.1s | 
+Parameters: beta=0.6135, alpha=51.558294, kappa=1494.628203, g1=15969.60
+Total Error: 721.813365 (best so far: 323.389166)
+Particle predictions:
+  electron    : pred=14.22 MeV, exp=0.51 MeV, error=2683.3%
+  muon        : pred=43.07 MeV, exp=105.70 MeV, error=59.2%
+  pion        : pred=42.84 MeV, exp=140.00 MeV, error=69.4%
+  proton      : pred=7.96 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 4 | Time: 9.6s | 
+Parameters: beta=0.5726, alpha=86.757561, kappa=501.720175, g1=19196.56
+Total Error: 778.924778 (best so far: 323.389166)
+Particle predictions:
+  electron    : pred=14.76 MeV, exp=0.51 MeV, error=2788.3%
+  muon        : pred=47.46 MeV, exp=105.70 MeV, error=55.1%
+  pion        : pred=62.57 MeV, exp=140.00 MeV, error=55.3%
+  proton      : pred=77.49 MeV, exp=938.00 MeV, error=91.7%
+
+
+======================================================================
+Eval 5 | Time: 11.7s | *** NEW BEST ***
+Parameters: beta=0.3144, alpha=16.963023, kappa=448.282378, g1=46549.52
+Total Error: 44.667598 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=3.85 MeV, exp=0.51 MeV, error=653.2%
+  muon        : pred=83.02 MeV, exp=105.70 MeV, error=21.5%
+  pion        : pred=2.67 MeV, exp=140.00 MeV, error=98.1%
+  proton      : pred=3.40 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 6 | Time: 13.6s | 
+Parameters: beta=0.7235, alpha=22.744258, kappa=1590.900943, g1=14400.80
+Total Error: 414.692572 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=10.90 MeV, exp=0.51 MeV, error=2032.3%
+  muon        : pred=49.11 MeV, exp=105.70 MeV, error=53.5%
+  pion        : pred=49.27 MeV, exp=140.00 MeV, error=64.8%
+  proton      : pred=8.64 MeV, exp=938.00 MeV, error=99.1%
+
+
+======================================================================
+Eval 7 | Time: 16.8s | 
+Parameters: beta=0.3529, alpha=61.068891, kappa=1265.718166, g1=21003.33
+Total Error: 398.274772 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=10.69 MeV, exp=0.51 MeV, error=1991.3%
+  muon        : pred=71.81 MeV, exp=105.70 MeV, error=32.1%
+  pion        : pred=27.29 MeV, exp=140.00 MeV, error=80.5%
+  proton      : pred=4.90 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 8 | Time: 20.7s | 
+Parameters: beta=0.3491, alpha=67.692482, kappa=484.212409, g1=5364.93
+Total Error: 449.892306 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=11.33 MeV, exp=0.51 MeV, error=2118.1%
+  muon        : pred=92.79 MeV, exp=105.70 MeV, error=12.2%
+  pion        : pred=52.11 MeV, exp=140.00 MeV, error=62.8%
+  proton      : pred=65.10 MeV, exp=938.00 MeV, error=93.1%
+
+
+======================================================================
+Eval 9 | Time: 22.0s | 
+Parameters: beta=0.2334, alpha=93.196623, kappa=1895.413347, g1=8143.63
+Total Error: 237.383299 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=8.35 MeV, exp=0.51 MeV, error=1534.0%
+  muon        : pred=32.60 MeV, exp=105.70 MeV, error=69.2%
+  pion        : pred=26.38 MeV, exp=140.00 MeV, error=81.2%
+  proton      : pred=33.32 MeV, exp=938.00 MeV, error=96.4%
+
+
+======================================================================
+Eval 10 | Time: 25.2s | 
+Parameters: beta=0.8992, alpha=88.129468, kappa=1515.900416, g1=49660.28
+Total Error: 972.346992 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=16.43 MeV, exp=0.51 MeV, error=3115.7%
+  muon        : pred=134.03 MeV, exp=105.70 MeV, error=26.8%
+  pion        : pred=36.70 MeV, exp=140.00 MeV, error=73.8%
+  proton      : pred=8.32 MeV, exp=938.00 MeV, error=99.1%
+
+
+======================================================================
+Eval 11 | Time: 28.3s | 
+Parameters: beta=0.8631, alpha=30.462206, kappa=1364.487890, g1=13637.38
+Total Error: 735.148209 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=14.35 MeV, exp=0.51 MeV, error=2708.3%
+  muon        : pred=167.24 MeV, exp=105.70 MeV, error=58.2%
+  pion        : pred=57.29 MeV, exp=140.00 MeV, error=59.1%
+  proton      : pred=10.16 MeV, exp=938.00 MeV, error=98.9%
+
+
+======================================================================
+Eval 12 | Time: 29.6s | 
+Parameters: beta=0.4274, alpha=83.344055, kappa=702.262013, g1=11011.28
+Total Error: 539.159065 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=12.36 MeV, exp=0.51 MeV, error=2318.3%
+  muon        : pred=50.92 MeV, exp=105.70 MeV, error=51.8%
+  pion        : pred=37.96 MeV, exp=140.00 MeV, error=72.9%
+  proton      : pred=47.84 MeV, exp=938.00 MeV, error=94.9%
+
+
+======================================================================
+Eval 13 | Time: 32.7s | 
+Parameters: beta=0.4076, alpha=65.623265, kappa=1320.519486, g1=23895.36
+Total Error: 466.273969 (best so far: 44.667598)
+Particle predictions:
+  electron    : pred=11.53 MeV, exp=0.51 MeV, error=2155.5%
+  muon        : pred=78.70 MeV, exp=105.70 MeV, error=25.5%
+  pion        : pred=29.81 MeV, exp=140.00 MeV, error=78.7%
+  proton      : pred=5.27 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 14 | Time: 36.0s | *** NEW BEST ***
+Parameters: beta=0.0299, alpha=34.737134, kappa=1431.670472, g1=47802.61
+Total Error: 4.702935 (best so far: 4.702935)
+Particle predictions:
+  electron    : pred=1.18 MeV, exp=0.51 MeV, error=131.1%
+  muon        : pred=0.42 MeV, exp=105.70 MeV, error=99.6%
+  pion        : pred=0.49 MeV, exp=140.00 MeV, error=99.6%
+  proton      : pred=0.62 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 15 | Time: 38.3s | 
+Parameters: beta=0.5221, alpha=44.967272, kappa=1188.548765, g1=36924.44
+Total Error: 536.667723 (best so far: 4.702935)
+Particle predictions:
+  electron    : pred=12.33 MeV, exp=0.51 MeV, error=2312.6%
+  muon        : pred=31.62 MeV, exp=105.70 MeV, error=70.1%
+  pion        : pred=52.24 MeV, exp=140.00 MeV, error=62.7%
+  proton      : pred=5.39 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 16 | Time: 39.9s | 
+Parameters: beta=0.7704, alpha=72.966452, kappa=221.598140, g1=41654.17
+Total Error: 1211.363629 (best so far: 4.702935)
+Particle predictions:
+  electron    : pred=18.28 MeV, exp=0.51 MeV, error=3477.9%
+  muon        : pred=33.86 MeV, exp=105.70 MeV, error=68.0%
+  pion        : pred=58.49 MeV, exp=140.00 MeV, error=58.2%
+  proton      : pred=7.41 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 17 | Time: 43.4s | 
+Parameters: beta=0.1906, alpha=12.848822, kappa=52.905154, g1=23411.79
+Total Error: 26.351878 (best so far: 4.702935)
+Particle predictions:
+  electron    : pred=2.98 MeV, exp=0.51 MeV, error=484.0%
+  muon        : pred=2.04 MeV, exp=105.70 MeV, error=98.1%
+  pion        : pred=2.22 MeV, exp=140.00 MeV, error=98.4%
+  proton      : pred=2.92 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 18 | Time: 46.6s | *** NEW BEST ***
+Parameters: beta=0.0104, alpha=8.030940, kappa=1830.478301, g1=31886.08
+Total Error: 3.163098 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=0.30 MeV, exp=0.51 MeV, error=41.4%
+  muon        : pred=0.22 MeV, exp=105.70 MeV, error=99.8%
+  pion        : pred=0.25 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.32 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 19 | Time: 47.5s | 
+Parameters: beta=0.7809, alpha=17.616208, kappa=648.479907, g1=2333.67
+Total Error: 47817.188888 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=112.25 MeV, exp=0.51 MeV, error=21866.9%
+  muon        : pred=94.43 MeV, exp=105.70 MeV, error=10.7%
+  pion        : pred=79.03 MeV, exp=140.00 MeV, error=43.5%
+  proton      : pred=14.48 MeV, exp=938.00 MeV, error=98.5%
+
+
+======================================================================
+Eval 20 | Time: 49.3s | 
+Parameters: beta=0.1622, alpha=41.356799, kappa=1718.181621, g1=17907.30
+Total Error: 120.747837 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=6.07 MeV, exp=0.51 MeV, error=1087.4%
+  muon        : pred=15.03 MeV, exp=105.70 MeV, error=85.8%
+  pion        : pred=17.14 MeV, exp=140.00 MeV, error=87.8%
+  proton      : pred=2.75 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 21 | Time: 51.4s | 
+Parameters: beta=0.6262, alpha=26.238016, kappa=264.608100, g1=33951.85
+Total Error: 283.865050 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=9.08 MeV, exp=0.51 MeV, error=1677.9%
+  muon        : pred=36.55 MeV, exp=105.70 MeV, error=65.4%
+  pion        : pred=5.39 MeV, exp=140.00 MeV, error=96.2%
+  proton      : pred=6.18 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 22 | Time: 53.2s | 
+Parameters: beta=0.9918, alpha=96.223636, kappa=1961.881896, g1=17402.99
+Total Error: 995.426966 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=16.27 MeV, exp=0.51 MeV, error=3083.2%
+  muon        : pred=804.94 MeV, exp=105.70 MeV, error=661.5%
+  pion        : pred=69.31 MeV, exp=140.00 MeV, error=50.5%
+  proton      : pred=108.97 MeV, exp=938.00 MeV, error=88.4%
+
+
+======================================================================
+Eval 23 | Time: 56.6s | 
+Parameters: beta=0.7453, alpha=90.092227, kappa=1201.271356, g1=8963.98
+Total Error: 938.644722 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=15.82 MeV, exp=0.51 MeV, error=2995.0%
+  muon        : pred=776.54 MeV, exp=105.70 MeV, error=634.7%
+  pion        : pred=33.71 MeV, exp=140.00 MeV, error=75.9%
+  proton      : pred=99.45 MeV, exp=938.00 MeV, error=89.4%
+
+
+======================================================================
+Eval 24 | Time: 58.4s | 
+Parameters: beta=0.4507, alpha=53.313005, kappa=1105.980159, g1=44126.22
+Total Error: 533.577618 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=12.29 MeV, exp=0.51 MeV, error=2305.2%
+  muon        : pred=27.61 MeV, exp=105.70 MeV, error=73.9%
+  pion        : pred=26.92 MeV, exp=140.00 MeV, error=80.8%
+  proton      : pred=4.63 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 25 | Time: 60.5s | 
+Parameters: beta=0.0967, alpha=58.903234, kappa=1086.480766, g1=27047.41
+Total Error: 83.840475 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.11 MeV, exp=0.51 MeV, error=900.2%
+  muon        : pred=9.05 MeV, exp=105.70 MeV, error=91.4%
+  pion        : pred=1.45 MeV, exp=140.00 MeV, error=99.0%
+  proton      : pred=1.69 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 26 | Time: 62.2s | 
+Parameters: beta=0.4948, alpha=47.685164, kappa=935.343400, g1=11800.95
+Total Error: 621.200686 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.23 MeV, exp=0.51 MeV, error=2488.7%
+  muon        : pred=41.37 MeV, exp=105.70 MeV, error=60.9%
+  pion        : pred=41.41 MeV, exp=140.00 MeV, error=70.4%
+  proton      : pred=7.42 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 27 | Time: 65.9s | 
+Parameters: beta=0.0660, alpha=77.240251, kappa=565.586271, g1=30135.26
+Total Error: 50.239868 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=4.03 MeV, exp=0.51 MeV, error=689.4%
+  muon        : pred=15.51 MeV, exp=105.70 MeV, error=85.3%
+  pion        : pred=1.07 MeV, exp=140.00 MeV, error=99.2%
+  proton      : pred=1.27 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 28 | Time: 67.7s | 
+Parameters: beta=0.9264, alpha=72.020329, kappa=791.437480, g1=21498.96
+Total Error: 1223.757160 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=18.38 MeV, exp=0.51 MeV, error=3496.6%
+  muon        : pred=88.82 MeV, exp=105.70 MeV, error=16.0%
+  pion        : pred=59.48 MeV, exp=140.00 MeV, error=57.5%
+  proton      : pred=106.59 MeV, exp=938.00 MeV, error=88.6%
+
+
+======================================================================
+Eval 29 | Time: 70.2s | 
+Parameters: beta=0.9072, alpha=99.404050, kappa=36.600679, g1=3713.31
+Total Error: 1831.808097 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=22.08 MeV, exp=0.51 MeV, error=4220.4%
+  muon        : pred=847.44 MeV, exp=105.70 MeV, error=701.7%
+  pion        : pred=251.78 MeV, exp=140.00 MeV, error=79.8%
+  proton      : pred=142.71 MeV, exp=938.00 MeV, error=84.8%
+
+
+======================================================================
+Eval 30 | Time: 72.0s | 
+Parameters: beta=0.6730, alpha=47.038707, kappa=807.046808, g1=749.31
+Total Error: 943.733213 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=16.15 MeV, exp=0.51 MeV, error=3060.6%
+  muon        : pred=368.53 MeV, exp=105.70 MeV, error=248.7%
+  pion        : pred=141.36 MeV, exp=140.00 MeV, error=1.0%
+  proton      : pred=102.38 MeV, exp=938.00 MeV, error=89.1%
+
+
+======================================================================
+Eval 31 | Time: 75.4s | 
+Parameters: beta=0.6810, alpha=6.770275, kappa=101.030174, g1=28391.99
+Total Error: 129.899076 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=6.27 MeV, exp=0.51 MeV, error=1127.3%
+  muon        : pred=4.89 MeV, exp=105.70 MeV, error=95.4%
+  pion        : pred=5.27 MeV, exp=140.00 MeV, error=96.2%
+  proton      : pred=6.75 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 32 | Time: 78.8s | 
+Parameters: beta=0.2024, alpha=81.276887, kappa=309.984534, g1=39826.12
+Total Error: 235.154863 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=8.31 MeV, exp=0.51 MeV, error=1526.9%
+  muon        : pred=55.03 MeV, exp=105.70 MeV, error=47.9%
+  pion        : pred=15.04 MeV, exp=140.00 MeV, error=89.3%
+  proton      : pred=2.74 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 33 | Time: 80.4s | 
+Parameters: beta=0.8004, alpha=22.372291, kappa=380.378052, g1=25079.95
+Total Error: 384.167585 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=10.50 MeV, exp=0.51 MeV, error=1955.7%
+  muon        : pred=47.07 MeV, exp=105.70 MeV, error=55.5%
+  pion        : pred=53.40 MeV, exp=140.00 MeV, error=61.9%
+  proton      : pred=8.03 MeV, exp=938.00 MeV, error=99.1%
+
+
+======================================================================
+Eval 34 | Time: 82.1s | 
+Parameters: beta=0.3853, alpha=78.567791, kappa=967.923802, g1=40277.83
+Total Error: 458.462700 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=11.43 MeV, exp=0.51 MeV, error=2136.0%
+  muon        : pred=27.01 MeV, exp=105.70 MeV, error=74.5%
+  pion        : pred=24.83 MeV, exp=140.00 MeV, error=82.3%
+  proton      : pred=4.37 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 35 | Time: 85.5s | 
+Parameters: beta=0.2538, alpha=11.311980, kappa=1016.545393, g1=37637.81
+Total Error: 27.440755 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=3.04 MeV, exp=0.51 MeV, error=495.2%
+  muon        : pred=2.14 MeV, exp=105.70 MeV, error=98.0%
+  pion        : pred=2.39 MeV, exp=140.00 MeV, error=98.3%
+  proton      : pred=3.07 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 36 | Time: 87.7s | 
+Parameters: beta=0.5332, alpha=29.156377, kappa=679.895659, g1=36089.60
+Total Error: 252.775628 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=8.60 MeV, exp=0.51 MeV, error=1582.3%
+  muon        : pred=32.22 MeV, exp=105.70 MeV, error=69.5%
+  pion        : pred=4.80 MeV, exp=140.00 MeV, error=96.6%
+  proton      : pred=5.42 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 37 | Time: 91.1s | 
+Parameters: beta=0.1412, alpha=2.376883, kappa=1949.282548, g1=29367.66
+Total Error: 9.126751 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=1.78 MeV, exp=0.51 MeV, error=248.7%
+  muon        : pred=1.60 MeV, exp=105.70 MeV, error=98.5%
+  pion        : pred=1.64 MeV, exp=140.00 MeV, error=98.8%
+  proton      : pred=2.14 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 38 | Time: 94.5s | 
+Parameters: beta=0.8282, alpha=2.890083, kappa=159.092169, g1=45628.44
+Total Error: 102.748397 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.62 MeV, exp=0.51 MeV, error=999.6%
+  muon        : pred=5.04 MeV, exp=105.70 MeV, error=95.2%
+  pion        : pred=5.19 MeV, exp=140.00 MeV, error=96.3%
+  proton      : pred=6.74 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 39 | Time: 96.5s | 
+Parameters: beta=0.1085, alpha=64.091062, kappa=1620.870740, g1=43714.85
+Total Error: 95.256167 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.42 MeV, exp=0.51 MeV, error=961.4%
+  muon        : pred=8.78 MeV, exp=105.70 MeV, error=91.7%
+  pion        : pred=1.36 MeV, exp=140.00 MeV, error=99.0%
+  proton      : pred=1.64 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 40 | Time: 99.8s | 
+Parameters: beta=0.5944, alpha=38.178434, kappa=1774.862538, g1=6708.82
+Total Error: 649.985930 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.52 MeV, exp=0.51 MeV, error=2546.7%
+  muon        : pred=128.32 MeV, exp=105.70 MeV, error=21.4%
+  pion        : pred=51.27 MeV, exp=140.00 MeV, error=63.4%
+  proton      : pred=9.58 MeV, exp=938.00 MeV, error=99.0%
+
+
+======================================================================
+Eval 41 | Time: 102.3s | 
+Parameters: beta=0.2286, alpha=71.459539, kappa=82.135992, g1=31886.08
+Total Error: 286.755893 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=9.13 MeV, exp=0.51 MeV, error=1686.2%
+  muon        : pred=20.22 MeV, exp=105.70 MeV, error=80.9%
+  pion        : pred=17.35 MeV, exp=140.00 MeV, error=87.6%
+  proton      : pred=3.02 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 42 | Time: 104.0s | 
+Parameters: beta=0.1595, alpha=35.490022, kappa=1526.729083, g1=12605.20
+Total Error: 96.165628 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.46 MeV, exp=0.51 MeV, error=968.1%
+  muon        : pred=16.25 MeV, exp=105.70 MeV, error=84.6%
+  pion        : pred=20.12 MeV, exp=140.00 MeV, error=85.6%
+  proton      : pred=3.06 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 43 | Time: 105.7s | 
+Parameters: beta=0.3372, alpha=28.969743, kappa=1311.445615, g1=19270.45
+Total Error: 170.085804 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=7.13 MeV, exp=0.51 MeV, error=1295.7%
+  muon        : pred=25.89 MeV, exp=105.70 MeV, error=75.5%
+  pion        : pred=28.96 MeV, exp=140.00 MeV, error=79.3%
+  proton      : pred=4.65 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 44 | Time: 107.5s | 
+Parameters: beta=0.8473, alpha=52.087524, kappa=709.811026, g1=19196.56
+Total Error: 1131.801942 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=17.69 MeV, exp=0.51 MeV, error=3361.9%
+  muon        : pred=57.66 MeV, exp=105.70 MeV, error=45.5%
+  pion        : pred=54.18 MeV, exp=140.00 MeV, error=61.3%
+  proton      : pred=9.80 MeV, exp=938.00 MeV, error=99.0%
+
+
+======================================================================
+Eval 45 | Time: 111.3s | 
+Parameters: beta=0.3144, alpha=16.963023, kappa=1218.018440, g1=6723.47
+Total Error: 138.951512 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=6.49 MeV, exp=0.51 MeV, error=1170.2%
+  muon        : pred=72.93 MeV, exp=105.70 MeV, error=31.0%
+  pion        : pred=5.02 MeV, exp=140.00 MeV, error=96.4%
+  proton      : pred=5.85 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 46 | Time: 112.6s | 
+Parameters: beta=0.7235, alpha=49.379386, kappa=1015.426236, g1=3444.36
+Total Error: 3129.955577 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=16.15 MeV, exp=0.51 MeV, error=3060.5%
+  muon        : pred=5054.73 MeV, exp=105.70 MeV, error=4682.2%
+  pion        : pred=76.03 MeV, exp=140.00 MeV, error=45.7%
+  proton      : pred=82.32 MeV, exp=938.00 MeV, error=91.2%
+
+
+======================================================================
+Eval 47 | Time: 114.9s | 
+Parameters: beta=0.1872, alpha=23.334501, kappa=1712.912683, g1=48774.24
+Total Error: 28.409603 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=3.10 MeV, exp=0.51 MeV, error=506.7%
+  muon        : pred=13.30 MeV, exp=105.70 MeV, error=87.4%
+  pion        : pred=1.81 MeV, exp=140.00 MeV, error=98.7%
+  proton      : pred=2.30 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 48 | Time: 116.1s | 
+Parameters: beta=0.5061, alpha=58.514995, kappa=484.212409, g1=5364.93
+Total Error: 680.939796 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.83 MeV, exp=0.51 MeV, error=2607.1%
+  muon        : pred=93.15 MeV, exp=105.70 MeV, error=11.9%
+  pion        : pred=58.99 MeV, exp=140.00 MeV, error=57.9%
+  proton      : pred=63.57 MeV, exp=938.00 MeV, error=93.2%
+
+
+======================================================================
+Eval 49 | Time: 118.4s | 
+Parameters: beta=0.1296, alpha=39.224465, kappa=1340.037150, g1=25454.27
+Total Error: 67.346608 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=4.62 MeV, exp=0.51 MeV, error=803.6%
+  muon        : pred=11.54 MeV, exp=105.70 MeV, error=89.1%
+  pion        : pred=1.82 MeV, exp=140.00 MeV, error=98.7%
+  proton      : pred=2.10 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 50 | Time: 121.9s | 
+Parameters: beta=0.0587, alpha=16.893589, kappa=557.181399, g1=44945.37
+Total Error: 4.590106 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=1.16 MeV, exp=0.51 MeV, error=127.1%
+  muon        : pred=0.69 MeV, exp=105.70 MeV, error=99.3%
+  pion        : pred=0.78 MeV, exp=140.00 MeV, error=99.4%
+  proton      : pred=1.00 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 51 | Time: 125.4s | 
+Parameters: beta=0.1595, alpha=7.125859, kappa=1364.487890, g1=13637.38
+Total Error: 20.295391 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.64 MeV, exp=0.51 MeV, error=416.8%
+  muon        : pred=2.07 MeV, exp=105.70 MeV, error=98.0%
+  pion        : pred=2.25 MeV, exp=140.00 MeV, error=98.4%
+  proton      : pred=2.92 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 52 | Time: 127.4s | 
+Parameters: beta=0.0342, alpha=83.344055, kappa=1825.437928, g1=5090.02
+Total Error: 19.972113 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.63 MeV, exp=0.51 MeV, error=414.8%
+  muon        : pred=7.54 MeV, exp=105.70 MeV, error=92.9%
+  pion        : pred=6.88 MeV, exp=140.00 MeV, error=95.1%
+  proton      : pred=1.33 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 53 | Time: 130.0s | 
+Parameters: beta=0.2893, alpha=27.588484, kappa=1162.476862, g1=34895.42
+Total Error: 90.737669 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.31 MeV, exp=0.51 MeV, error=938.8%
+  muon        : pred=20.59 MeV, exp=105.70 MeV, error=80.5%
+  pion        : pred=2.84 MeV, exp=140.00 MeV, error=98.0%
+  proton      : pred=3.61 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 54 | Time: 131.8s | 
+Parameters: beta=0.0299, alpha=79.526752, kappa=1504.260115, g1=10082.16
+Total Error: 16.620679 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.41 MeV, exp=0.51 MeV, error=371.4%
+  muon        : pred=4.90 MeV, exp=105.70 MeV, error=95.4%
+  pion        : pred=5.69 MeV, exp=140.00 MeV, error=95.9%
+  proton      : pred=0.99 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 55 | Time: 135.2s | 
+Parameters: beta=0.1770, alpha=4.332909, kappa=1188.548765, g1=23399.04
+Total Error: 15.235127 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.30 MeV, exp=0.51 MeV, error=350.8%
+  muon        : pred=1.91 MeV, exp=105.70 MeV, error=98.2%
+  pion        : pred=2.07 MeV, exp=140.00 MeV, error=98.5%
+  proton      : pred=2.78 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 56 | Time: 137.2s | 
+Parameters: beta=0.4625, alpha=27.856703, kappa=1171.958340, g1=47364.22
+Total Error: 165.419591 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=7.03 MeV, exp=0.51 MeV, error=1276.4%
+  muon        : pred=25.57 MeV, exp=105.70 MeV, error=75.8%
+  pion        : pred=3.73 MeV, exp=140.00 MeV, error=97.3%
+  proton      : pred=4.49 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 57 | Time: 139.2s | 
+Parameters: beta=0.3090, alpha=12.848822, kappa=796.337989, g1=6309.92
+Total Error: 115.779029 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.95 MeV, exp=0.51 MeV, error=1064.7%
+  muon        : pred=30.99 MeV, exp=105.70 MeV, error=70.7%
+  pion        : pred=4.82 MeV, exp=140.00 MeV, error=96.6%
+  proton      : pred=5.85 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 58 | Time: 140.9s | 
+Parameters: beta=0.1539, alpha=56.180581, kappa=1446.426764, g1=33444.77
+Total Error: 147.374649 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=6.66 MeV, exp=0.51 MeV, error=1203.4%
+  muon        : pred=12.50 MeV, exp=105.70 MeV, error=88.2%
+  pion        : pred=15.19 MeV, exp=140.00 MeV, error=89.2%
+  proton      : pred=2.28 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 59 | Time: 142.5s | 
+Parameters: beta=0.8001, alpha=22.508977, kappa=1190.611856, g1=8928.05
+Total Error: 599.703264 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.01 MeV, exp=0.51 MeV, error=2445.7%
+  muon        : pred=160.46 MeV, exp=105.70 MeV, error=51.8%
+  pion        : pred=61.13 MeV, exp=140.00 MeV, error=56.3%
+  proton      : pred=10.63 MeV, exp=938.00 MeV, error=98.9%
+
+
+======================================================================
+Eval 60 | Time: 144.5s | 
+Parameters: beta=0.1895, alpha=15.865440, kappa=1384.498459, g1=11719.30
+Total Error: 43.929887 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=3.79 MeV, exp=0.51 MeV, error=642.6%
+  muon        : pred=18.60 MeV, exp=105.70 MeV, error=82.4%
+  pion        : pred=2.68 MeV, exp=140.00 MeV, error=98.1%
+  proton      : pred=3.51 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 61 | Time: 146.4s | 
+Parameters: beta=0.1345, alpha=27.605902, kappa=1637.230455, g1=41487.26
+Total Error: 24.768980 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.91 MeV, exp=0.51 MeV, error=469.1%
+  muon        : pred=11.62 MeV, exp=105.70 MeV, error=89.0%
+  pion        : pred=1.50 MeV, exp=140.00 MeV, error=98.9%
+  proton      : pred=1.91 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 62 | Time: 148.5s | 
+Parameters: beta=0.4969, alpha=59.684325, kappa=1253.727921, g1=16712.86
+Total Error: 592.295779 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=12.93 MeV, exp=0.51 MeV, error=2429.8%
+  muon        : pred=26.55 MeV, exp=105.70 MeV, error=74.9%
+  pion        : pred=55.73 MeV, exp=140.00 MeV, error=60.2%
+  proton      : pred=6.84 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 63 | Time: 151.9s | 
+Parameters: beta=0.0783, alpha=66.963310, kappa=1201.271356, g1=25886.45
+Total Error: 62.576087 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=4.47 MeV, exp=0.51 MeV, error=774.0%
+  muon        : pred=18.12 MeV, exp=105.70 MeV, error=82.9%
+  pion        : pred=1.28 MeV, exp=140.00 MeV, error=99.1%
+  proton      : pred=1.51 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 64 | Time: 155.1s | 
+Parameters: beta=0.2337, alpha=2.440176, kappa=1105.980159, g1=14670.20
+Total Error: 29.341392 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=3.14 MeV, exp=0.51 MeV, error=514.2%
+  muon        : pred=2.80 MeV, exp=105.70 MeV, error=97.3%
+  pion        : pred=2.88 MeV, exp=140.00 MeV, error=97.9%
+  proton      : pred=3.71 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 65 | Time: 157.2s | 
+Parameters: beta=0.0903, alpha=41.758136, kappa=1086.480766, g1=27047.41
+Total Error: 46.577559 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=3.89 MeV, exp=0.51 MeV, error=661.5%
+  muon        : pred=8.65 MeV, exp=105.70 MeV, error=91.8%
+  pion        : pred=1.31 MeV, exp=140.00 MeV, error=99.1%
+  proton      : pred=1.67 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 66 | Time: 158.5s | 
+Parameters: beta=0.4948, alpha=47.685164, kappa=1495.743460, g1=1744.22
+Total Error: 599.753069 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.01 MeV, exp=0.51 MeV, error=2446.7%
+  muon        : pred=114.15 MeV, exp=105.70 MeV, error=8.0%
+  pion        : pred=70.62 MeV, exp=140.00 MeV, error=49.6%
+  proton      : pred=76.45 MeV, exp=938.00 MeV, error=91.8%
+
+
+======================================================================
+Eval 67 | Time: 160.5s | 
+Parameters: beta=0.3854, alpha=33.648746, kappa=616.157065, g1=38316.43
+Total Error: 203.983949 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=7.76 MeV, exp=0.51 MeV, error=1419.3%
+  muon        : pred=23.40 MeV, exp=105.70 MeV, error=77.9%
+  pion        : pred=3.61 MeV, exp=140.00 MeV, error=97.4%
+  proton      : pred=4.21 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 68 | Time: 163.6s | 
+Parameters: beta=0.0444, alpha=23.601374, kappa=1970.079303, g1=29262.65
+Total Error: 5.286991 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=1.29 MeV, exp=0.51 MeV, error=152.0%
+  muon        : pred=0.66 MeV, exp=105.70 MeV, error=99.4%
+  pion        : pred=0.73 MeV, exp=140.00 MeV, error=99.5%
+  proton      : pred=0.95 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 69 | Time: 167.2s | 
+Parameters: beta=0.3854, alpha=33.648746, kappa=36.600679, g1=38316.43
+Total Error: 206.987608 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=7.83 MeV, exp=0.51 MeV, error=1431.6%
+  muon        : pred=71.38 MeV, exp=105.70 MeV, error=32.5%
+  pion        : pred=3.60 MeV, exp=140.00 MeV, error=97.4%
+  proton      : pred=4.22 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 70 | Time: 169.2s | 
+Parameters: beta=0.1205, alpha=19.403861, kappa=1406.360491, g1=15951.22
+Total Error: 21.755920 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.74 MeV, exp=0.51 MeV, error=436.1%
+  muon        : pred=13.03 MeV, exp=105.70 MeV, error=87.7%
+  pion        : pred=1.77 MeV, exp=140.00 MeV, error=98.7%
+  proton      : pred=2.32 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 71 | Time: 171.6s | 
+Parameters: beta=0.4829, alpha=67.067974, kappa=1516.312907, g1=45610.89
+Total Error: 573.160114 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=12.72 MeV, exp=0.51 MeV, error=2390.1%
+  muon        : pred=31.79 MeV, exp=105.70 MeV, error=69.9%
+  pion        : pred=47.40 MeV, exp=140.00 MeV, error=66.1%
+  proton      : pred=4.92 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 72 | Time: 173.4s | 
+Parameters: beta=0.2024, alpha=89.481676, kappa=309.984534, g1=46988.04
+Total Error: 235.575427 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=8.31 MeV, exp=0.51 MeV, error=1526.6%
+  muon        : pred=14.81 MeV, exp=105.70 MeV, error=86.0%
+  pion        : pred=14.70 MeV, exp=140.00 MeV, error=89.5%
+  proton      : pred=2.58 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 73 | Time: 176.7s | 
+Parameters: beta=0.8004, alpha=19.583233, kappa=380.378052, g1=7324.93
+Total Error: 640.312976 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=13.42 MeV, exp=0.51 MeV, error=2526.9%
+  muon        : pred=182.18 MeV, exp=105.70 MeV, error=72.4%
+  pion        : pred=64.16 MeV, exp=140.00 MeV, error=54.2%
+  proton      : pred=11.00 MeV, exp=938.00 MeV, error=98.8%
+
+
+======================================================================
+Eval 74 | Time: 178.8s | 
+Parameters: beta=0.0962, alpha=44.397611, kappa=1089.622888, g1=36364.01
+Total Error: 49.664147 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=4.01 MeV, exp=0.51 MeV, error=684.4%
+  muon        : pred=8.36 MeV, exp=105.70 MeV, error=92.1%
+  pion        : pred=1.26 MeV, exp=140.00 MeV, error=99.1%
+  proton      : pred=1.57 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 75 | Time: 182.0s | 
+Parameters: beta=0.3608, alpha=12.297169, kappa=1909.242065, g1=37637.81
+Total Error: 49.418558 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=4.00 MeV, exp=0.51 MeV, error=682.1%
+  muon        : pred=2.83 MeV, exp=105.70 MeV, error=97.3%
+  pion        : pred=3.09 MeV, exp=140.00 MeV, error=97.8%
+  proton      : pred=3.96 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 76 | Time: 185.0s | 
+Parameters: beta=0.9787, alpha=29.156377, kappa=748.594160, g1=9715.33
+Total Error: 1067.159467 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=17.19 MeV, exp=0.51 MeV, error=3264.4%
+  muon        : pred=163.22 MeV, exp=105.70 MeV, error=54.4%
+  pion        : pred=68.96 MeV, exp=140.00 MeV, error=50.7%
+  proton      : pred=12.40 MeV, exp=938.00 MeV, error=98.7%
+
+
+======================================================================
+Eval 77 | Time: 188.2s | 
+Parameters: beta=0.1412, alpha=6.547724, kappa=751.345128, g1=29367.66
+Total Error: 10.585631 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=1.92 MeV, exp=0.51 MeV, error=276.4%
+  muon        : pred=1.51 MeV, exp=105.70 MeV, error=98.6%
+  pion        : pred=1.60 MeV, exp=140.00 MeV, error=98.9%
+  proton      : pred=2.10 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 78 | Time: 190.3s | 
+Parameters: beta=0.4772, alpha=39.436593, kappa=1242.370214, g1=29572.15
+Total Error: 414.053939 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=10.89 MeV, exp=0.51 MeV, error=2030.2%
+  muon        : pred=33.33 MeV, exp=105.70 MeV, error=68.5%
+  pion        : pred=49.75 MeV, exp=140.00 MeV, error=64.5%
+  proton      : pred=5.35 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 79 | Time: 191.9s | 
+Parameters: beta=0.1085, alpha=96.292691, kappa=1003.863540, g1=17926.64
+Total Error: 98.520400 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=5.52 MeV, exp=0.51 MeV, error=979.3%
+  muon        : pred=11.97 MeV, exp=105.70 MeV, error=88.7%
+  pion        : pred=11.83 MeV, exp=140.00 MeV, error=91.6%
+  proton      : pred=2.25 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 80 | Time: 193.9s | 
+Parameters: beta=0.0337, alpha=60.709443, kappa=1093.395279, g1=12358.79
+Total Error: 19.711988 (best so far: 3.163098)
+Particle predictions:
+  electron    : pred=2.61 MeV, exp=0.51 MeV, error=410.1%
+  muon        : pred=4.94 MeV, exp=105.70 MeV, error=95.3%
+  pion        : pred=0.82 MeV, exp=140.00 MeV, error=99.4%
+  proton      : pred=1.01 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 81 | Time: 197.2s | *** NEW BEST ***
+Parameters: beta=0.0104, alpha=25.257785, kappa=542.295602, g1=43842.51
+Total Error: 3.021268 (best so far: 3.021268)
+Particle predictions:
+  electron    : pred=0.42 MeV, exp=0.51 MeV, error=17.0%
+  muon        : pred=0.20 MeV, exp=105.70 MeV, error=99.8%
+  pion        : pred=0.23 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.30 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 82 | Time: 199.2s | 
+Parameters: beta=0.1286, alpha=48.872456, kappa=981.495353, g1=36006.61
+Total Error: 97.530957 (best so far: 3.021268)
+Particle predictions:
+  electron    : pred=5.48 MeV, exp=0.51 MeV, error=973.4%
+  muon        : pred=10.55 MeV, exp=105.70 MeV, error=90.0%
+  pion        : pred=1.56 MeV, exp=140.00 MeV, error=98.9%
+  proton      : pred=1.95 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 83 | Time: 202.5s | 
+Parameters: beta=0.0299, alpha=40.573688, kappa=1311.445615, g1=32817.84
+Total Error: 7.719563 (best so far: 3.021268)
+Particle predictions:
+  electron    : pred=1.62 MeV, exp=0.51 MeV, error=217.7%
+  muon        : pred=0.49 MeV, exp=105.70 MeV, error=99.5%
+  pion        : pred=0.52 MeV, exp=140.00 MeV, error=99.6%
+  proton      : pred=0.69 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 84 | Time: 205.7s | *** NEW BEST ***
+Parameters: beta=0.0102, alpha=25.341980, kappa=1041.378192, g1=33893.37
+Total Error: 3.005775 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.45 MeV, exp=0.51 MeV, error=11.8%
+  muon        : pred=0.21 MeV, exp=105.70 MeV, error=99.8%
+  pion        : pred=0.24 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.31 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 85 | Time: 208.9s | 
+Parameters: beta=0.1008, alpha=16.963023, kappa=1077.142845, g1=44510.57
+Total Error: 8.473852 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=1.71 MeV, exp=0.51 MeV, error=234.8%
+  muon        : pred=1.05 MeV, exp=105.70 MeV, error=99.0%
+  pion        : pred=1.17 MeV, exp=140.00 MeV, error=99.2%
+  proton      : pred=1.53 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 86 | Time: 210.9s | 
+Parameters: beta=0.4765, alpha=19.502952, kappa=493.546798, g1=14400.80
+Total Error: 202.556599 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=7.74 MeV, exp=0.51 MeV, error=1414.9%
+  muon        : pred=34.84 MeV, exp=105.70 MeV, error=67.0%
+  pion        : pred=5.51 MeV, exp=140.00 MeV, error=96.1%
+  proton      : pred=6.25 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 87 | Time: 214.1s | 
+Parameters: beta=0.0293, alpha=11.395599, kappa=1712.912683, g1=48774.24
+Total Error: 3.017609 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.60 MeV, exp=0.51 MeV, error=18.2%
+  muon        : pred=0.41 MeV, exp=105.70 MeV, error=99.6%
+  pion        : pred=0.45 MeV, exp=140.00 MeV, error=99.7%
+  proton      : pred=0.61 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 88 | Time: 216.2s | 
+Parameters: beta=0.4846, alpha=17.809759, kappa=484.212409, g1=9947.67
+Total Error: 231.966943 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=8.27 MeV, exp=0.51 MeV, error=1517.6%
+  muon        : pred=38.65 MeV, exp=105.70 MeV, error=63.4%
+  pion        : pred=67.44 MeV, exp=140.00 MeV, error=51.8%
+  proton      : pred=7.20 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 89 | Time: 218.3s | 
+Parameters: beta=0.1657, alpha=39.224465, kappa=1340.037150, g1=40073.42
+Total Error: 81.060461 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=5.03 MeV, exp=0.51 MeV, error=884.9%
+  muon        : pred=12.40 MeV, exp=105.70 MeV, error=88.3%
+  pion        : pred=1.83 MeV, exp=140.00 MeV, error=98.7%
+  proton      : pred=2.25 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 90 | Time: 220.6s | 
+Parameters: beta=0.3759, alpha=16.893589, kappa=1482.631695, g1=41623.71
+Total Error: 64.581016 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.54 MeV, exp=0.51 MeV, error=787.6%
+  muon        : pred=23.31 MeV, exp=105.70 MeV, error=77.9%
+  pion        : pred=3.15 MeV, exp=140.00 MeV, error=97.8%
+  proton      : pred=3.98 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 91 | Time: 224.0s | 
+Parameters: beta=0.2606, alpha=36.384038, kappa=1144.398016, g1=27527.56
+Total Error: 160.037168 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.93 MeV, exp=0.51 MeV, error=1256.3%
+  muon        : pred=53.06 MeV, exp=105.70 MeV, error=49.8%
+  pion        : pred=2.95 MeV, exp=140.00 MeV, error=97.9%
+  proton      : pred=3.49 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 92 | Time: 227.2s | 
+Parameters: beta=0.0362, alpha=83.344055, kappa=1167.707675, g1=5090.02
+Total Error: 21.283649 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=2.72 MeV, exp=0.51 MeV, error=431.4%
+  muon        : pred=12.61 MeV, exp=105.70 MeV, error=88.1%
+  pion        : pred=7.06 MeV, exp=140.00 MeV, error=95.0%
+  proton      : pred=1.40 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 93 | Time: 230.7s | 
+Parameters: beta=0.0144, alpha=28.274641, kappa=1162.476862, g1=38019.73
+Total Error: 3.045171 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.63 MeV, exp=0.51 MeV, error=23.5%
+  muon        : pred=0.27 MeV, exp=105.70 MeV, error=99.7%
+  pion        : pred=0.30 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.39 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 94 | Time: 234.0s | 
+Parameters: beta=0.1920, alpha=16.695917, kappa=142.584836, g1=47802.61
+Total Error: 20.525209 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=2.65 MeV, exp=0.51 MeV, error=419.4%
+  muon        : pred=1.67 MeV, exp=105.70 MeV, error=98.4%
+  pion        : pred=1.83 MeV, exp=140.00 MeV, error=98.7%
+  proton      : pred=2.36 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 95 | Time: 237.3s | 
+Parameters: beta=0.9781, alpha=4.332909, kappa=839.085206, g1=42730.86
+Total Error: 145.763979 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.62 MeV, exp=0.51 MeV, error=1195.7%
+  muon        : pred=5.75 MeV, exp=105.70 MeV, error=94.6%
+  pion        : pred=6.01 MeV, exp=140.00 MeV, error=95.7%
+  proton      : pred=7.75 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 96 | Time: 240.6s | 
+Parameters: beta=0.0458, alpha=27.856703, kappa=1261.159942, g1=32095.19
+Total Error: 6.266098 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=1.44 MeV, exp=0.51 MeV, error=181.4%
+  muon        : pred=0.66 MeV, exp=105.70 MeV, error=99.4%
+  pion        : pred=0.73 MeV, exp=140.00 MeV, error=99.5%
+  proton      : pred=0.97 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 97 | Time: 242.8s | 
+Parameters: beta=0.4234, alpha=12.848822, kappa=462.148687, g1=30504.66
+Total Error: 75.128045 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.87 MeV, exp=0.51 MeV, error=852.3%
+  muon        : pred=27.14 MeV, exp=105.70 MeV, error=74.3%
+  pion        : pred=3.72 MeV, exp=140.00 MeV, error=97.3%
+  proton      : pred=4.72 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 98 | Time: 244.5s | 
+Parameters: beta=0.1539, alpha=56.180581, kappa=1220.690051, g1=33499.46
+Total Error: 149.266303 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.70 MeV, exp=0.51 MeV, error=1211.1%
+  muon        : pred=12.47 MeV, exp=105.70 MeV, error=88.2%
+  pion        : pred=14.17 MeV, exp=140.00 MeV, error=89.9%
+  proton      : pred=2.29 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 99 | Time: 248.3s | 
+Parameters: beta=0.8001, alpha=10.117689, kappa=130.884108, g1=36444.22
+Total Error: 153.869232 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.81 MeV, exp=0.51 MeV, error=1232.4%
+  muon        : pred=137.97 MeV, exp=105.70 MeV, error=30.5%
+  pion        : pred=5.64 MeV, exp=140.00 MeV, error=96.0%
+  proton      : pred=7.08 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 100 | Time: 250.5s | 
+Parameters: beta=0.0752, alpha=18.786248, kappa=696.379040, g1=11719.30
+Total Error: 12.362993 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=2.09 MeV, exp=0.51 MeV, error=309.3%
+  muon        : pred=10.16 MeV, exp=105.70 MeV, error=90.4%
+  pion        : pred=1.41 MeV, exp=140.00 MeV, error=99.0%
+  proton      : pred=1.79 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 101 | Time: 254.0s | 
+Parameters: beta=0.0663, alpha=16.628545, kappa=1637.230455, g1=19161.97
+Total Error: 7.472548 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=1.60 MeV, exp=0.51 MeV, error=212.4%
+  muon        : pred=0.99 MeV, exp=105.70 MeV, error=99.1%
+  pion        : pred=1.08 MeV, exp=140.00 MeV, error=99.2%
+  proton      : pred=1.42 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 102 | Time: 256.1s | 
+Parameters: beta=0.8543, alpha=50.957806, kappa=1496.556258, g1=20368.20
+Total Error: 918.237958 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=15.98 MeV, exp=0.51 MeV, error=3027.9%
+  muon        : pred=53.64 MeV, exp=105.70 MeV, error=49.2%
+  pion        : pred=82.34 MeV, exp=140.00 MeV, error=41.2%
+  proton      : pred=9.51 MeV, exp=938.00 MeV, error=99.0%
+
+
+======================================================================
+Eval 103 | Time: 257.8s | 
+Parameters: beta=0.7179, alpha=66.963310, kappa=1201.271356, g1=39277.84
+Total Error: 1059.552580 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=15.56 MeV, exp=0.51 MeV, error=2944.5%
+  muon        : pred=1567.30 MeV, exp=105.70 MeV, error=1382.8%
+  pion        : pred=56.95 MeV, exp=140.00 MeV, error=59.3%
+  proton      : pred=7.00 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 104 | Time: 261.1s | 
+Parameters: beta=0.0125, alpha=2.440176, kappa=907.064953, g1=14670.20
+Total Error: 3.051099 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.38 MeV, exp=0.51 MeV, error=25.2%
+  muon        : pred=0.34 MeV, exp=105.70 MeV, error=99.7%
+  pion        : pred=0.36 MeV, exp=140.00 MeV, error=99.7%
+  proton      : pred=0.47 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 105 | Time: 264.6s | 
+Parameters: beta=0.0534, alpha=21.304249, kappa=207.685507, g1=38488.88
+Total Error: 5.185677 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=1.27 MeV, exp=0.51 MeV, error=148.7%
+  muon        : pred=0.69 MeV, exp=105.70 MeV, error=99.4%
+  pion        : pred=0.78 MeV, exp=140.00 MeV, error=99.4%
+  proton      : pred=1.02 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 106 | Time: 266.6s | 
+Parameters: beta=0.3960, alpha=14.350303, kappa=1495.743460, g1=34847.02
+Total Error: 65.370732 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.56 MeV, exp=0.51 MeV, error=792.8%
+  muon        : pred=25.63 MeV, exp=105.70 MeV, error=75.8%
+  pion        : pred=3.41 MeV, exp=140.00 MeV, error=97.6%
+  proton      : pred=4.34 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 107 | Time: 268.4s | 
+Parameters: beta=0.1599, alpha=55.138065, kappa=1187.476356, g1=30135.26
+Total Error: 155.515011 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.83 MeV, exp=0.51 MeV, error=1236.7%
+  muon        : pred=12.99 MeV, exp=105.70 MeV, error=87.7%
+  pion        : pred=14.46 MeV, exp=140.00 MeV, error=89.7%
+  proton      : pred=2.43 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 108 | Time: 270.6s | 
+Parameters: beta=0.4632, alpha=23.601374, kappa=1970.079303, g1=33481.86
+Total Error: 142.173790 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.55 MeV, exp=0.51 MeV, error=1182.0%
+  muon        : pred=28.50 MeV, exp=105.70 MeV, error=73.0%
+  pion        : pred=4.09 MeV, exp=140.00 MeV, error=97.1%
+  proton      : pred=4.94 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 109 | Time: 272.8s | 
+Parameters: beta=0.3854, alpha=28.822873, kappa=36.600679, g1=38126.80
+Total Error: 147.979519 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.67 MeV, exp=0.51 MeV, error=1206.0%
+  muon        : pred=24.42 MeV, exp=105.70 MeV, error=76.9%
+  pion        : pred=3.49 MeV, exp=140.00 MeV, error=97.5%
+  proton      : pred=4.20 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 110 | Time: 275.0s | 
+Parameters: beta=0.2759, alpha=23.189466, kappa=1211.711450, g1=16312.74
+Total Error: 92.080326 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=5.35 MeV, exp=0.51 MeV, error=946.2%
+  muon        : pred=23.33 MeV, exp=105.70 MeV, error=77.9%
+  pion        : pred=3.46 MeV, exp=140.00 MeV, error=97.5%
+  proton      : pred=4.18 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 111 | Time: 276.7s | 
+Parameters: beta=0.6039, alpha=74.899498, kappa=715.628810, g1=28391.99
+Total Error: 1059.560233 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=14.90 MeV, exp=0.51 MeV, error=2816.4%
+  muon        : pred=1825.81 MeV, exp=105.70 MeV, error=1627.3%
+  pion        : pred=36.98 MeV, exp=140.00 MeV, error=73.6%
+  proton      : pred=7.01 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 112 | Time: 278.7s | 
+Parameters: beta=0.2105, alpha=31.922979, kappa=309.984534, g1=31620.61
+Total Error: 77.015121 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.92 MeV, exp=0.51 MeV, error=862.2%
+  muon        : pred=16.24 MeV, exp=105.70 MeV, error=84.6%
+  pion        : pred=2.33 MeV, exp=140.00 MeV, error=98.3%
+  proton      : pred=2.85 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 113 | Time: 282.1s | 
+Parameters: beta=0.8004, alpha=22.372291, kappa=380.378052, g1=43722.09
+Total Error: 270.774522 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=8.89 MeV, exp=0.51 MeV, error=1639.5%
+  muon        : pred=135.21 MeV, exp=105.70 MeV, error=27.9%
+  pion        : pred=5.78 MeV, exp=140.00 MeV, error=95.9%
+  proton      : pred=6.86 MeV, exp=938.00 MeV, error=99.3%
+
+
+======================================================================
+Eval 114 | Time: 285.5s | 
+Parameters: beta=0.3163, alpha=31.476299, kappa=975.969800, g1=36364.01
+Total Error: 130.734896 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.31 MeV, exp=0.51 MeV, error=1134.0%
+  muon        : pred=60.20 MeV, exp=105.70 MeV, error=43.0%
+  pion        : pred=3.06 MeV, exp=140.00 MeV, error=97.8%
+  proton      : pred=3.70 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 115 | Time: 287.1s | 
+Parameters: beta=0.2538, alpha=65.900543, kappa=334.655472, g1=22412.25
+Total Error: 312.383556 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=9.51 MeV, exp=0.51 MeV, error=1760.8%
+  muon        : pred=21.59 MeV, exp=105.70 MeV, error=79.6%
+  pion        : pred=21.18 MeV, exp=140.00 MeV, error=84.9%
+  proton      : pred=3.76 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 116 | Time: 289.2s | 
+Parameters: beta=0.4743, alpha=21.912594, kappa=1432.995595, g1=36519.68
+Total Error: 136.413178 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.42 MeV, exp=0.51 MeV, error=1157.3%
+  muon        : pred=27.18 MeV, exp=105.70 MeV, error=74.3%
+  pion        : pred=4.01 MeV, exp=140.00 MeV, error=97.1%
+  proton      : pred=4.90 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 117 | Time: 291.5s | 
+Parameters: beta=0.2310, alpha=29.558524, kappa=1949.282548, g1=38862.02
+Total Error: 67.215915 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.62 MeV, exp=0.51 MeV, error=803.3%
+  muon        : pred=15.81 MeV, exp=105.70 MeV, error=85.0%
+  pion        : pred=2.31 MeV, exp=140.00 MeV, error=98.3%
+  proton      : pred=2.88 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 118 | Time: 295.1s | 
+Parameters: beta=0.0088, alpha=39.397023, kappa=816.689921, g1=8805.60
+Total Error: 3.399196 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.84 MeV, exp=0.51 MeV, error=64.1%
+  muon        : pred=0.29 MeV, exp=105.70 MeV, error=99.7%
+  pion        : pred=0.32 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.43 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 119 | Time: 297.2s | 
+Parameters: beta=0.2896, alpha=48.956651, kappa=1480.577943, g1=14574.40
+Total Error: 306.036077 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=9.42 MeV, exp=0.51 MeV, error=1743.4%
+  muon        : pred=26.63 MeV, exp=105.70 MeV, error=74.8%
+  pion        : pred=37.41 MeV, exp=140.00 MeV, error=73.3%
+  proton      : pred=4.49 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 120 | Time: 298.8s | 
+Parameters: beta=0.5638, alpha=42.750240, kappa=1001.229556, g1=38011.88
+Total Error: 564.049504 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=12.63 MeV, exp=0.51 MeV, error=2370.7%
+  muon        : pred=33.67 MeV, exp=105.70 MeV, error=68.1%
+  pion        : pred=32.83 MeV, exp=140.00 MeV, error=76.6%
+  proton      : pred=5.67 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 121 | Time: 301.9s | 
+Parameters: beta=0.0134, alpha=25.341980, kappa=1116.001471, g1=4923.34
+Total Error: 3.527541 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.89 MeV, exp=0.51 MeV, error=73.8%
+  muon        : pred=0.46 MeV, exp=105.70 MeV, error=99.6%
+  pion        : pred=0.53 MeV, exp=140.00 MeV, error=99.6%
+  proton      : pred=0.67 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 122 | Time: 304.0s | 
+Parameters: beta=0.5342, alpha=23.372574, kappa=603.023248, g1=40411.48
+Total Error: 160.166633 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.93 MeV, exp=0.51 MeV, error=1255.9%
+  muon        : pred=29.42 MeV, exp=105.70 MeV, error=72.2%
+  pion        : pred=4.30 MeV, exp=140.00 MeV, error=96.9%
+  proton      : pred=5.22 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 123 | Time: 306.0s | 
+Parameters: beta=0.0468, alpha=53.716877, kappa=1978.559135, g1=32817.84
+Total Error: 27.282886 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=3.03 MeV, exp=0.51 MeV, error=493.9%
+  muon        : pred=5.44 MeV, exp=105.70 MeV, error=94.9%
+  pion        : pred=0.76 MeV, exp=140.00 MeV, error=99.5%
+  proton      : pred=0.96 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 124 | Time: 309.2s | 
+Parameters: beta=0.0104, alpha=19.206954, kappa=726.813264, g1=37596.76
+Total Error: 3.065951 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.37 MeV, exp=0.51 MeV, error=27.2%
+  muon        : pred=0.21 MeV, exp=105.70 MeV, error=99.8%
+  pion        : pred=0.24 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.32 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 125 | Time: 311.2s | 
+Parameters: beta=0.6326, alpha=16.963023, kappa=622.674792, g1=48182.23
+Total Error: 138.728410 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=6.48 MeV, exp=0.51 MeV, error=1167.7%
+  muon        : pred=34.93 MeV, exp=105.70 MeV, error=67.0%
+  pion        : pred=4.55 MeV, exp=140.00 MeV, error=96.8%
+  proton      : pred=5.56 MeV, exp=938.00 MeV, error=99.4%
+
+
+======================================================================
+Eval 126 | Time: 313.2s | 
+Parameters: beta=0.2980, alpha=17.430846, kappa=1386.611301, g1=14400.80
+Total Error: 86.015402 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=5.18 MeV, exp=0.51 MeV, error=913.7%
+  muon        : pred=24.50 MeV, exp=105.70 MeV, error=76.8%
+  pion        : pred=3.69 MeV, exp=140.00 MeV, error=97.4%
+  proton      : pred=4.48 MeV, exp=938.00 MeV, error=99.5%
+
+
+======================================================================
+Eval 127 | Time: 315.3s | 
+Parameters: beta=0.2213, alpha=28.264392, kappa=1284.856007, g1=48774.24
+Total Error: 51.549285 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.08 MeV, exp=0.51 MeV, error=698.9%
+  muon        : pred=14.48 MeV, exp=105.70 MeV, error=86.3%
+  pion        : pred=2.08 MeV, exp=140.00 MeV, error=98.5%
+  proton      : pred=2.62 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 128 | Time: 317.2s | 
+Parameters: beta=0.1402, alpha=27.761445, kappa=476.031524, g1=9947.67
+Total Error: 58.685650 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=4.34 MeV, exp=0.51 MeV, error=748.4%
+  muon        : pred=15.74 MeV, exp=105.70 MeV, error=85.1%
+  pion        : pred=2.49 MeV, exp=140.00 MeV, error=98.2%
+  proton      : pred=2.96 MeV, exp=938.00 MeV, error=99.7%
+
+
+======================================================================
+Eval 129 | Time: 320.7s | 
+Parameters: beta=0.0229, alpha=30.368821, kappa=1966.309108, g1=38174.15
+Total Error: 3.605407 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.91 MeV, exp=0.51 MeV, error=78.7%
+  muon        : pred=0.38 MeV, exp=105.70 MeV, error=99.6%
+  pion        : pred=0.43 MeV, exp=140.00 MeV, error=99.7%
+  proton      : pred=0.55 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 130 | Time: 324.0s | 
+Parameters: beta=0.0587, alpha=66.226950, kappa=557.181399, g1=10803.79
+Total Error: 42.647174 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=3.74 MeV, exp=0.51 MeV, error=632.8%
+  muon        : pred=15.87 MeV, exp=105.70 MeV, error=85.0%
+  pion        : pred=8.53 MeV, exp=140.00 MeV, error=93.9%
+  proton      : pred=1.57 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 131 | Time: 326.4s | 
+Parameters: beta=0.8818, alpha=12.149627, kappa=1972.794735, g1=13637.38
+Total Error: 325.251450 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=9.70 MeV, exp=0.51 MeV, error=1797.7%
+  muon        : pred=55.46 MeV, exp=105.70 MeV, error=47.5%
+  pion        : pred=8.31 MeV, exp=140.00 MeV, error=94.1%
+  proton      : pred=9.73 MeV, exp=938.00 MeV, error=99.0%
+
+
+======================================================================
+Eval 132 | Time: 328.9s | 
+Parameters: beta=0.0483, alpha=83.344055, kappa=1585.535415, g1=40761.40
+Total Error: 32.162457 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=3.28 MeV, exp=0.51 MeV, error=541.0%
+  muon        : pred=4.89 MeV, exp=105.70 MeV, error=95.4%
+  pion        : pred=0.73 MeV, exp=140.00 MeV, error=99.5%
+  proton      : pred=0.95 MeV, exp=938.00 MeV, error=99.9%
+
+
+======================================================================
+Eval 133 | Time: 331.6s | 
+Parameters: beta=0.8481, alpha=28.693344, kappa=982.102159, g1=38019.73
+Total Error: 458.580685 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=11.43 MeV, exp=0.51 MeV, error=2137.3%
+  muon        : pred=23.27 MeV, exp=105.70 MeV, error=78.0%
+  pion        : pred=197.25 MeV, exp=140.00 MeV, error=40.9%
+  proton      : pred=7.47 MeV, exp=938.00 MeV, error=99.2%
+
+
+======================================================================
+Eval 134 | Time: 335.5s | 
+Parameters: beta=0.2899, alpha=52.464326, kappa=1431.670472, g1=37204.94
+Total Error: 303.824222 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=9.39 MeV, exp=0.51 MeV, error=1737.5%
+  muon        : pred=55.44 MeV, exp=105.70 MeV, error=47.6%
+  pion        : pred=20.39 MeV, exp=140.00 MeV, error=85.4%
+  proton      : pred=3.48 MeV, exp=938.00 MeV, error=99.6%
+
+
+======================================================================
+Eval 135 | Time: 339.6s | 
+Parameters: beta=0.0098, alpha=10.331402, kappa=555.910043, g1=38713.79
+Total Error: 3.184035 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=0.29 MeV, exp=0.51 MeV, error=43.8%
+  muon        : pred=0.20 MeV, exp=105.70 MeV, error=99.8%
+  pion        : pred=0.23 MeV, exp=140.00 MeV, error=99.8%
+  proton      : pred=0.30 MeV, exp=938.00 MeV, error=100.0%
+
+
+======================================================================
+Eval 136 | Time: 344.0s | 
+Parameters: beta=0.0952, alpha=21.546687, kappa=1911.179487, g1=27411.28
+Total Error: 13.056657 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=2.14 MeV, exp=0.51 MeV, error=317.8%
+  muon        : pred=1.21 MeV, exp=105.70 MeV, error=98.9%
+  pion        : pred=1.30 MeV, exp=140.00 MeV, error=99.1%
+  proton      : pred=1.60 MeV, exp=938.00 MeV, error=99.8%
+
+
+======================================================================
+Eval 137 | Time: 346.6s | 
+Parameters: beta=0.6387, alpha=18.180798, kappa=1440.016715, g1=36650.45
+Total Error: 165.273302 (best so far: 3.005775)
+Particle predictions:
+  electron    : pred=7.03 MeV, exp=0.51 MeV, error=1276.4%
+  muon        : pred=34.96 MeV, exp=105.70 MeV, error=66.9%
+  pion        : pred=4.97 MeV, exp=140.00 MeV, error=96.5%
+  proton      : pred=6.05 MeV, exp=938.00 MeV, error=99.4%
+

@@ -385,7 +385,8 @@ class SFMParameterOptimizer:
         validation_particles: Optional[List[ParticleSpec]] = None,
         N_grid: int = 64,
         V0: float = 1.0,
-        verbose: bool = True
+        verbose: bool = True,
+        log_file: Optional[str] = None
     ):
         """
         Initialize the optimizer.
@@ -398,18 +399,28 @@ class SFMParameterOptimizer:
             N_grid: Grid size for subspace solver.
             V0: Three-well potential depth (fixed at 1.0 GeV).
             verbose: Print progress information.
+            log_file: Path to log file for dynamic updates (optional).
         """
         self.calibration = calibration_particles or CALIBRATION_PARTICLES
         self.validation = validation_particles or VALIDATION_PARTICLES
         self.N_grid = N_grid
         self.V0 = V0
         self.verbose = verbose
+        self.log_file = log_file
         
         # Tracking
         self._eval_count = 0
         self._best_error = float('inf')
         self._best_params = None
         self._best_beta = None
+        self._start_time = None
+    
+    def _log(self, message: str):
+        """Write message to log file if configured."""
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(message + '\n')
+                f.flush()  # Ensure immediate write
     
     def _run_lepton_solver(
         self,
@@ -627,6 +638,7 @@ class SFMParameterOptimizer:
         """
         total_error = 0.0
         valid_count = 0
+        particle_results = {}
         
         for particle in self.calibration:
             try:
@@ -634,6 +646,7 @@ class SFMParameterOptimizer:
                 
                 if m_pred is None or m_pred <= 0 or np.isnan(m_pred):
                     total_error += 10.0  # Penalty for failed calculation
+                    particle_results[particle.name] = {'pred': None, 'exp': particle.mass_gev, 'error': 'FAILED'}
                     continue
                 
                 m_exp = particle.mass_gev
@@ -643,8 +656,12 @@ class SFMParameterOptimizer:
                 total_error += particle.weight * rel_error
                 valid_count += 1
                 
-            except Exception:
+                pct_error = abs(m_pred - m_exp) / m_exp * 100
+                particle_results[particle.name] = {'pred': m_pred, 'exp': m_exp, 'error': pct_error}
+                
+            except Exception as e:
                 total_error += 10.0
+                particle_results[particle.name] = {'pred': None, 'exp': particle.mass_gev, 'error': str(e)}
         
         # Penalty if no valid predictions
         if valid_count == 0:
@@ -652,12 +669,32 @@ class SFMParameterOptimizer:
         
         # Track progress
         self._eval_count += 1
-        if total_error < self._best_error:
+        elapsed = time.time() - self._start_time if self._start_time else 0
+        
+        is_new_best = total_error < self._best_error
+        if is_new_best:
             self._best_error = total_error
             self._best_beta = beta
-            if self.verbose:
-                print(f"  Eval {self._eval_count}: New best error = {self._best_error:.6f}")
-                print(f"    β={beta:.4f} GeV → α={alpha:.6f}, κ={kappa:.6f}, g₁={g1:.2f}")
+            self._best_params = (beta, alpha, kappa, g1)
+        
+        # Log to file
+        if self.log_file:
+            log_msg = f"\n{'='*70}\n"
+            log_msg += f"Eval {self._eval_count} | Time: {elapsed:.1f}s | {'*** NEW BEST ***' if is_new_best else ''}\n"
+            log_msg += f"Parameters: beta={beta:.4f}, alpha={alpha:.6f}, kappa={kappa:.6f}, g1={g1:.2f}\n"
+            log_msg += f"Total Error: {total_error:.6f} (best so far: {self._best_error:.6f})\n"
+            log_msg += f"Particle predictions:\n"
+            for name, res in particle_results.items():
+                if res['pred'] is not None:
+                    log_msg += f"  {name:12s}: pred={res['pred']*1000:.2f} MeV, exp={res['exp']*1000:.2f} MeV, error={res['error']:.1f}%\n"
+                else:
+                    log_msg += f"  {name:12s}: FAILED - {res['error']}\n"
+            self._log(log_msg)
+        
+        # Console output
+        if is_new_best and self.verbose:
+            print(f"  Eval {self._eval_count}: New best error = {self._best_error:.6f}")
+            print(f"    beta={beta:.4f} GeV, alpha={alpha:.6f}, kappa={kappa:.6f}, g1={g1:.2f}")
         elif self.verbose and self._eval_count % 20 == 0:
             print(f"  Eval {self._eval_count}: error = {total_error:.6f}")
         
@@ -822,16 +859,16 @@ class SFMParameterOptimizer:
         
         if self.verbose:
             print("=" * 60)
-            print("WARNING: Using 4-parameter optimization (DEPRECATED)")
-            print("Consider using optimize_beta_only() for first-principles approach")
+            print("4-PARAMETER OPTIMIZATION")
+            print("Searching over {beta, alpha, kappa, g1} independently")
             print("=" * 60)
             print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
             print(f"Validation particles: {[p.name for p in self.validation]}")
             print(f"\nParameter bounds:")
-            print(f"  β: [{bounds[0][0]}, {bounds[0][1]}] GeV")
-            print(f"  α: [{bounds[1][0]}, {bounds[1][1]}] GeV")
-            print(f"  κ: [{bounds[2][0]}, {bounds[2][1]}] GeV⁻²")
-            print(f"  g₁: [{bounds[3][0]}, {bounds[3][1]}]")
+            print(f"  beta:  [{bounds[0][0]}, {bounds[0][1]}] GeV")
+            print(f"  alpha: [{bounds[1][0]}, {bounds[1][1]}] GeV")
+            print(f"  kappa: [{bounds[2][0]}, {bounds[2][1]}] GeV^-2")
+            print(f"  g1:    [{bounds[3][0]}, {bounds[3][1]}]")
             print(f"\nStarting optimization (maxiter={maxiter}, popsize={popsize})...")
             print("-" * 60)
         
@@ -839,6 +876,24 @@ class SFMParameterOptimizer:
         self._eval_count = 0
         self._best_error = float('inf')
         self._best_params = None
+        self._start_time = time.time()
+        
+        # Initialize log file
+        if self.log_file:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 70 + "\n")
+                f.write("SFM 4-PARAMETER OPTIMIZATION LOG\n")
+                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 70 + "\n")
+                f.write(f"Calibration particles: {[p.name for p in self.calibration]}\n")
+                f.write(f"Validation particles: {[p.name for p in self.validation]}\n")
+                f.write(f"Parameter bounds:\n")
+                f.write(f"  beta:  [{bounds[0][0]}, {bounds[0][1]}] GeV\n")
+                f.write(f"  alpha: [{bounds[1][0]}, {bounds[1][1]}] GeV\n")
+                f.write(f"  kappa: [{bounds[2][0]}, {bounds[2][1]}] GeV^-2\n")
+                f.write(f"  g1:    [{bounds[3][0]}, {bounds[3][1]}]\n")
+                f.write(f"maxiter={maxiter}, popsize={popsize}\n")
+                f.write("=" * 70 + "\n\n")
         
         start_time = time.time()
         

@@ -285,6 +285,169 @@ class CorrelatedBasis:
         )
         
         return radial * angular
+    
+    # =========================================================================
+    # SELF-CONSISTENT Δx ITERATION METHODS (Step 1 of missing physics fix)
+    # =========================================================================
+    
+    def _harmonic_radial_at_scale(
+        self, 
+        n: int, 
+        l: int, 
+        r: NDArray, 
+        a_scale: float
+    ) -> NDArray:
+        """
+        Compute the radial wavefunction R_{nl}(r) for given scale parameter.
+        
+        R_{nl}(r) ∝ r^l × L_{n-l-1}^{l+1/2}(r²/a²) × exp(-r²/(2a²))
+        
+        Args:
+            n: Principal quantum number
+            l: Angular momentum quantum number
+            r: Radial grid
+            a_scale: Harmonic oscillator length scale (dynamic!)
+            
+        Returns:
+            Normalized radial wavefunction
+        """
+        # Validate quantum numbers
+        if l >= n or l < 0:
+            return np.zeros_like(r)
+        
+        x = (r / a_scale) ** 2
+        
+        # Polynomial degree
+        k = n - l - 1
+        alpha = l + 0.5
+        
+        # Generalized Laguerre polynomial
+        if k >= 0:
+            L = genlaguerre(k, alpha)(x)
+        else:
+            L = np.ones_like(x)
+        
+        # Full radial function (unnormalized)
+        R = (r / a_scale) ** l * L * np.exp(-x / 2)
+        
+        # Normalize: ∫ R²(r) r² dr = 1
+        norm = np.sqrt(np.trapz(R**2 * r**2, r))
+        if norm > 1e-10:
+            R = R / norm
+        
+        return R
+    
+    def _harmonic_radial_derivative_at_scale(
+        self, 
+        n: int, 
+        l: int, 
+        r: NDArray, 
+        a_scale: float
+    ) -> NDArray:
+        """
+        Compute dR_{nl}/dr for given scale parameter.
+        
+        Uses numerical differentiation of the radial wavefunction.
+        
+        Args:
+            n: Principal quantum number
+            l: Angular momentum quantum number
+            r: Radial grid
+            a_scale: Harmonic oscillator length scale
+            
+        Returns:
+            Radial derivative dR_{nl}/dr
+        """
+        R = self._harmonic_radial_at_scale(n, l, r, a_scale)
+        dR = np.gradient(R, r)
+        return dR
+    
+    def compute_spatial_coupling_at_scale(self, a_scale: float) -> NDArray:
+        """
+        Compute spatial coupling matrix R_ij for given harmonic oscillator scale.
+        
+        This is the KEY method for self-consistent Δx iteration!
+        
+        During self-consistent iteration, the scale parameter a_scale depends 
+        on the particle's mass (which depends on amplitude A). This method 
+        recomputes the coupling matrix for the current scale.
+        
+        The coupling matrix element is:
+            R_{ij} = ⟨φ_i|∇|φ_j⟩ = ∫ R_i(r) × (dR_j/dr) × r² dr × angular_factor
+        
+        For Δl = ±1 transitions only (selection rule from ∂/∂x, ∂/∂y, ∂/∂z).
+        
+        Args:
+            a_scale: Harmonic oscillator length scale in GeV⁻¹
+            
+        Returns:
+            Coupling matrix R_ij of shape (N_spatial, N_spatial)
+        """
+        N = len(self.spatial_states)
+        R = np.zeros((N, N), dtype=float)
+        
+        # Radial grid for integration (extend if scale is larger)
+        r_max = max(20.0, 10.0 * a_scale)
+        r = np.linspace(0.01, r_max, 500)
+        
+        for i, state_i in enumerate(self.spatial_states):
+            for j, state_j in enumerate(self.spatial_states):
+                # Check selection rule: Δl = ±1
+                if abs(state_i.l - state_j.l) != 1:
+                    continue
+                
+                # Angular factor (Clebsch-Gordan coefficient)
+                angular = self.angular_coupling_factor(
+                    state_i.l, state_i.m, 
+                    state_j.l, state_j.m
+                )
+                
+                if abs(angular) < 1e-10:
+                    continue
+                
+                # Compute radial wavefunctions with given scale
+                phi_i = self._harmonic_radial_at_scale(state_i.n, state_i.l, r, a_scale)
+                dphi_j = self._harmonic_radial_derivative_at_scale(state_j.n, state_j.l, r, a_scale)
+                
+                # Radial integral: ∫ φ_i × (dφ_j/dr) × r² dr
+                radial = np.trapz(phi_i * dphi_j * r**2, r)
+                
+                R[i, j] = radial * np.real(angular)
+        
+        return R
+    
+    def compute_coupling_strength_at_scale(
+        self, 
+        n_target: int, 
+        a_scale: float
+    ) -> float:
+        """
+        Compute effective coupling strength for target state at given scale.
+        
+        This is a summary metric useful for diagnosing self-consistent iteration.
+        
+        Returns the maximum absolute value of coupling from the target n=n_target,
+        l=0, m=0 state to any other state.
+        
+        Args:
+            n_target: Target spatial quantum number
+            a_scale: Harmonic oscillator length scale
+            
+        Returns:
+            Maximum |R_{target,j}| for j ≠ target
+        """
+        R = self.compute_spatial_coupling_at_scale(a_scale)
+        target_idx = self.state_index(n_target, 0, 0)
+        
+        if target_idx < 0:
+            return 0.0
+        
+        max_coupling = 0.0
+        for j in range(len(self.spatial_states)):
+            if j != target_idx:
+                max_coupling = max(max_coupling, abs(R[target_idx, j]))
+        
+        return max_coupling
 
 
 def test_basis():
