@@ -312,8 +312,9 @@ class NonSeparableWavefunctionSolver:
         target_key = (n_target, 0, 0)
         target_idx = self.basis.state_index(n_target, 0, 0)
         
-        # Energy scale for target state (for perturbation theory)
-        E_target_0 = n_target ** 2
+        # Energy scale for target state - standard 3D harmonic oscillator form
+        # E = 2n + l (in units where ℏω = 1)
+        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
         
         # === STEP 1: Compute effective coupling from perturbation theory ===
         effective_coupling = 0.0
@@ -326,8 +327,8 @@ class NonSeparableWavefunctionSolver:
             if abs(R_coupling) < 1e-10:
                 continue
             
-            # Energy denominator
-            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            # Energy denominator - standard harmonic oscillator
+            E_state = 2 * state.n + state.l
             E_denom = E_target_0 - E_state
             
             if abs(E_denom) < 0.5:
@@ -400,18 +401,17 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                 continue
             
-            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            # Energy denominator - standard harmonic oscillator
+            E_state = 2 * state.n + state.l
             E_denom = E_target_0 - E_state
             
             if abs(E_denom) < 0.5:
                 E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
             
             # Induced component with SAME WINDING (first-principles)
-            # Natural perturbative amplitude with SPATIAL ENHANCEMENT:
-            # Higher n → more compact → stronger gradients → enhanced coupling
+            # No spatial_enhancement - n-dependence emerges from R_ij and self-consistent Δx
             envelope_primary = np.exp(-(sigma - np.pi)**2 / 0.5)
-            spatial_enhancement = float(n_target)
-            induced = -self.alpha * R_coupling * envelope_primary * np.exp(1j * k_induced * sigma) * spatial_enhancement / E_denom
+            induced = -self.alpha * R_coupling * envelope_primary * np.exp(1j * k_induced * sigma) / E_denom
             
             # Track amplitude for validity check
             induced_amp_sq = np.sum(np.abs(induced)**2) * dsigma
@@ -495,12 +495,14 @@ class NonSeparableWavefunctionSolver:
         
         chi_components = {target_key: chi_primary}
         
-        # Energy scale for target state
-        E_target_0 = n_target ** 2
+        # Energy scale for target state - standard 3D harmonic oscillator form
+        # E = 2n + l (in units where ℏω = 1)
+        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
         
-        # Spatial enhancement factor: higher n → more compact → stronger gradients
-        # This scales as n from radial node structure (per plan table line 73)
-        spatial_enhancement = float(n_target)
+        # NOTE: No spatial_enhancement factor - n-dependence emerges naturally from:
+        # 1. R_ij matrix elements (computed from actual gradient integrals)
+        # 2. Self-consistent Δx feedback (creates additional scaling)
+        # See next_steps.md Phase 1, Task 1.1
         
         # Induced components from perturbation theory
         for i, state in enumerate(self.basis.spatial_states):
@@ -513,11 +515,13 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                 continue
             
-            # Energy denominator with l-penalty
-            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            # Energy denominator - standard 3D harmonic oscillator form
+            # E = 2n + l (in units where ℏω = 1)
+            # See next_steps.md Phase 1, Task 1.2
+            E_state = 2 * state.n + state.l
             E_denom = E_target_0 - E_state
             
-            # Regularize small denominators
+            # Regularize small denominators (numerical stability)
             if abs(E_denom) < 0.5:
                 E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
             
@@ -534,10 +538,80 @@ class NonSeparableWavefunctionSolver:
             
             # Induced component with SAME WINDING (first-principles: ∂/∂σ preserves k)
             induced = (-self.alpha * effective_coupling * envelope * 
-                      np.exp(1j * k_winding * sigma) * 
-                      spatial_enhancement / E_denom)
+                      np.exp(1j * k_winding * sigma) / E_denom)
             
             chi_components[key] = induced
+        
+        # === SECOND-ORDER PERTURBATION: l=1 → l=2 transitions ===
+        # Selection rule Δl = ±1 means l=2 requires two steps: l=0 → l=1 → l=2
+        # This implements Phase 3A Task 3A.1 from next_steps.md
+        #
+        # IMPORTANT: Second-order should be a PERTURBATIVE CORRECTION, not dominant.
+        # The scaling is α² × R₀₁ × R₁₂ / (E₀₁ × E₁₂), which is O(α²).
+        # We initialize l=2 components fresh (not accumulating from previous call).
+        
+        # First, clear any existing l=2 components
+        l2_components = {}
+        
+        # Collect l=1 induced states (these were computed by first-order perturbation)
+        l1_states = [(key, chi.copy()) for key, chi in chi_components.items() 
+                     if key[1] == 1 and np.sum(np.abs(chi)**2) * dsigma > 1e-12]
+        
+        for l1_key, chi_l1 in l1_states:
+            n_l1, _, m_l1 = l1_key
+            l1_idx = self.basis.state_index(n_l1, 1, m_l1)
+            if l1_idx < 0:
+                continue
+            
+            # Energy of this l=1 state
+            E_l1 = 2 * n_l1 + 1
+            
+            # Find l=2 states that couple to this l=1 state
+            for j, state2 in enumerate(self.basis.spatial_states):
+                if state2.l != 2:
+                    continue  # Only l=2 targets
+                
+                key2 = (state2.n, state2.l, state2.m)
+                
+                # Check selection rule for l=1 → l=2
+                R_l1_l2 = spatial_coupling[l1_idx, j]
+                if abs(R_l1_l2) < 1e-10:
+                    continue
+                
+                # Energy denominator for l=1 → l=2 transition
+                E_l2 = 2 * state2.n + state2.l
+                E_denom_2 = E_l1 - E_l2
+                
+                if abs(E_denom_2) < 0.5:
+                    E_denom_2 = 0.5 * np.sign(E_denom_2) if E_denom_2 != 0 else 0.5
+                
+                # Second-order induced component
+                # chi_l1 already has factor of α/E_denom_1, so this gives α²/(E₁×E₂)
+                induced_l2 = (-self.alpha * R_l1_l2 * chi_l1 / E_denom_2)
+                
+                # Accumulate (multiple l=1 states can contribute to same l=2)
+                if key2 in l2_components:
+                    l2_components[key2] = l2_components[key2] + induced_l2
+                else:
+                    l2_components[key2] = induced_l2
+        
+        # Add l=2 components, but ensure they remain perturbative
+        # Second-order should be smaller than first-order (l=1)
+        # Cap l=2 total norm to be at most 10% of l=1 total norm
+        
+        l1_total_norm = sum(np.sum(np.abs(chi)**2) * dsigma 
+                           for key, chi in chi_components.items() if key[1] == 1)
+        l2_total_norm = sum(np.sum(np.abs(chi)**2) * dsigma 
+                           for chi in l2_components.values())
+        
+        if l2_total_norm > 0.1 * l1_total_norm and l2_total_norm > 1e-10:
+            # Scale down l=2 components to be perturbative
+            scale_factor = np.sqrt(0.1 * l1_total_norm / l2_total_norm)
+            for key2 in l2_components:
+                l2_components[key2] = l2_components[key2] * scale_factor
+        
+        for key2, chi_l2 in l2_components.items():
+            chi_components[key2] = chi_l2
         
         return chi_components
     
@@ -601,11 +675,12 @@ class NonSeparableWavefunctionSolver:
             if key not in chi_components:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
         
-        # Base kinetic energy
-        E_target_0 = n_target ** 2
+        # Base kinetic energy - standard 3D harmonic oscillator form
+        # E = 2n + l (in units where ℏω = 1)
+        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
         
-        # Spatial enhancement
-        spatial_enhancement = float(n_target)
+        # NOTE: No spatial_enhancement factor - n-dependence emerges naturally
+        # See next_steps.md Phase 1, Task 1.1
         
         # === Nonlinear iteration loop ===
         for iter_nl in range(max_iter_nl):
@@ -639,8 +714,8 @@ class NonSeparableWavefunctionSolver:
                 if abs(R_coupling) < 1e-10:
                     continue
                 
-                # Kinetic energy
-                E_state_kinetic = state.n ** 2 + state.l * (state.l + 1) * 3
+                # Kinetic energy - standard harmonic oscillator
+                E_state_kinetic = 2 * state.n + state.l
                 
                 # Nonlinear shift for this state
                 chi_state = chi_components_old[key]
@@ -656,7 +731,7 @@ class NonSeparableWavefunctionSolver:
                 # Updated denominator
                 E_denom = E_target_eff - E_state_eff
                 
-                # Regularize
+                # Regularize (numerical stability)
                 if abs(E_denom) < 0.5:
                     E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
                 
@@ -669,10 +744,9 @@ class NonSeparableWavefunctionSolver:
                 else:
                     effective_coupling = R_coupling
                 
-                # Recompute induced component
+                # Recompute induced component (no spatial_enhancement)
                 induced = (-self.alpha * effective_coupling * envelope * 
-                          np.exp(1j * k_winding * sigma) * 
-                          spatial_enhancement / E_denom)
+                          np.exp(1j * k_winding * sigma) / E_denom)
                 
                 # Track change for convergence
                 change = np.sum(np.abs(induced - chi_components_old[key])**2) * dsigma
@@ -680,15 +754,70 @@ class NonSeparableWavefunctionSolver:
                 
                 chi_components[key] = induced
             
+            # === SECOND-ORDER: l=1 → l=2 transitions (within nonlinear loop) ===
+            # Clear and recompute l=2 components to avoid accumulation
+            l2_components = {}
+            
+            l1_states = [(key, chi.copy()) for key, chi in chi_components.items() 
+                         if key[1] == 1 and np.sum(np.abs(chi)**2) * dsigma > 1e-12]
+            
+            for l1_key, chi_l1 in l1_states:
+                n_l1, _, m_l1 = l1_key
+                l1_idx = self.basis.state_index(n_l1, 1, m_l1)
+                if l1_idx < 0:
+                    continue
+                
+                E_l1 = 2 * n_l1 + 1
+                chi_l1_norm = np.sum(np.abs(chi_l1)**2) * dsigma
+                V_nl_l1 = np.sum(rho_nl * np.abs(chi_l1)**2) * dsigma if chi_l1_norm > 1e-10 else 0.0
+                E_l1_eff = E_l1 + V_nl_l1
+                
+                for j, state2 in enumerate(self.basis.spatial_states):
+                    if state2.l != 2:
+                        continue
+                    
+                    key2 = (state2.n, state2.l, state2.m)
+                    R_l1_l2 = spatial_coupling[l1_idx, j]
+                    if abs(R_l1_l2) < 1e-10:
+                        continue
+                    
+                    E_l2 = 2 * state2.n + state2.l
+                    E_denom_2 = E_l1_eff - E_l2
+                    if abs(E_denom_2) < 0.5:
+                        E_denom_2 = 0.5 * np.sign(E_denom_2) if E_denom_2 != 0 else 0.5
+                    
+                    induced_l2 = (-self.alpha * R_l1_l2 * chi_l1 / E_denom_2)
+                    
+                    if key2 in l2_components:
+                        l2_components[key2] = l2_components[key2] + induced_l2
+                    else:
+                        l2_components[key2] = induced_l2
+            
+            # Replace l=2 components (capped to be perturbative)
+            l1_total_norm = sum(np.sum(np.abs(chi)**2) * dsigma 
+                               for key, chi in chi_components.items() if key[1] == 1)
+            l2_total_norm = sum(np.sum(np.abs(chi)**2) * dsigma 
+                               for chi in l2_components.values())
+            
+            if l2_total_norm > 0.1 * l1_total_norm and l2_total_norm > 1e-10:
+                scale_factor = np.sqrt(0.1 * l1_total_norm / l2_total_norm)
+                for key2 in l2_components:
+                    l2_components[key2] = l2_components[key2] * scale_factor
+            
+            for key2, chi_l2 in l2_components.items():
+                old_l2 = chi_components.get(key2, np.zeros_like(chi_l2))
+                chi_components[key2] = chi_l2
+                total_change += np.sum(np.abs(chi_l2 - old_l2)**2) * dsigma
+            
             # Check convergence
             if total_change < tol_nl:
                 if verbose:
-                    print(f"    ✓ NL converged after {iter_nl+1} iterations")
+                    print(f"    [NL CONVERGED] after {iter_nl+1} iterations")
                 break
         
         else:
             if verbose:
-                print(f"    ⚠ NL did not converge after {max_iter_nl} iterations")
+                print(f"    [NL WARNING] Did not converge after {max_iter_nl} iterations")
         
         return chi_components
     
@@ -742,7 +871,7 @@ class NonSeparableWavefunctionSolver:
         A_current = 0.1
         
         # Minimum scale to prevent numerical issues (stability fix)
-        MIN_SCALE = 0.005  # Prevents coupling matrix collapse
+        MIN_SCALE = 0.0001  # Reduced to allow more differentiation
         
         # Convergence tracking
         history = {
@@ -815,11 +944,13 @@ class NonSeparableWavefunctionSolver:
             else:
                 Delta_x_new = Delta_x_current
             
-            # Also ensure it doesn't exceed Compton wavelength
-            # (which would be unphysical - quantum pressure dominates for light particles)
-            if m_estimate > 1e-10:
-                lambda_compton = 1.0 / m_estimate
-                Delta_x_new = min(Delta_x_new, lambda_compton)
+            # NOTE: Compton wavelength cap DISABLED for testing
+            # The cap was forcing all particles to MIN_SCALE, destroying differentiation.
+            # The self-confinement formula should determine Δx directly.
+            # if m_estimate > 1e-10:
+            #     lambda_compton = 1.0 / m_estimate
+            #     Delta_x_new = min(Delta_x_new, lambda_compton)
+            lambda_compton = 1.0 / m_estimate if m_estimate > 1e-10 else 1e10  # for printing only
             
             if verbose:
                 print(f"  Estimated mass m = {m_estimate:.6f}")
@@ -997,7 +1128,8 @@ class NonSeparableWavefunctionSolver:
         
         # Induced components with SAME WINDING (derivative preserves k)
         # The ∂/∂σ operator doesn't change topological winding number:
-        E_target_0 = n_radial ** 2
+        # Energy - standard 3D harmonic oscillator form
+        E_target_0 = 2 * n_radial + 0  # l=0 for target s-wave
         
         # Compute average winding of composite
         k_avg = (k_quark + k_antiquark) / 2
@@ -1016,16 +1148,15 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                 continue
             
-            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            # Energy denominator - standard harmonic oscillator
+            E_state = 2 * state.n + state.l
             E_denom = E_target_0 - E_state
             if abs(E_denom) < 0.5:
                 E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
             
-            # Induced component with spatial enhancement for meson
-            # Higher n_radial → more compact → stronger gradients
+            # Induced component - no spatial_enhancement
             envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
-            spatial_enhancement = (n_radial / 1.0) ** 1.5
-            induced = -self.alpha * abs(R_coupling) * envelope * np.exp(1j * k_induced * sigma) * spatial_enhancement / E_denom
+            induced = -self.alpha * abs(R_coupling) * envelope * np.exp(1j * k_induced * sigma) / E_denom
             induced_components[key] = induced
             induced_total += np.sum(np.abs(induced)**2) * dsigma
         
@@ -1132,7 +1263,8 @@ class NonSeparableWavefunctionSolver:
         chi_components = {target_key: chi_primary}
         
         # Induced components with SAME WINDING for non-zero coupling
-        E_target_0 = n_target ** 2
+        # Energy - standard 3D harmonic oscillator form
+        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
         
         # Compute average winding of 3-quark composite
         k_avg = sum(windings) / 3
@@ -1151,16 +1283,15 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                 continue
             
-            E_state = state.n ** 2 + state.l * (state.l + 1) * 3
+            # Energy denominator - standard harmonic oscillator
+            E_state = 2 * state.n + state.l
             E_denom = E_target_0 - E_state
             if abs(E_denom) < 0.5:
                 E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
             
-            # Induced component with spatial enhancement for baryon
-            # Higher n_target → more compact → stronger gradients
+            # Induced component - no spatial_enhancement
             envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
-            spatial_enhancement = float(n_target)
-            induced = -self.alpha * abs(R_coupling) * envelope * np.exp(1j * k_induced * sigma) * spatial_enhancement / E_denom
+            induced = -self.alpha * abs(R_coupling) * envelope * np.exp(1j * k_induced * sigma) / E_denom
             induced_components[key] = induced
             induced_total += np.sum(np.abs(induced)**2) * dsigma
         

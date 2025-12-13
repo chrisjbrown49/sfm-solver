@@ -172,12 +172,12 @@ def compare_original_vs_self_consistent():
     print(f"    m_tau/m_e = {ratio_tau_e_orig:.2f}")
     
     print("\n--- Self-Consistent Solver (solve_lepton_self_consistent) ---")
-    print("    (Step 1 only: max_iter_nl=0, resonance_width=0.0)")
+    print("    (Phase 2: Clean Step 1 - no phenomenological enhancements)")
     sc_results = {}
     for n, name in [(1, 'Electron'), (2, 'Muon'), (3, 'Tau')]:
         result = solver.solve_lepton_self_consistent(
             n_target=n, k_winding=1,
-            max_iter_outer=20, max_iter_nl=0,  # Step 1 only
+            max_iter_outer=30, max_iter_nl=0,  # Step 1 only - no nonlinear iteration
             resonance_width=0.0,  # No resonance enhancement
             verbose=False,
         )
