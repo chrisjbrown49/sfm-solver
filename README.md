@@ -49,7 +49,7 @@ solver = SFMLeptonSolver()  # use_physical=True is the default
 # Solve for all three charged leptons
 results = solver.solve_lepton_spectrum(verbose=True)
 
-# Mass emerges from m = β × A² where β = M_W (W boson mass)
+# Mass emerges from m = β × A² where β ≈ 53.95 GeV (discovered)
 from sfm_solver.core.sfm_global import SFM_CONSTANTS
 m_electron = SFM_CONSTANTS.beta_physical * results['electron'].amplitude_squared
 ```
@@ -79,8 +79,11 @@ sfm-solver/
 │   ├── core/               # Fundamental constants and infrastructure
 │   │   ├── constants.py    # Physical constants (masses, α, etc.)
 │   │   ├── grid.py         # SpectralGrid for FFT operations on S¹
+│   │   ├── correlated_basis.py           # Correlated spatial-subspace basis
+│   │   ├── nonseparable_wavefunction_solver.py  # Stage 1: Wavefunction structure
+│   │   ├── universal_energy_minimizer.py # Stage 2: Scale optimization
 │   │   ├── parameters.py   # SFMParameters configuration
-│   │   └── sfm_global.py   # SFM_CONSTANTS: β, α_EM, g₂ (first-principles)
+│   │   └── sfm_global.py   # SFM_CONSTANTS: β, α, κ, g₁ (first-principles)
 │   ├── potentials/         # Potential energy functions
 │   │   └── three_well.py   # V(σ) = V₀[1-cos(3σ)] + V₁[1-cos(6σ)]
 │   ├── eigensolver/        # Eigenvalue and energy solvers
@@ -90,6 +93,8 @@ sfm-solver/
 │   │   ├── composite_baryon.py   # Tier 2 three-quark baryons
 │   │   ├── composite_meson.py    # Tier 2b quark-antiquark mesons
 │   │   └── color_verification.py # Color neutrality checks
+│   ├── optimization/       # Parameter optimization
+│   │   └── parameter_optimizer.py # β-only first-principles optimizer
 │   ├── forces/             # Force calculations
 │   │   └── electromagnetic.py    # Tier 1b EM force mechanism
 │   ├── spatial/            # Spatial dimension handling
@@ -127,7 +132,7 @@ The SFM framework is constrained by the fundamental relation:
 
 where β is the mass-amplitude coupling, L₀ is the subspace radius, c is the speed of light, and ℏ is the reduced Planck constant.
 
-**First-Principles Derivation:** In physical mode, β = M_W ≈ 80.38 GeV (from W boson self-consistency). This determines L₀ = ℏ/(βc) = 1/β in natural units.
+**First-Principles Derivation:** In physical mode, β ≈ 53.95 GeV (discovered through global optimization). This determines L₀ = ℏ/(βc) = 1/β in natural units.
 
 ### Four-Term Energy Functional
 
@@ -141,10 +146,10 @@ E_total = E_subspace + E_spatial + E_coupling + E_curvature
 |------|--------------------------|---------------|
 | E_subspace | Kinetic + potential + nonlinear | Confinement in S¹ |
 | E_spatial | βA²/2 = m/2 | Rest mass contribution (Δx = 1/m) |
-| E_coupling | -α × n^p × A / k^(5/6) | 3-well interference suppression |
-| E_curvature | κ × β³A⁶ | Enhanced 5D gravity |
+| E_coupling | -α × spatial_factor × subspace_factor × A | Spacetime-subspace interaction |
+| E_curvature | κ × β³A⁶ | Enhanced 5D geometry |
 
-**Note:** In physical mode, Δx is self-consistent: Δx = 1/(βA²) = 1/m (Compton wavelength). The k^(5/6) suppression emerges from 3-well geometry.
+**Note:** In physical mode, Δx is self-consistent: Δx = 1/(βA²) = 1/m (Compton wavelength).
 
 ### Winding Number and Charge
 
@@ -168,7 +173,7 @@ Particle mass is determined by the subspace amplitude squared:
 m = β × A²
 ```
 
-where A² = ∫₀^(2π) |χ(σ)|² dσ and β = M_W ≈ 80.38 GeV (from W boson self-consistency).
+where A² = ∫₀^(2π) |χ(σ)|² dσ and β ≈ 53.95 GeV (discovered through global optimization).
 
 ### Fine Structure Constant (First-Principles)
 
@@ -210,12 +215,123 @@ pytest tests/test_tier2b_quarkonia.py -v   # Radial excitations
 ### Physical Mode (Default)
 
 All solvers operate in physical mode (`use_physical=True`) by default:
-- β = M_W ≈ 80.38 GeV (W boson self-consistency)
+- β ≈ 53.95 GeV (discovered through global optimization)
 - α_EM derived from 3-well geometry (0.0075% accuracy)
 - Δx = 1/m (self-consistent Compton wavelength)
 - Mass predictions via m = β × A²
 
 **The normalized mode is deprecated and should not be used.**
+
+### Two-Stage Solver Architecture
+
+All particle solvers (leptons, mesons, baryons) use a unified two-stage architecture:
+
+**Stage 1: Wavefunction Structure** (`NonSeparableWavefunctionSolver`)
+- Solves for the entangled non-separable wavefunction: ψ(r,θ,φ,σ) = Σ R_{nl}(r) Y_l^m(θ,φ) χ_{nlm}(σ)
+- Each angular component (n,l,m) has its own subspace function χ_{nlm}(σ)
+- Returns unit-normalized `WavefunctionStructure` with l-composition and effective winding k_eff
+
+**Stage 2: Energy Minimization** (`UniversalEnergyMinimizer`)
+- Takes the wavefunction structure from Stage 1
+- Minimizes E_total over three scale parameters: (A, Δx, Δσ)
+- The SAME code works for all particle types (leptons, mesons, baryons)
+- Returns optimal amplitude A and predicted mass m = β × A²
+
+### Parameter Optimization Loop
+
+The `SFMParameterOptimizer` discovers SFM framework parameters from first principles by searching over the fundamental mass coupling β. For each candidate β, all other parameters are derived:
+
+| Parameter | First-Principles Derivation |
+|-----------|----------------------------|
+| κ (curvature) | κ = 1/β² |
+| g₁ (nonlinear) | g₁ = α_em × β / m_e |
+| α (coupling) | α = C × β (where C ≈ 0.5) |
+
+The optimizer then runs the particle solvers on calibration particles and adjusts β to minimize total mass prediction error.
+
+### Solver Architecture Diagram
+
+The following diagram illustrates how the three core components work together:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PARAMETER OPTIMIZER                                  │
+│                    (Outer Loop: Search over β)                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  β_candidate ──┬──────────────────────────────────────────────────────────┐ │
+│                │                                                          │ │
+│                ▼                                                          │ │
+│  ┌──────────────────────────────────────────┐                             │ │
+│  │    DERIVE PARAMETERS FROM β              │                             │ │
+│  │    ─────────────────────────             │                             │ │
+│  │    κ = 1/β²                              │                             │ │
+│  │    g₁ = α_em × β / m_e                   │                             │ │
+│  │    α = 0.5 × β                           │                             │ │
+│  └──────────────────────────────────────────┘                             │ │
+│                │                                                          │ │
+│                ▼                                                          │ │
+│  ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐ │
+│    FOR EACH CALIBRATION PARTICLE (e, μ, π, p, ...)                        │ │
+│  │                                                                       │ │
+│    ┌─────────────────────────────────────────────────────────────────┐   │ │
+│  │ │  STAGE 1: NonSeparableWavefunctionSolver                        │   │ │
+│    │  ───────────────────────────────────────                        │   │ │
+│  │ │  • Solve for entangled wavefunction structure                   │   │ │
+│    │  • ψ = Σ R_nl(r) Y_lm(θ,φ) χ_nlm(σ)                             │   │ │
+│  │ │  • Each (n,l,m) component has its own χ_nlm(σ)                  │   │ │
+│    │  • Returns: WavefunctionStructure (unit-normalized)             │   │ │
+│  │ │            {χ_nlm}, l-composition, k_eff                        │   │ │
+│    └─────────────────────────────────────────────────────────────────┘   │ │
+│  │                             │                                         │ │
+│                                ▼                                           │
+│  │ ┌─────────────────────────────────────────────────────────────────┐   │ │
+│    │  STAGE 2: UniversalEnergyMinimizer                              │   │ │
+│  │ │  ─────────────────────────────────                              │   │ │
+│    │  • Minimize E_total(A, Δx, Δσ)                                  │   │ │
+│  │ │  • E = E_kinetic + E_potential + E_coupling + E_curvature       │   │ │
+│    │  • Gradient descent over (A, Δx, Δσ)                            │   │ │
+│  │ │  • Returns: EnergyMinimizationResult                            │   │ │
+│    │            A_optimal, mass = β × A²                             │   │ │
+│  │ └─────────────────────────────────────────────────────────────────┘   │ │
+│                                │                                           │
+│  │                             ▼                                         │ │
+│    m_predicted = β × A²                                                   │ │
+│  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘ │
+│                │                                                          │ │
+│                ▼                                                          │ │
+│  ┌──────────────────────────────────────────┐                             │ │
+│  │    COMPUTE TOTAL ERROR                   │                             │ │
+│  │    ───────────────────                   │                             │ │
+│  │    error = Σ (m_pred - m_exp)² / m_exp²  │                             │ │
+│  └──────────────────────────────────────────┘                             │ │
+│                │                                                          │ │
+│                ▼                                                          │ │
+│  ┌──────────────────────────────────────────┐                             │ │
+│  │    OPTIMIZATION ALGORITHM                │◄────────────────────────────┘ │
+│  │    ──────────────────────                │                               │
+│  │    If error improved: update β_best      │                               │
+│  │    Choose next β_candidate               │                               │
+│  │    Repeat until converged                │                               │
+│  └──────────────────────────────────────────┘                               │
+│                │                                                             │
+│                ▼                                                             │
+│  OUTPUT: Optimal β* and derived parameters {κ*, g₁*, α*}                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Design Principles:**
+
+1. **Separation of Concerns**: The wavefunction solver finds the *shape* (STRUCTURE), the energy minimizer finds the *size* (SCALE), and the parameter optimizer finds the *fundamental constants*.
+
+2. **Universal Energy Minimizer**: The same `UniversalEnergyMinimizer` code handles leptons, mesons, and baryons. The particle-specific physics is encoded in the `WavefunctionStructure` from Stage 1.
+
+3. **First-Principles Parameter Derivation**: All SFM parameters (κ, g₁, α) are derived from β using theoretical formulas, ensuring physical consistency across the framework.
+
+4. **Two-Level Optimization**:
+   - Inner loop: Energy minimization over (A, Δx, Δσ) for fixed parameters
+   - Outer loop: Parameter search over β to match experimental masses
 
 ### Spectral Methods
 
@@ -224,19 +340,21 @@ The solver uses FFT-based spectral methods on the periodic domain S¹:
 - Hamiltonian constructed as sparse matrices
 - Periodic boundary conditions automatically satisfied
 
-### Energy Minimization
+### Non-Separable Wavefunction
 
-Particle states are found by minimizing the four-term energy functional:
-- Joint optimization over amplitude A and wavefunction χ(σ)
-- Gradient descent with mode-specific gradients
-- Convergence monitored via residual norm
+The critical physics insight is that the wavefunction is **non-separable**:
+- ψ(r,θ,φ,σ) = Σ_{n,l,m} R_{nl}(r) Y_l^m(θ,φ) χ_{nlm}(σ)
+- Each angular component has its **own** subspace function χ_{nlm}(σ)
+- The coupling Hamiltonian mixes l=0 ↔ l=1 ↔ l=2 components
+- This breaks spherical symmetry and enables non-zero spatial-subspace coupling
 
 ### Composite Wavefunctions
 
 Multi-quark systems use a single composite wavefunction approach:
+- **Mesons**: χ = χ_q + χ_q̄ (two-peak structure with opposite windings)
+- **Baryons**: χ = χ_1 + χ_2 + χ_3 (three-peak with color phases)
 - Phases extracted from well-localized components
 - Color neutrality verified via |Σe^(iφ)| < threshold
-- k^(5/6) coupling suppression from 3-well interference
 
 ## Documentation
 
@@ -245,6 +363,7 @@ The Single-Field Model documentation library includes:
 - Research Notes on the Origin of the Fundamental Forces
 - Research Notes on The Beautiful Equation and A Beautiful Balance
 - Solver Requirements, Tier Implementation Plans and Completion Checks
+- First-Principles Parameter Derivation Plan
 
 ## License
 
