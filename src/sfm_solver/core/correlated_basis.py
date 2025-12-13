@@ -386,9 +386,15 @@ class CorrelatedBasis:
         N = len(self.spatial_states)
         R = np.zeros((N, N), dtype=float)
         
-        # Radial grid for integration (extend if scale is larger)
-        r_max = max(20.0, 10.0 * a_scale)
-        r = np.linspace(0.01, r_max, 500)
+        # Guard against extremely small scales that cause numerical issues
+        # Minimum scale prevents grid from becoming too fine
+        a_scale_safe = max(a_scale, 0.001)
+        
+        # Radial grid for integration
+        # Adapt grid to scale: smaller scale needs finer resolution near origin
+        r_max = max(20.0, 10.0 * a_scale_safe)
+        r_min = min(0.01, 0.1 * a_scale_safe)
+        r = np.linspace(r_min, r_max, 800)  # More points for better resolution
         
         for i, state_i in enumerate(self.spatial_states):
             for j, state_j in enumerate(self.spatial_states):

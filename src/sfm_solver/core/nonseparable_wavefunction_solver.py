@@ -410,7 +410,7 @@ class NonSeparableWavefunctionSolver:
             # Natural perturbative amplitude with SPATIAL ENHANCEMENT:
             # Higher n → more compact → stronger gradients → enhanced coupling
             envelope_primary = np.exp(-(sigma - np.pi)**2 / 0.5)
-            spatial_enhancement = (n_target / 1.0) ** 1.5
+            spatial_enhancement = float(n_target)
             induced = -self.alpha * R_coupling * envelope_primary * np.exp(1j * k_induced * sigma) * spatial_enhancement / E_denom
             
             # Track amplitude for validity check
@@ -487,11 +487,11 @@ class NonSeparableWavefunctionSolver:
         target_idx = self.basis.state_index(n_target, 0, 0)
         
         # Primary s-wave component with Gaussian envelope and winding
-        # IMPORTANT: Keep UNNORMALIZED so A can be computed from total amplitude
-        # (normalization happens only at the end per plan)
+        # Normalized to unit integral per plan (lines 422-425)
         envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
         chi_primary = envelope * np.exp(1j * k_winding * sigma)
-        # No normalization here - let amplitude carry through
+        norm_sq = np.sum(np.abs(chi_primary)**2) * dsigma
+        chi_primary = chi_primary / np.sqrt(norm_sq)
         
         chi_components = {target_key: chi_primary}
         
@@ -499,8 +499,8 @@ class NonSeparableWavefunctionSolver:
         E_target_0 = n_target ** 2
         
         # Spatial enhancement factor: higher n → more compact → stronger gradients
-        # This scales as n^1.5 from radial node structure
-        spatial_enhancement = (n_target / 1.0) ** 1.5
+        # This scales as n from radial node structure (per plan table line 73)
+        spatial_enhancement = float(n_target)
         
         # Induced components from perturbation theory
         for i, state in enumerate(self.basis.spatial_states):
@@ -587,11 +587,11 @@ class NonSeparableWavefunctionSolver:
         target_idx = self.basis.state_index(n_target, 0, 0)
         
         # === Initialize primary component ===
-        # IMPORTANT: Keep UNNORMALIZED so A can be computed from total amplitude
-        # (normalization happens only at the end per plan)
+        # Normalized to unit integral per plan (lines 422-425)
         envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
         chi_primary = envelope * np.exp(1j * k_winding * sigma)
-        # No normalization here - let amplitude carry through
+        norm_sq = np.sum(np.abs(chi_primary)**2) * dsigma
+        chi_primary = chi_primary / np.sqrt(norm_sq)
         
         chi_components = {target_key: chi_primary}
         
@@ -605,7 +605,7 @@ class NonSeparableWavefunctionSolver:
         E_target_0 = n_target ** 2
         
         # Spatial enhancement
-        spatial_enhancement = (n_target / 1.0) ** 1.5
+        spatial_enhancement = float(n_target)
         
         # === Nonlinear iteration loop ===
         for iter_nl in range(max_iter_nl):
@@ -741,6 +741,9 @@ class NonSeparableWavefunctionSolver:
         Delta_x_current = 1.0 / n_target  # Rough initial guess
         A_current = 0.1
         
+        # Minimum scale to prevent numerical issues (stability fix)
+        MIN_SCALE = 0.005  # Prevents coupling matrix collapse
+        
         # Convergence tracking
         history = {
             'Delta_x': [Delta_x_current],
@@ -749,6 +752,8 @@ class NonSeparableWavefunctionSolver:
         }
         
         final_iter = 0
+        A_prev = A_current  # Track previous for oscillation detection
+        oscillation_count = 0
         
         for iter_outer in range(max_iter_outer):
             if verbose:
@@ -759,6 +764,7 @@ class NonSeparableWavefunctionSolver:
             # === STEP 1: Compute spatial coupling at current scale ===
             # (As specified in plan Section 1.2)
             a_n = Delta_x_current / np.sqrt(2 * n_target + 1)
+            a_n = max(a_n, MIN_SCALE)  # Floor to prevent collapse
             spatial_coupling = self.basis.compute_spatial_coupling_at_scale(a_n)
             
             # Track maximum coupling strength
@@ -825,20 +831,43 @@ class NonSeparableWavefunctionSolver:
             delta_A = abs(A_new - A_current)
             delta_Dx = abs(Delta_x_new - Delta_x_current)
             
+            # Detect oscillation (sign change in A update direction)
+            if iter_outer > 1:
+                if (A_new - A_current) * (A_current - A_prev) < 0:
+                    oscillation_count += 1
+            
             if verbose:
                 print(f"  dA = {delta_A:.2e}, d(dx) = {delta_Dx:.2e}")
+                if oscillation_count > 0:
+                    print(f"  Oscillations detected: {oscillation_count}")
             
-            if delta_A < tol_outer and delta_Dx < tol_outer:
+            # Use relative tolerance for convergence
+            rel_delta_A = delta_A / max(A_current, 0.01)
+            rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
+            
+            if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                 if verbose:
                     print(f"\n[CONVERGED] after {iter_outer+1} iterations")
                 final_iter = iter_outer
                 break
             
-            # === STEP 6: Update with damping for stability ===
-            # Use mixing parameter to prevent oscillations (as per plan)
-            mixing = 0.3  # 30% new, 70% old
+            # === STEP 6: Update with adaptive damping for stability ===
+            # Reduce mixing when oscillating to stabilize
+            base_mixing = 0.3
+            if oscillation_count > 2:
+                mixing = base_mixing / (1 + 0.3 * oscillation_count)
+            else:
+                mixing = base_mixing
+            
+            if verbose and oscillation_count > 2:
+                print(f"  Reduced mixing to {mixing:.3f} due to oscillation")
+            
+            A_prev = A_current
             A_current = (1 - mixing) * A_current + mixing * A_new
             Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
+            
+            # Apply minimum scale floor to dx as well
+            Delta_x_current = max(Delta_x_current, MIN_SCALE)
             
             history['A'].append(A_current)
             history['Delta_x'].append(Delta_x_current)
@@ -851,6 +880,7 @@ class NonSeparableWavefunctionSolver:
         # === STEP 7: Final wavefunction with converged Δx ===
         # (As per plan: only normalize at the VERY END)
         a_final = Delta_x_current / np.sqrt(2 * n_target + 1)
+        a_final = max(a_final, MIN_SCALE)  # Apply same floor
         spatial_coupling_final = self.basis.compute_spatial_coupling_at_scale(a_final)
         
         if max_iter_nl > 0:
@@ -1129,7 +1159,7 @@ class NonSeparableWavefunctionSolver:
             # Induced component with spatial enhancement for baryon
             # Higher n_target → more compact → stronger gradients
             envelope = np.exp(-(sigma - np.pi)**2 / 0.5)
-            spatial_enhancement = (n_target / 1.0) ** 1.5
+            spatial_enhancement = float(n_target)
             induced = -self.alpha * abs(R_coupling) * envelope * np.exp(1j * k_induced * sigma) * spatial_enhancement / E_denom
             induced_components[key] = induced
             induced_total += np.sum(np.abs(induced)**2) * dsigma
