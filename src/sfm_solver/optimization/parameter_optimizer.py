@@ -29,6 +29,20 @@ APPROACH:
 5. The optimal β determines ALL framework parameters
 
 Reference: docs/SFM_First_Principles_Parameter_Derivation_Plan.md
+
+OPTIMAL PARAMETERS (13 December 2025):
+===================================
+The following parameter set achieves lepton mass ratios within 6% of experimental:
+
+    alpha = 10.5      # Spatial-subspace coupling strength
+    beta  = 100.0     # Mass scale (GeV)
+    kappa = 0.00003   # Curvature/gravitational coupling
+    g1    = 5000.0    # Nonlinear self-interaction (not used in current solution)
+
+These values were found through systematic parameter optimization using the
+self-consistent Δx solver (solve_lepton_self_consistent) with the Compton
+wavelength cap disabled and MIN_SCALE=0.0001. See docs/missing_physics_report.md
+for full details.
 """
 
 import numpy as np
@@ -40,6 +54,15 @@ import warnings
 
 from sfm_solver.core.grid import SpectralGrid
 from sfm_solver.potentials.three_well import ThreeWellPotential
+from sfm_solver.core.constants import (
+    save_constants_to_json,
+    load_constants_from_json,
+    get_constants_json_path,
+    BETA as BETA_INITIAL,
+    ALPHA as ALPHA_INITIAL,
+    KAPPA as KAPPA_INITIAL,
+    G1 as G1_INITIAL,
+)
 
 
 # =============================================================================
@@ -313,6 +336,29 @@ class OptimizationResult:
     
     # Original scipy result
     scipy_result: Optional[OptimizeResult] = None
+    
+    def save_constants_to_json(self) -> None:
+        """
+        Save the optimized constants (hbar, c, beta, alpha, kappa, g1) to constants.json.
+        
+        This updates the constants.json file in sfm_solver/core/ with the optimized
+        values so they will be used as defaults in future runs.
+        """
+        # Load current constants to preserve hbar and c
+        current = load_constants_from_json()
+        
+        # Update with optimized values
+        updated_constants = {
+            "hbar": current.get("hbar", HBAR),
+            "c": current.get("c", C),
+            "beta": self.beta,
+            "alpha": self.alpha,
+            "kappa": self.kappa,
+            "g1": self.g1,
+        }
+        
+        save_constants_to_json(updated_constants)
+        print(f"\n✅ Optimized constants saved to: {get_constants_json_path()}")
     
     def summary(self) -> str:
         """Generate a summary of optimization results."""
@@ -702,7 +748,7 @@ class SFMParameterOptimizer:
     
     def optimize_beta_only(
         self,
-        beta_bounds: Tuple[float, float] = (10.0, 500.0),
+        beta_bounds: Optional[Tuple[float, float]] = None,
         maxiter: int = 100,
     ) -> OptimizationResult:
         """
@@ -714,12 +760,28 @@ class SFMParameterOptimizer:
             α_coupling = 1/β         - Spatial-subspace coupling
         
         Args:
-            beta_bounds: (min, max) bounds for β in GeV.
+            beta_bounds: (min, max) bounds for β in GeV. Default is (10.0, 500.0).
             maxiter: Maximum iterations for optimization.
             
         Returns:
             OptimizationResult with optimal β and derived parameters.
+            
+        Raises:
+            ValueError: If the initial beta value from constants.json is outside bounds.
         """
+        # Use fixed default bounds
+        if beta_bounds is None:
+            beta_bounds = (10.0, 500.0)
+        
+        # Validate that loaded initial value is within bounds
+        if not (beta_bounds[0] <= BETA_INITIAL <= beta_bounds[1]):
+            raise ValueError(
+                f"Initial beta value from constants.json ({BETA_INITIAL}) is outside "
+                f"the optimization bounds [{beta_bounds[0]}, {beta_bounds[1]}]. "
+                f"Please update constants.json with a beta value within the valid range, "
+                f"or specify different bounds using the beta_bounds parameter."
+            )
+        
         if self.verbose:
             print("=" * 70)
             print("SFM FIRST-PRINCIPLES BETA-ONLY OPTIMIZATION")
@@ -797,6 +859,9 @@ class SFMParameterOptimizer:
             print(f"    g₁ = α_em × β² / m_e = {g1_opt:.2f}")
             print(f"    α = 1/β = {alpha_opt:.6f} GeV")
         
+        # Save optimized constants to JSON file
+        opt_result.save_constants_to_json()
+        
         return opt_result
     
     def _evaluate_particles(
@@ -850,12 +915,38 @@ class SFMParameterOptimizer:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
+            # Fixed default bounds for [beta, alpha, kappa, g1]
+            # Wide enough to cover both empirical and first-principles parameter regimes
             bounds = [
-                (40.0, 200.0),       # beta
-                (0.01, 1.0),         # alpha
-                (50.0, 500.0),       # kappa
-                (500.0, 5000.0),     # g1
+                (10.0, 500.0),        # beta (GeV)
+                (0.001, 100.0),       # alpha (GeV) - covers 0.29 to 10.5
+                (0.00001, 1000.0),    # kappa (GeV^-2) - covers 0.00003 to 229.7
+                (100.0, 10000.0),     # g1 (dimensionless)
             ]
+        
+        # Validate that loaded initial values are within bounds
+        initial_values = [
+            ('beta', BETA_INITIAL, bounds[0]),
+            ('alpha', ALPHA_INITIAL, bounds[1]),
+            ('kappa', KAPPA_INITIAL, bounds[2]),
+            ('g1', G1_INITIAL, bounds[3]),
+        ]
+        
+        errors = []
+        for name, value, (low, high) in initial_values:
+            if not (low <= value <= high):
+                errors.append(
+                    f"  {name}: {value} is outside bounds [{low}, {high}]"
+                )
+        
+        if errors:
+            error_msg = (
+                "Initial values from constants.json are outside optimization bounds:\n"
+                + "\n".join(errors)
+                + "\n\nPlease update constants.json with values within the valid ranges, "
+                "or specify different bounds using the bounds parameter."
+            )
+            raise ValueError(error_msg)
         
         if self.verbose:
             print("=" * 60)
@@ -984,6 +1075,9 @@ class SFMParameterOptimizer:
         if self.verbose:
             print("\n" + opt_result.summary())
         
+        # Save optimized constants to JSON file
+        opt_result.save_constants_to_json()
+        
         return opt_result
     
     def compare_with_current(self) -> Dict:
@@ -1021,10 +1115,13 @@ def run_optimization_beta_only(
     Args:
         verbose: Print progress information.
         maxiter: Maximum iterations.
-        beta_bounds: Search range for β in GeV.
+        beta_bounds: Search range for β in GeV. Default is (10.0, 500.0).
         
     Returns:
         OptimizationResult with optimal β and derived parameters.
+        
+    Raises:
+        ValueError: If the initial beta from constants.json is outside bounds.
     """
     optimizer = SFMParameterOptimizer(verbose=verbose)
     return optimizer.optimize_beta_only(beta_bounds=beta_bounds, maxiter=maxiter)
@@ -1043,6 +1140,8 @@ def run_optimization(verbose: bool = True, maxiter: int = 100) -> OptimizationRe
 
 if __name__ == '__main__':
     # Run first-principles β-only optimization
+    # Uses initial values from constants.json for bounds
     print("Running FIRST-PRINCIPLES β-only optimization...")
-    result = run_optimization_beta_only(maxiter=100, beta_bounds=(10.0, 200.0))
+    print(f"Initial values from constants.json: beta={BETA_INITIAL}, alpha={ALPHA_INITIAL}, kappa={KAPPA_INITIAL}, g1={G1_INITIAL}")
+    result = run_optimization_beta_only(maxiter=100)
     print("\n" + result.summary())

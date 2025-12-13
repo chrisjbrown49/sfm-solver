@@ -2,22 +2,112 @@
 Physical constants for SFM Solver.
 
 All values from CODATA 2018/SI 2019 definitions where applicable.
+
+Fundamental SFM constants (hbar, c, beta, alpha, kappa, g1) are loaded from
+constants.json if available, otherwise default values are used.
 """
 
+import json
 import numpy as np
+from pathlib import Path
+from typing import Dict, Any
+
+# =============================================================================
+# Load Fundamental Constants from JSON
+# =============================================================================
+
+# Path to constants.json (same directory as this file)
+_CONSTANTS_JSON_PATH = Path(__file__).parent / "constants.json"
+
+# Default values for fundamental constants (used if constants.json is missing)
+_DEFAULT_CONSTANTS: Dict[str, Any] = {
+    "hbar": 1.0545718176461565e-34,  # J·s (reduced Planck constant)
+    "c": 299792458,  # m/s (speed of light)
+    "beta": 53.95,  # GeV (mass-amplitude coupling)
+    "alpha": 0.2921,  # GeV (spatial-subspace coupling)
+    "kappa": 229.70,  # GeV^-2 (curvature coupling)
+    "g1": 3933.0,  # dimensionless (nonlinear self-interaction)
+}
+
+
+def load_constants_from_json() -> Dict[str, Any]:
+    """
+    Load fundamental constants from constants.json.
+    
+    If the file doesn't exist or is invalid, returns default values.
+    
+    Returns:
+        Dictionary with constant names as keys and values.
+    """
+    if _CONSTANTS_JSON_PATH.exists():
+        try:
+            with open(_CONSTANTS_JSON_PATH, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                result = _DEFAULT_CONSTANTS.copy()
+                result.update(loaded)
+                return result
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Failed to load constants.json: {e}. Using defaults.")
+            return _DEFAULT_CONSTANTS.copy()
+    else:
+        return _DEFAULT_CONSTANTS.copy()
+
+
+def save_constants_to_json(constants: Dict[str, Any]) -> None:
+    """
+    Save fundamental constants to constants.json.
+    
+    Args:
+        constants: Dictionary with constant names and values.
+                   Should contain: hbar, c, beta, alpha, kappa, g1
+    """
+    with open(_CONSTANTS_JSON_PATH, 'w', encoding='utf-8') as f:
+        json.dump(constants, f, indent=4)
+
+
+def get_constants_json_path() -> Path:
+    """Return the path to the constants.json file."""
+    return _CONSTANTS_JSON_PATH
+
+
+# Load constants at module import time
+_LOADED_CONSTANTS = load_constants_from_json()
+
+# =============================================================================
+# SFM Fundamental Constants (loaded from JSON or defaults)
+# =============================================================================
+
+# Reduced Planck constant (from JSON or default)
+HBAR_LOADED: float = _LOADED_CONSTANTS["hbar"]
+
+# Speed of light (from JSON or default)
+C_LOADED: float = _LOADED_CONSTANTS["c"]
+
+# Beta: mass-amplitude coupling constant
+BETA: float = _LOADED_CONSTANTS["beta"]
+
+# Alpha: spatial-subspace coupling strength
+ALPHA: float = _LOADED_CONSTANTS["alpha"]
+
+# Kappa: curvature coupling
+KAPPA: float = _LOADED_CONSTANTS["kappa"]
+
+# G1: nonlinear self-interaction coupling
+G1: float = _LOADED_CONSTANTS["g1"]
 
 # =============================================================================
 # Single-Field Model Fundamental Constants (SI units)
 # =============================================================================
 
-# Speed of light (exact, SI definition)
-C: float = 299_792_458  # m/s
+# Speed of light (loaded from JSON or exact SI definition)
+C: float = C_LOADED  # m/s
 
 # Planck constant (exact, SI definition)
 H: float = 6.626_070_15e-34  # J·s
 
-# Reduced Planck constant
-HBAR: float = H / (2 * np.pi)  # J·s = 1.054571817...e-34 J·s
+# Reduced Planck constant (loaded from JSON or derived from H)
+HBAR: float = HBAR_LOADED  # J·s = 1.054571817...e-34 J·s
 
 # Reduced Planck constant in eV·s
 HBAR_EV: float = 6.582_119_569e-16  # eV·s
