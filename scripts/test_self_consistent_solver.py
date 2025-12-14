@@ -35,10 +35,10 @@ def test_self_consistent_solver(verbose: bool = True):
     print("TESTING SELF-CONSISTENT DELTA_X SOLVER")
     print("=" * 70)
     
-    # Parameters (same as before)
-    alpha = 20.0
-    beta = 100.0
-    kappa = 0.0001
+    # Optimal parameters from missing_physics_report.md
+    alpha = 10.5
+    beta = 100.0  # Note: gives correct RATIOS but wrong absolute masses
+    kappa = 0.00003
     g1 = 5000.0
     g2 = 0.004
     V0 = 1.0
