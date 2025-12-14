@@ -64,7 +64,7 @@ from sfm_solver.core.constants import (
     get_constants_json_path,
     BETA as BETA_INITIAL,
     ALPHA as ALPHA_INITIAL,
-    KAPPA as KAPPA_INITIAL,
+    G_INTERNAL as G_INTERNAL_INITIAL,
     G1 as G1_INITIAL,
 )
 
@@ -1174,16 +1174,16 @@ class SFMParameterOptimizer:
         """
         Objective function for ratio-based optimization.
         
-        Optimizes alpha and kappa to match mass RATIOS, with beta
+        Optimizes alpha and g_internal to match mass RATIOS, with beta
         computed analytically to fix the electron mass exactly.
         
         Args:
-            params: Array of [alpha, kappa]
+            params: Array of [alpha, g_internal]
             
         Returns:
             Total weighted error in mass ratios.
         """
-        alpha, kappa = params
+        alpha, g_internal = params
         g1 = G1_INITIAL  # Keep g1 fixed
         
         self._eval_count += 1
@@ -1192,10 +1192,9 @@ class SFMParameterOptimizer:
         # Compute A^2 for each lepton generation
         A_squared = {}
         
-        # IMPORTANT: Use fixed beta_internal for solver because G_eff = kappa/beta^2
-        # affects the self-confinement physics. We derive beta_output from electron
-        # mass afterward for the final mass scaling.
-        beta_internal = 100.0  # Fixed internal value for consistent solver physics
+        # The solver is now completely beta-independent!
+        # G_internal controls self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
+        # Beta is only used to convert amplitude to physical mass at the end.
         
         for particle in self.calibration:
             if particle.particle_type != 'lepton':
@@ -1206,8 +1205,7 @@ class SFMParameterOptimizer:
                 
                 solver = NonSeparableWavefunctionSolver(
                     alpha=alpha,
-                    beta=beta_internal,  # Fixed for consistent G_eff behavior
-                    kappa=kappa,
+                    g_internal=g_internal,  # Fundamental parameter
                     g1=g1,
                     g2=0.004,
                     V0=self.V0,
@@ -1327,24 +1325,26 @@ class SFMParameterOptimizer:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
-            # Bounds for [alpha, kappa] only
-            # Tightened around known good values: alpha=10.5, kappa=0.00003
+            # Bounds for [alpha, g_internal] only
+            # Tightened around known good values: alpha=10.5, g_internal=0.003
             bounds = [
                 (5.0, 20.0),          # alpha: centered around 10.5
-                (0.00001, 0.0001),    # kappa: centered around 0.00003
+                (0.0001, 0.1),        # g_internal: centered around 0.003
             ]
         
         if self.verbose:
             print("=" * 70)
             print("RATIO-BASED OPTIMIZATION")
-            print("Optimizing {alpha, kappa} to match mass RATIOS")
+            print("Optimizing {alpha, g_internal} to match mass RATIOS")
             print("Beta derived from electron: beta = m_e / A_e^2")
+            print("g_internal is FUNDAMENTAL (works with amplitude, not mass)")
+            print("Solver is completely beta-independent!")
             print("=" * 70)
             print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
             print(f"Validation particles: {[p.name for p in self.validation]}")
             print(f"\nParameter bounds:")
             print(f"  alpha: [{bounds[0][0]}, {bounds[0][1]}] GeV")
-            print(f"  kappa: [{bounds[1][0]}, {bounds[1][1]}] GeV^-2")
+            print(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]")
             print(f"\nFixed parameters:")
             print(f"  g1: {G1_INITIAL}")
             print(f"\nStarting optimization (maxiter={maxiter}, popsize={popsize})...")
@@ -1363,14 +1363,16 @@ class SFMParameterOptimizer:
                 f.write("SFM RATIO-BASED OPTIMIZATION LOG\n")
                 f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 70 + "\n")
-                f.write("Strategy: Optimize alpha/kappa for mass RATIOS\n")
+                f.write("Strategy: Optimize alpha/g_internal for mass RATIOS\n")
                 f.write("Beta derived from electron: beta = m_e / A_e^2\n")
+                f.write("g_internal is FUNDAMENTAL (works with amplitude, not mass)\n")
+                f.write("Solver is completely beta-independent!\n")
                 f.write("=" * 70 + "\n")
                 f.write(f"Calibration particles: {[p.name for p in self.calibration]}\n")
                 f.write(f"Validation particles: {[p.name for p in self.validation]}\n")
                 f.write(f"Parameter bounds:\n")
                 f.write(f"  alpha: [{bounds[0][0]}, {bounds[0][1]}] GeV\n")
-                f.write(f"  kappa: [{bounds[1][0]}, {bounds[1][1]}] GeV^-2\n")
+                f.write(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]\n")
                 f.write(f"Fixed: g1={G1_INITIAL}\n")
                 f.write(f"maxiter={maxiter}, popsize={popsize}\n")
                 f.write("=" * 70 + "\n\n")
@@ -1378,10 +1380,10 @@ class SFMParameterOptimizer:
         start_time = time.time()
         
         # Seed initial population with known good values
-        x0 = [ALPHA_INITIAL, KAPPA_INITIAL]
+        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL]
         
         if self.verbose:
-            print(f"Seeding with constants.json: alpha={x0[0]}, kappa={x0[1]}")
+            print(f"Seeding with constants.json: alpha={x0[0]}, g_internal={x0[1]}")
         
         # Run differential evolution on just alpha and kappa
         with warnings.catch_warnings():

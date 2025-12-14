@@ -76,23 +76,30 @@ class NonSeparableWavefunctionSolver:
     def __init__(
         self,
         alpha: float,
-        beta: float,
-        kappa: float,
-        g1: float,
-        g2: float,
+        beta: float = None,  # No longer used in solver - kept for backward compat
+        g_internal: float = None,
+        g1: float = 5000.0,
+        g2: float = 0.004,
         V0: float = 1.0,
         n_max: int = 5,
         l_max: int = 2,
         N_sigma: int = 64,
         a0: float = 1.0,
+        g_eff: float = None,  # DEPRECATED: use g_internal instead
+        kappa: float = None,  # DEPRECATED: use g_internal instead
     ):
         """
         Initialize the solver with SFM parameters.
         
         Args:
             alpha: Spatial-subspace coupling strength (GeV)
-            beta: Mass coupling constant (GeV)
-            kappa: Curvature coupling (GeV⁻²)
+            beta: DEPRECATED - no longer used in solver physics.
+                  Mass is computed after solving: m = β_output × A²
+                  where β_output = m_e_exp / A_e²
+            g_internal: FUNDAMENTAL gravitational self-confinement constant
+                        This controls self-confinement: Δx = 1/(g_internal × A⁶)^(1/3)
+                        g_internal works directly with amplitude A, making the
+                        solver completely independent of the mass unit choice.
             g1: Nonlinear self-interaction strength
             g2: Circulation coupling (for EM)
             V0: Three-well potential depth (GeV)
@@ -100,10 +107,28 @@ class NonSeparableWavefunctionSolver:
             l_max: Maximum angular momentum
             N_sigma: Subspace grid points
             a0: Characteristic length scale
+            g_eff: DEPRECATED - use g_internal instead
+            kappa: DEPRECATED - use g_internal instead
         """
         self.alpha = alpha
-        self.beta = beta
-        self.kappa = kappa
+        self.beta = beta if beta is not None else 100.0  # Only for backward compat
+        
+        # Handle g_internal (preferred) vs deprecated g_eff/kappa
+        if g_internal is not None:
+            self.g_internal = g_internal
+        elif g_eff is not None:
+            # DEPRECATED: convert g_eff to g_internal
+            # g_internal = g_eff × β³
+            self.g_internal = g_eff * (self.beta ** 3)
+        elif kappa is not None:
+            # DEPRECATED: convert kappa to g_internal
+            # kappa = g_eff × β², so g_eff = kappa/β², g_internal = g_eff × β³ = kappa × β
+            self.g_internal = kappa * self.beta
+        else:
+            # Default from constants
+            from sfm_solver.core.constants import G_INTERNAL
+            self.g_internal = G_INTERNAL
+        
         self.g1 = g1
         self.g2 = g2
         self.V0 = V0
@@ -930,33 +955,27 @@ class NonSeparableWavefunctionSolver:
                 print(f"  Estimated A = {A_new:.6f}")
             
             # === STEP 4: Update Δx from self-confinement ===
-            # (As specified in plan Section 1.2, lines 318-329)
-            # Δx = ℏ² / (G_eff × m³) where m = β × A²
-            m_estimate = self.beta * A_new**2
+            # NEW FORMULA: Δx = 1/(G_internal × A⁶)^(1/3)
+            # 
+            # This uses amplitude A directly, NOT mass m = β × A².
+            # G_internal is the FUNDAMENTAL gravitational self-confinement constant.
+            # This makes the solver completely independent of β (mass unit choice).
+            # β only appears when converting amplitude to physical mass at the end.
             
-            # Self-confinement scale (in natural units where ℏ = c = 1)
-            # G_eff ~ kappa / beta² from dimensional analysis
-            G_eff = self.kappa / (self.beta**2)
+            A_sixth = A_new ** 6
             
-            # From plan: Delta_x_new = 1.0 / (G_eff * m_estimate**3)**(1/3)
-            if G_eff > 0 and m_estimate > 1e-10:
-                Delta_x_new = 1.0 / (G_eff * m_estimate**3)**(1/3)
+            # Self-confinement scale (in natural/amplitude units)
+            if self.g_internal > 0 and A_sixth > 1e-30:
+                Delta_x_new = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)
             else:
                 Delta_x_new = Delta_x_current
             
-            # NOTE: Compton wavelength cap DISABLED for testing
-            # The cap was forcing all particles to MIN_SCALE, destroying differentiation.
-            # The self-confinement formula should determine Δx directly.
-            # if m_estimate > 1e-10:
-            #     lambda_compton = 1.0 / m_estimate
-            #     Delta_x_new = min(Delta_x_new, lambda_compton)
-            lambda_compton = 1.0 / m_estimate if m_estimate > 1e-10 else 1e10  # for printing only
+            # NOTE: Compton wavelength cap removed - not needed with G_internal formulation.
+            # The self-confinement Δx = 1/(G_internal × A⁶)^(1/3) determines scale directly.
             
             if verbose:
-                print(f"  Estimated mass m = {m_estimate:.6f}")
                 print(f"  Self-confinement dx = {Delta_x_new:.6f}")
-                if m_estimate > 1e-10:
-                    print(f"  Compton wavelength = {1.0/m_estimate:.6f}")
+                print(f"  (G_internal × A^6 = {self.g_internal * A_sixth:.6e})")
             
             # === STEP 5: Check convergence ===
             delta_A = abs(A_new - A_current)

@@ -23,10 +23,9 @@ _CONSTANTS_JSON_PATH = Path(__file__).parent / "constants.json"
 _DEFAULT_CONSTANTS: Dict[str, Any] = {
     "hbar": 1.0545718176461565e-34,  # J·s (reduced Planck constant)
     "c": 299792458,  # m/s (speed of light)
-    "beta": 53.95,  # GeV (mass-amplitude coupling)
-    "alpha": 0.2921,  # GeV (spatial-subspace coupling)
-    "kappa": 229.70,  # GeV^-2 (curvature coupling)
-    "g1": 3933.0,  # dimensionless (nonlinear self-interaction)
+    "alpha": 10.5,  # GeV (spatial-subspace coupling)
+    "g_internal": 0.003,  # FUNDAMENTAL: gravitational self-confinement in amplitude units
+    "g1": 5000.0,  # dimensionless (nonlinear self-interaction)
 }
 
 
@@ -60,7 +59,9 @@ def save_constants_to_json(constants: Dict[str, Any]) -> None:
     
     Args:
         constants: Dictionary with constant names and values.
-                   Should contain: hbar, c, beta, alpha, kappa, g1
+                   Should contain: hbar, c, beta, alpha, g_eff, g1
+                   Note: g_eff is the fundamental gravitational coupling.
+                   kappa is derived as kappa = g_eff × beta².
     """
     with open(_CONSTANTS_JSON_PATH, 'w', encoding='utf-8') as f:
         json.dump(constants, f, indent=4)
@@ -85,13 +86,19 @@ HBAR_LOADED: float = _LOADED_CONSTANTS["hbar"]
 C_LOADED: float = _LOADED_CONSTANTS["c"]
 
 # Beta: mass-amplitude coupling constant
-BETA: float = _LOADED_CONSTANTS["beta"]
+# Note: Beta is now derived from electron mass after solving: β = m_e / A_e²
+# This default value (100 GeV) is for backward compatibility only.
+# The actual physical β is ~0.0005 GeV to give m_e = 0.511 MeV
+BETA: float = _LOADED_CONSTANTS.get("beta", 100.0)
 
 # Alpha: spatial-subspace coupling strength
 ALPHA: float = _LOADED_CONSTANTS["alpha"]
 
-# Kappa: curvature coupling
-KAPPA: float = _LOADED_CONSTANTS["kappa"]
+# G_INTERNAL: FUNDAMENTAL gravitational self-confinement constant
+# This controls self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
+# G_internal is independent of beta - works directly with amplitude A
+# β only converts amplitude to physical mass at the end: m = β × A²
+G_INTERNAL: float = _LOADED_CONSTANTS.get("g_internal", 0.003)
 
 # G1: nonlinear self-interaction coupling
 G1: float = _LOADED_CONSTANTS["g1"]
