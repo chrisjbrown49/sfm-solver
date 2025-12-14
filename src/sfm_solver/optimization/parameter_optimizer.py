@@ -1330,10 +1330,11 @@ class SFMParameterOptimizer:
         """
         if bounds is None:
             # Bounds for [alpha, g_internal] only
-            # Tightened around known good values: alpha=10.5, g_internal=0.003
+            # TIGHTENED around known good values: alpha=10.5, g_internal=0.003
+            # The solver is highly sensitive to g_internal, so keep bounds narrow
             bounds = [
-                (5.0, 20.0),          # alpha: centered around 10.5
-                (0.0001, 0.1),        # g_internal: centered around 0.003
+                (8.0, 15.0),          # alpha: ±50% around 10.5
+                (0.001, 0.01),        # g_internal: ±3× around 0.003
             ]
         
         if self.verbose:
@@ -1387,42 +1388,46 @@ class SFMParameterOptimizer:
         x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL]
         
         if self.verbose:
-            print(f"Seeding with constants.json: alpha={x0[0]}, g_internal={x0[1]}")
+            print(f"Starting from: alpha={x0[0]}, g_internal={x0[1]}")
         
-        # Run differential evolution on just alpha and kappa
+        # Use LOCAL optimizer (Nelder-Mead) since we already have a good starting point
+        # This avoids the wild exploration that differential_evolution does
+        from scipy.optimize import minimize
+        
+        # maxfev = max function evaluations (more intuitive for user)
+        # Each user "iteration" = ~5 function evaluations for Nelder-Mead
+        max_func_evals = maxiter * 5
+        
+        if self.verbose:
+            print(f"Running Nelder-Mead local optimizer (max {max_func_evals} evaluations)...")
+        
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = differential_evolution(
+            result = minimize(
                 self._objective_ratio,
-                bounds=bounds,
                 x0=x0,
-                maxiter=maxiter,
-                seed=seed,
-                workers=1,
-                disp=False,
-                polish=True,
-                tol=1e-6,
-                atol=1e-6,
-                popsize=popsize,
-                mutation=(0.5, 1.0),
-                recombination=0.7,
+                method='Nelder-Mead',
+                options={
+                    'maxfev': max_func_evals,  # Limit function evaluations
+                    'xatol': 1e-4,
+                    'fatol': 0.1,  # Stop if error changes by < 0.1%
+                    'disp': False,
+                },
             )
         
         elapsed = time.time() - start_time
         
         # Extract optimal parameters
-        alpha_opt, kappa_opt = result.x
+        alpha_opt, g_internal_opt = result.x
         g1_opt = G1_INITIAL
         
-        # Derive beta from electron mass using optimal alpha/kappa
-        # Re-run solver to get A_electron^2
+        # Derive beta from electron mass using optimal parameters
         try:
             from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
             
             solver = NonSeparableWavefunctionSolver(
                 alpha=alpha_opt,
-                beta=1.0,
-                kappa=kappa_opt,
+                g_internal=g_internal_opt,
                 g1=g1_opt,
                 g2=0.004,
                 V0=self.V0,
@@ -1448,11 +1453,14 @@ class SFMParameterOptimizer:
         
         L0_opt = 1.0 / beta_opt
         
+        # Derive kappa for backward compatibility: kappa = g_internal / beta
+        kappa_opt = g_internal_opt / beta_opt
+        
         if self.verbose:
             print("-" * 70)
             print(f"Optimization complete. Computing final predictions...")
-            print(f"Optimal: alpha={alpha_opt:.6f}, kappa={kappa_opt:.8f}")
-            print(f"Derived: beta={beta_opt:.8f} GeV")
+            print(f"Optimal: alpha={alpha_opt:.6f}, g_internal={g_internal_opt:.8f}")
+            print(f"Derived: beta={beta_opt:.8f} GeV, kappa={kappa_opt:.8f}")
         
         # Compute results for all particles
         calibration_results = self._evaluate_particles(
@@ -1466,15 +1474,15 @@ class SFMParameterOptimizer:
         opt_result = OptimizationResult(
             beta=beta_opt,
             alpha=alpha_opt,
-            kappa=kappa_opt,
+            kappa=kappa_opt,  # Derived for backward compatibility
             g1=g1_opt,
             L0_gev_inv=L0_opt,
             total_error=result.fun,
             converged=result.success,
             calibration_results=calibration_results,
             validation_results=validation_results,
-            iterations=result.nit,
-            function_evaluations=result.nfev,
+            iterations=getattr(result, 'nit', 0),
+            function_evaluations=getattr(result, 'nfev', self._eval_count),
             time_seconds=elapsed,
             scipy_result=result,
         )
