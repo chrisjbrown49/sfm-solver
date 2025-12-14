@@ -1164,7 +1164,7 @@ class NonSeparableWavefunctionSolver:
             delta_sigma_final=delta_sigma_final,
         )
 
-    def _well_envelope(self, well_index: int, sigma: NDArray) -> NDArray:
+    def _well_envelope(self, well_index: int, sigma: NDArray, width: float = 0.5) -> NDArray:
         """
         Generate Gaussian envelope localized at specified well.
         
@@ -1175,6 +1175,9 @@ class NonSeparableWavefunctionSolver:
         Args:
             well_index: 1, 2, or 3 (for the three wells)
             sigma: Subspace grid
+            width: Width of Gaussian envelope (default: 0.5)
+                   From harmonic approximation: V ≈ (9/2)V₀(σ - σ₀)² near minimum
+                   gives width ~ 1/√(9V₀/2) ≈ 0.47 for V₀ = 1
             
         Returns:
             Envelope function localized at well minimum
@@ -1182,11 +1185,6 @@ class NonSeparableWavefunctionSolver:
         # Well centers from V = V₀(1 - cos(3σ)) minima
         well_centers = [np.pi/3, np.pi, 5*np.pi/3]
         center = well_centers[well_index - 1]
-        
-        # Envelope width from harmonic approximation around minimum
-        # V ≈ (9/2)V₀(σ - σ₀)² near minimum, giving width ~ 1/√(9V₀/2)
-        # With V₀ = 1, width ≈ 0.47. Use 0.5 for numerical stability.
-        width = 0.5
         
         return np.exp(-(sigma - center)**2 / width)
 
@@ -1385,7 +1383,10 @@ class NonSeparableWavefunctionSolver:
         self,
         quark_wells: tuple = (1, 2, 3),
         color_phases: tuple = None,
+        n_eff: float = 3.0,
+        quark_width: float = 0.5,
         max_iter_outer: int = 30,
+        max_iter_nl: int = 0,
         tol_outer: float = 1e-4,
         verbose: bool = False,
     ) -> WavefunctionStructure:
@@ -1408,7 +1409,14 @@ class NonSeparableWavefunctionSolver:
         Args:
             quark_wells: Tuple of (q1_well, q2_well, q3_well), each 1-3
             color_phases: Tuple of color phases (default: [0, 2π/3, 4π/3])
+            n_eff: Effective quantum number for baryon (default: 3.0 for 3 quarks)
+                   This controls the target energy level E = 2*n_eff
+            quark_width: Width of quark envelope Gaussians (default: 0.5)
+                         Larger values give more quark overlap
             max_iter_outer: Maximum self-consistent iterations
+            max_iter_nl: Maximum nonlinear iterations per outer iteration (default: 0)
+                         When > 0, enables nonlinear feedback: g₁|χ_total|² potential
+                         shifts energy denominators, enhancing induced components
             tol_outer: Convergence tolerance
             verbose: Print progress
             
@@ -1430,9 +1438,10 @@ class NonSeparableWavefunctionSolver:
         phi1, phi2, phi3 = color_phases
         
         # Three quark envelopes (first-principles: well localization)
-        envelope_q1 = self._well_envelope(q1_well, sigma)
-        envelope_q2 = self._well_envelope(q2_well, sigma)
-        envelope_q3 = self._well_envelope(q3_well, sigma)
+        # quark_width controls overlap between quarks (larger = more overlap)
+        envelope_q1 = self._well_envelope(q1_well, sigma, width=quark_width)
+        envelope_q2 = self._well_envelope(q2_well, sigma, width=quark_width)
+        envelope_q3 = self._well_envelope(q3_well, sigma, width=quark_width)
         
         # Composite primary with color phases (UNNORMALIZED)
         chi_q1 = envelope_q1 * np.exp(1j * phi1)
@@ -1441,10 +1450,10 @@ class NonSeparableWavefunctionSolver:
         chi_primary = chi_q1 + chi_q2 + chi_q3
         
         # === SELF-CONSISTENT ITERATION ===
-        # For composites, effective n_target = number of constituents
-        # This is first-principles: each quark adds one unit of quantum number
-        # Baryon (3 quarks) → n_eff = 3 (like tau)
-        n_eff = 3  # Three constituents in baryon
+        # n_eff controls the target energy level E = 2*n_eff
+        # Default n_eff = 3 (like tau) for 3 quarks, but can be varied
+        # to test whether the effective quantum number matches constituent count
+        n_eff_int = int(round(n_eff))  # For state lookups (must be integer)
         
         Delta_x_current = 1.0 / n_eff
         A_current = 0.1
@@ -1468,9 +1477,9 @@ class NonSeparableWavefunctionSolver:
             single_well_envelope = self._build_envelope(sigma, np.pi, delta_sigma_current)
             
             # Build perturbative structure
-            # Use n_eff as the target quantum number
-            target_key = (n_eff, 0, 0)
-            target_idx = self.basis.state_index(n_eff, 0, 0)
+            # Use n_eff_int for state lookups (must be integer)
+            target_key = (n_eff_int, 0, 0)
+            target_idx = self.basis.state_index(n_eff_int, 0, 0)
             
             norm_sq = np.sum(np.abs(chi_primary)**2) * dsigma
             chi_primary_norm = chi_primary / np.sqrt(norm_sq)
@@ -1500,6 +1509,73 @@ class NonSeparableWavefunctionSolver:
                 # Induced component uses single-well envelope (same as lepton solver)
                 induced = -self.alpha * R_coupling * single_well_envelope / E_denom
                 chi_components[key] = induced
+            
+            # === NONLINEAR ITERATION FOR BARYONS ===
+            # 
+            # ⚠️ WARNING: ENGINEERING APPROXIMATION - NOT FIRST PRINCIPLES ⚠️
+            # 
+            # This implementation produces correct proton mass but uses several
+            # pragmatic approximations that are NOT derived from the 5D Hamiltonian:
+            #   1. nl_coupling = g1/10000 - arbitrary scaling to prevent instability
+            #   2. Normalized rho_nl - prevents huge values from unnormalized χ
+            #   3. V_nl_mean uniform shift - same shift for all induced states
+            #   4. Target energy unchanged - only induced states shift
+            #   5. g1 = 1820 empirical - found by matching proton mass
+            # 
+            # This serves as a PROOF-OF-CONCEPT validating the physics direction.
+            # A rigorous first-principles derivation is required for the full solution.
+            # See: docs/baryon_solver_fix_report.md for details.
+            # 
+            if max_iter_nl > 0:
+                # Nonlinear coupling - MUCH smaller than g1 to prevent instability
+                # This is effectively a perturbative expansion parameter
+                nl_coupling = self.g1 / 10000.0  # Scale down g1 significantly
+                
+                for iter_nl in range(max_iter_nl):
+                    # Compute total wavefunction amplitude for nonlinear potential
+                    chi_total = np.zeros(self.basis.N_sigma, dtype=complex)
+                    for chi in chi_components.values():
+                        chi_total += chi
+                    
+                    # Total amplitude squared (for scaling)
+                    total_amp_sq = np.sum(np.abs(chi_total)**2) * dsigma
+                    
+                    # Nonlinear density (normalized to prevent huge values)
+                    rho_nl = nl_coupling * np.abs(chi_total)**4 / max(total_amp_sq**2, 1e-10)
+                    
+                    # Compute mean nonlinear shift
+                    V_nl_mean = np.sum(rho_nl) * dsigma
+                    
+                    # Keep target energy unchanged
+                    E_target_eff = E_target_0
+                    
+                    # Recompute induced components with shifted state energies
+                    for i, state in enumerate(self.basis.spatial_states):
+                        key = (state.n, state.l, state.m)
+                        if key == target_key:
+                            continue
+                        
+                        R_coupling = spatial_coupling[target_idx, i]
+                        if abs(R_coupling) < 1e-10:
+                            continue
+                        
+                        # Shift induced state energy DOWN (toward target)
+                        # This REDUCES |E_denom|, enhancing induced components
+                        E_state_base = 2 * state.n + state.l
+                        E_state_eff = E_state_base - V_nl_mean  # Shift toward target
+                        E_denom_eff = E_target_eff - E_state_eff
+                        
+                        # Regularize to prevent divergence
+                        if abs(E_denom_eff) < 0.5:
+                            E_denom_eff = 0.5 * np.sign(E_denom_eff) if E_denom_eff != 0 else 0.5
+                        
+                        # Recompute induced with effective denominator
+                        induced_nl = -self.alpha * R_coupling * single_well_envelope / E_denom_eff
+                        chi_components[key] = induced_nl
+                    
+                    if verbose and iter_nl == max_iter_nl - 1:
+                        A_nl = np.sqrt(self._compute_total_amplitude(chi_components))
+                        print(f"  [NL iter {iter_nl+1}] V_nl_mean={V_nl_mean:.4f}, A_nl={A_nl:.4f}")
             
             A_new = np.sqrt(self._compute_total_amplitude(chi_components))
             
@@ -1554,7 +1630,7 @@ class NonSeparableWavefunctionSolver:
         
         return WavefunctionStructure(
             chi_components=chi_components_final,
-            n_target=n_eff,
+            n_target=n_eff_int,
             k_winding=0,
             l_composition=l_composition,
             k_eff=k_eff,
