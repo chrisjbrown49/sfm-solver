@@ -16,10 +16,12 @@ def main():
         g2=0.004, V0=1.0, n_max=5, l_max=2, N_sigma=64,
     )
     
-    # Solve all particles (max_iter_nl=0 = Step 1 only, no nonlinear iteration)
-    e = solver.solve_lepton_self_consistent(n_target=1, max_iter_nl=0)
-    mu = solver.solve_lepton_self_consistent(n_target=2, max_iter_nl=0)
-    tau = solver.solve_lepton_self_consistent(n_target=3, max_iter_nl=0)
+    # Solve all particles
+    # max_iter_outer=30 matches optimizer settings for proper convergence
+    # max_iter_nl=0 = Step 1 only, no nonlinear iteration
+    e = solver.solve_lepton_self_consistent(n_target=1, max_iter_outer=30, max_iter_nl=0)
+    mu = solver.solve_lepton_self_consistent(n_target=2, max_iter_outer=30, max_iter_nl=0)
+    tau = solver.solve_lepton_self_consistent(n_target=3, max_iter_outer=30, max_iter_nl=0)
     pion = solver.solve_meson_self_consistent(quark_wells=(1, 2))
     proton = solver.solve_baryon_self_consistent(quark_wells=(1, 2, 3))
     

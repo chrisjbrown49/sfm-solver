@@ -1866,8 +1866,8 @@ Examples:
         "--save-json",
         type=str,
         choices=["on", "off"],
-        default="on",
-        help="Save optimized constants to constants.json: 'on' or 'off' (default: on)"
+        default="off",
+        help="Save optimized constants to constants.json: 'on' or 'off' (default: off)"
     )
     
     parser.add_argument(
