@@ -235,10 +235,13 @@ class ParticleSpec:
     weight: float = 1.0
 
 
-# Calibration particle set - minimal set to determine parameters
-# Now includes leptons, mesons, and baryons for universal beta
+# Calibration particle set - covers all particle types and generations
+# Includes:
+#   - All 3 lepton generations (n=1,2,3)
+#   - Ground state meson (2-quark composite)
+#   - Ground state baryon (3-quark composite)
 CALIBRATION_PARTICLES = [
-    # LEPTONS ONLY - using self-consistent solver
+    # LEPTONS - all three generations
     ParticleSpec(
         name='electron',
         mass_gev=0.000511,
@@ -263,11 +266,7 @@ CALIBRATION_PARTICLES = [
         k_lepton=1,
         weight=1.0
     ),
-]
-
-# Validation particle set - held out to test predictions
-# NOTE: Meson/baryon solvers not yet updated to self-consistent method
-VALIDATION_PARTICLES = [
+    # MESON - ground state (2-quark composite)
     ParticleSpec(
         name='pion',
         mass_gev=0.140,
@@ -278,6 +277,7 @@ VALIDATION_PARTICLES = [
         meson_type='pion_plus',
         weight=1.0
     ),
+    # BARYON - ground state (3-quark composite)
     ParticleSpec(
         name='proton',
         mass_gev=0.938,
@@ -286,6 +286,11 @@ VALIDATION_PARTICLES = [
         baryon_type='proton',
         weight=1.0
     ),
+]
+
+# Validation particle set - held out to test predictions
+# These are genuine predictions, not used in parameter fitting
+VALIDATION_PARTICLES = [
     ParticleSpec(
         name='jpsi',
         mass_gev=3.097,
@@ -542,22 +547,24 @@ class SFMParameterOptimizer:
         g1: float
     ) -> Optional[float]:
         """
-        Run the meson solver with injected parameters.
+        Run the self-consistent meson solver with injected parameters.
         
-        Uses NonSeparableWavefunctionSolver.solve_meson() for now.
-        TODO: Update to solve_meson_self_consistent when implemented.
+        Uses NonSeparableWavefunctionSolver.solve_meson_self_consistent().
         
         Returns:
             Predicted mass in GeV, or None if solver fails.
         """
         try:
+            import numpy as np
             from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            
+            # Derive g_internal from kappa and beta for backward compatibility
+            g_internal = kappa * beta
             
             # Create solver with injected parameters
             solver = NonSeparableWavefunctionSolver(
                 alpha=alpha,
-                beta=beta,
-                kappa=kappa,
+                g_internal=g_internal,
                 g1=g1,
                 g2=0.004,
                 V0=self.V0,
@@ -566,28 +573,11 @@ class SFMParameterOptimizer:
                 N_sigma=64,
             )
             
-            # For pion: u + dbar, both first generation
-            # Map meson_type to quark generations
-            meson_params = {
-                'pion': (1, 1, 5, -5),      # quark_gen, antiquark_gen, k_q, k_qbar
-                'kaon': (1, 2, 5, -5),      # u + sbar
-                'D': (1, 2, 5, -5),         # c + dbar (placeholder)
-                'jpsi': (2, 2, 5, -5),      # c + cbar
-            }
-            
-            meson_type = particle.meson_type if particle.meson_type else 'pion'
-            if meson_type in meson_params:
-                q_gen, qbar_gen, k_q, k_qbar = meson_params[meson_type]
-            else:
-                q_gen, qbar_gen, k_q, k_qbar = 1, 1, 5, -5  # Default to pion
-            
-            # Run solver (not self-consistent yet)
-            result = solver.solve_meson(
-                quark_gen=q_gen,
-                antiquark_gen=qbar_gen,
-                k_quark=k_q,
-                k_antiquark=k_qbar,
-                n_radial=1,
+            # Run self-consistent meson solver
+            # quark_wells are well indices (1, 2), not angles
+            result = solver.solve_meson_self_consistent(
+                quark_wells=(1, 2),
+                max_iter_outer=30,
                 verbose=False,
             )
             
@@ -610,22 +600,24 @@ class SFMParameterOptimizer:
         g1: float
     ) -> Optional[float]:
         """
-        Run the baryon solver with injected parameters.
+        Run the self-consistent baryon solver with injected parameters.
         
-        Uses NonSeparableWavefunctionSolver.solve_baryon() for now.
-        TODO: Update to solve_baryon_self_consistent when implemented.
+        Uses NonSeparableWavefunctionSolver.solve_baryon_self_consistent().
         
         Returns:
             Predicted mass in GeV, or None if solver fails.
         """
         try:
+            import numpy as np
             from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            
+            # Derive g_internal from kappa and beta for backward compatibility
+            g_internal = kappa * beta
             
             # Create solver with injected parameters
             solver = NonSeparableWavefunctionSolver(
                 alpha=alpha,
-                beta=beta,
-                kappa=kappa,
+                g_internal=g_internal,
                 g1=g1,
                 g2=0.004,
                 V0=self.V0,
@@ -634,23 +626,11 @@ class SFMParameterOptimizer:
                 N_sigma=64,
             )
             
-            # Map quark content to generations and windings
-            # proton = uud, neutron = udd
-            baryon_params = {
-                ('u', 'u', 'd'): ([1, 1, 1], [1, 2, 3]),  # proton: gens, windings
-                ('u', 'd', 'd'): ([1, 1, 1], [1, 2, 3]),  # neutron
-            }
-            
-            quarks = tuple(particle.quarks) if particle.quarks else ('u', 'u', 'd')
-            if quarks in baryon_params:
-                quark_gens, windings = baryon_params[quarks]
-            else:
-                quark_gens, windings = [1, 1, 1], [1, 2, 3]  # Default to proton
-            
-            # Run solver (not self-consistent yet)
-            result = solver.solve_baryon(
-                quark_gens=quark_gens,
-                windings=windings,
+            # Run self-consistent baryon solver
+            # quark_wells are well indices (1, 2, 3)
+            result = solver.solve_baryon_self_consistent(
+                quark_wells=(1, 2, 3),
+                max_iter_outer=30,
                 verbose=False,
             )
             
@@ -1178,14 +1158,16 @@ class SFMParameterOptimizer:
         """
         Objective function for ratio-based optimization.
         
-        Optimizes alpha and g_internal to match mass RATIOS, with beta
+        Optimizes alpha and g_internal to match masses, with beta
         computed analytically to fix the electron mass exactly.
+        
+        Includes leptons, mesons (pion), and baryons (proton) in calibration.
         
         Args:
             params: Array of [alpha, g_internal]
             
         Returns:
-            Total weighted error in mass ratios.
+            Total weighted error in mass predictions.
         """
         alpha, g_internal = params
         g1 = G1_INITIAL  # Keep g1 fixed
@@ -1193,42 +1175,60 @@ class SFMParameterOptimizer:
         self._eval_count += 1
         start_time = time.time()
         
-        # Compute A^2 for each lepton generation
+        # Compute A^2 for all calibration particles
         A_squared = {}
         
         # The solver is now completely beta-independent!
         # G_internal controls self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
         # Beta is only used to convert amplitude to physical mass at the end.
         
+        from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        
+        # Create solver once (parameters are the same for all particles)
+        solver = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            g_internal=g_internal,  # Fundamental parameter
+            g1=g1,
+            g2=0.004,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
         for particle in self.calibration:
-            if particle.particle_type != 'lepton':
-                continue
-            
             try:
-                from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
-                
-                solver = NonSeparableWavefunctionSolver(
-                    alpha=alpha,
-                    g_internal=g_internal,  # Fundamental parameter
-                    g1=g1,
-                    g2=0.004,
-                    V0=self.V0,
-                    n_max=5,
-                    l_max=2,
-                    N_sigma=64,
-                )
-                
-                n_target = particle.generation
-                result = solver.solve_lepton_self_consistent(
-                    n_target=n_target,
-                    k_winding=1,
-                    max_iter_outer=30,
-                    max_iter_nl=0,
-                    verbose=False,
-                )
-                
-                A_squared[particle.name] = result.structure_norm ** 2
-                
+                if particle.particle_type == 'lepton':
+                    n_target = particle.generation
+                    result = solver.solve_lepton_self_consistent(
+                        n_target=n_target,
+                        k_winding=1,
+                        max_iter_outer=30,
+                        max_iter_nl=0,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    
+                elif particle.particle_type == 'meson':
+                    # Use self-consistent meson solver
+                    # quark_wells are well indices (1, 2), not angles
+                    result = solver.solve_meson_self_consistent(
+                        quark_wells=(1, 2),
+                        max_iter_outer=30,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    
+                elif particle.particle_type == 'baryon':
+                    # Use self-consistent baryon solver
+                    # quark_wells are well indices (1, 2, 3)
+                    result = solver.solve_baryon_self_consistent(
+                        quark_wells=(1, 2, 3),
+                        max_iter_outer=30,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    
             except Exception as e:
                 # Solver failed - return large error
                 return 1e20
@@ -1241,14 +1241,11 @@ class SFMParameterOptimizer:
         m_e_exp = 0.000511  # GeV
         beta_derived = m_e_exp / A_squared['electron']
         
-        # Now compute predicted masses and errors for muon and tau
+        # Now compute predicted masses and errors for all particles
         total_error = 0.0
         predictions = {}
         
         for particle in self.calibration:
-            if particle.particle_type != 'lepton':
-                continue
-            
             if particle.name not in A_squared:
                 continue
             
@@ -1256,7 +1253,6 @@ class SFMParameterOptimizer:
             m_exp = particle.mass_gev
             
             # For electron, error should be ~0 by construction
-            # For muon/tau, compute actual error
             percent_error = abs(m_pred - m_exp) / m_exp * 100
             
             predictions[particle.name] = {
@@ -1265,7 +1261,7 @@ class SFMParameterOptimizer:
                 'error': percent_error,
             }
             
-            # Weight the error (electron should be perfect, focus on muon/tau)
+            # Weight the error (electron should be perfect by construction)
             if particle.name == 'electron':
                 total_error += percent_error * 0.01  # Low weight
             else:

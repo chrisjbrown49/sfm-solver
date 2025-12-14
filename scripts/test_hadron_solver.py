@@ -32,15 +32,19 @@ def main():
                  ('Proton', proton, 938.27)]
     
     print(f"\nbeta_output = {beta_out:.6f} GeV\n")
-    print(f"{'Particle':<10} {'A':>8} {'dx':>10} {'Pred MeV':>10} {'Exp MeV':>10} {'Err%':>8}")
-    print("-" * 60)
+    print(f"{'Particle':<10} {'A':>8} {'dx':>10} {'ds':>8} {'Pred MeV':>10} {'Exp MeV':>10} {'Err%':>8}")
+    print("-" * 70)
     
     for name, p, exp in particles:
         pred = beta_out * p.structure_norm**2 * 1000
         err = (pred - exp) / exp * 100
-        print(f"{name:<10} {p.structure_norm:>8.4f} {p.delta_x_final:>10.6f} {pred:>10.2f} {exp:>10.2f} {err:>7.1f}%")
+        ds = p.delta_sigma_final if p.delta_sigma_final else 0.5
+        print(f"{name:<10} {p.structure_norm:>8.4f} {p.delta_x_final:>10.6f} {ds:>8.4f} {pred:>10.2f} {exp:>10.2f} {err:>7.1f}%")
     
-    print("=" * 60)
+    print("=" * 70)
+    print("\nNote: ds (delta_sigma) is now optimized from energy balance:")
+    print("      ds_opt = (2 / (g1 * A^4))^(1/3)")
+    print("=" * 70)
 
 if __name__ == "__main__":
     main()
