@@ -68,6 +68,10 @@ from sfm_solver.core.constants import (
     G1 as G1_INITIAL,
 )
 
+# For backward compatibility with legacy "four" mode (deprecated)
+# Compute KAPPA from G_INTERNAL: kappa = g_internal / beta
+KAPPA_INITIAL = G_INTERNAL_INITIAL / BETA_INITIAL
+
 
 # =============================================================================
 # Fundamental Constants (SI units)
@@ -1273,7 +1277,7 @@ class SFMParameterOptimizer:
         is_best = total_error < self._best_error
         if is_best:
             self._best_error = total_error
-            self._best_params = (alpha, kappa, beta_derived, g1)
+            self._best_params = (alpha, g_internal, beta_derived, g1)
         
         # Log progress
         if self.log_file:
@@ -1281,7 +1285,7 @@ class SFMParameterOptimizer:
                 f.write("\n" + "=" * 70 + "\n")
                 f.write(f"Eval {self._eval_count} | Time: {elapsed:.1f}s | ")
                 f.write("*** NEW BEST ***\n" if is_best else "\n")
-                f.write(f"Search params: alpha={alpha:.6f}, kappa={kappa:.8f}\n")
+                f.write(f"Search params: alpha={alpha:.6f}, g_internal={g_internal:.8f}\n")
                 f.write(f"Derived beta: {beta_derived:.8f} GeV\n")
                 f.write(f"Total Error: {total_error:.6f} (best so far: {self._best_error:.6f})\n")
                 f.write(f"Particle predictions:\n")
@@ -1292,7 +1296,7 @@ class SFMParameterOptimizer:
         
         if self.verbose and (self._eval_count % 10 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
-            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, kappa={kappa:.6e}, "
+            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, "
                   f"beta={beta_derived:.6e}, error={total_error:.2f}%{marker}")
         
         return total_error
@@ -1483,6 +1487,252 @@ class SFMParameterOptimizer:
         
         return opt_result
 
+    def _objective_free(self, params: np.ndarray) -> float:
+        """
+        Objective function for free 3-parameter optimization.
+        
+        Optimizes alpha, g_internal, and g1 with beta derived from electron mass.
+        
+        Args:
+            params: Array of [alpha, g_internal, g1]
+            
+        Returns:
+            Total weighted error in mass predictions.
+        """
+        alpha, g_internal, g1 = params
+        
+        self._eval_count += 1
+        start_time = time.time()
+        
+        # Compute A^2 for leptons
+        A_squared = {}
+        
+        for particle in self.calibration:
+            if particle.particle_type != 'lepton':
+                continue
+            
+            try:
+                from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+                
+                solver = NonSeparableWavefunctionSolver(
+                    alpha=alpha,
+                    g_internal=g_internal,
+                    g1=g1,
+                    g2=0.004,
+                    V0=self.V0,
+                    n_max=5,
+                    l_max=2,
+                    N_sigma=64,
+                )
+                
+                n_target = particle.generation
+                result = solver.solve_lepton_self_consistent(
+                    n_target=n_target,
+                    k_winding=1,
+                    max_iter_outer=30,
+                    max_iter_nl=0,
+                    verbose=False,
+                )
+                
+                A_squared[particle.name] = result.structure_norm ** 2
+                
+            except Exception as e:
+                return 1e20
+        
+        if 'electron' not in A_squared or A_squared['electron'] <= 0:
+            return 1e20
+        
+        # Derive beta from electron mass
+        m_e_exp = 0.000511  # GeV
+        beta_derived = m_e_exp / A_squared['electron']
+        
+        # Compute errors
+        total_error = 0.0
+        predictions = {}
+        
+        for particle in self.calibration:
+            if particle.particle_type != 'lepton':
+                continue
+            
+            if particle.name not in A_squared:
+                continue
+            
+            m_pred = beta_derived * A_squared[particle.name]
+            m_exp = particle.mass_gev
+            percent_error = abs(m_pred - m_exp) / m_exp * 100
+            
+            predictions[particle.name] = {
+                'predicted': m_pred * 1000,
+                'experimental': m_exp * 1000,
+                'error': percent_error,
+            }
+            
+            if particle.name == 'electron':
+                total_error += percent_error * 0.01
+            else:
+                total_error += percent_error * particle.weight
+        
+        elapsed = time.time() - start_time
+        
+        is_best = total_error < self._best_error
+        if is_best:
+            self._best_error = total_error
+            self._best_params = (alpha, g_internal, g1, beta_derived)
+        
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(f"\nEval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, g1={g1:.1f}")
+                f.write(f" -> error={total_error:.2f}%")
+                if is_best:
+                    f.write(" *** BEST ***")
+                f.write("\n")
+        
+        if self.verbose and (self._eval_count % 10 == 0 or is_best):
+            marker = " *** BEST ***" if is_best else ""
+            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, "
+                  f"g1={g1:.1f}, error={total_error:.2f}%{marker}")
+        
+        return total_error
+
+    def optimize_free(
+        self,
+        bounds: Optional[List[Tuple[float, float]]] = None,
+        maxiter: int = 100,
+        seed: int = 42,
+        popsize: int = 10,
+        save_json: bool = True,
+    ) -> OptimizationResult:
+        """
+        Free 3-parameter optimization over alpha, g_internal, and g1.
+        
+        Beta is derived from electron mass after solving.
+        
+        Args:
+            bounds: List of (min, max) bounds for [alpha, g_internal, g1].
+            maxiter: Maximum iterations.
+            seed: Random seed for reproducibility.
+            popsize: Population size.
+            save_json: If True, saves optimized constants.
+            
+        Returns:
+            OptimizationResult with optimal parameters.
+        """
+        if bounds is None:
+            bounds = [
+                (5.0, 30.0),          # alpha
+                (0.0001, 0.1),        # g_internal
+                (100.0, 20000.0),     # g1
+            ]
+        
+        if self.verbose:
+            print("=" * 70)
+            print("FREE 3-PARAMETER OPTIMIZATION")
+            print("Optimizing {alpha, g_internal, g1}")
+            print("Beta derived from electron: beta = m_e / A_e^2")
+            print("=" * 70)
+            print(f"\nParameter bounds:")
+            print(f"  alpha:      [{bounds[0][0]}, {bounds[0][1]}]")
+            print(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]")
+            print(f"  g1:         [{bounds[2][0]}, {bounds[2][1]}]")
+            print("-" * 70)
+        
+        self._eval_count = 0
+        self._best_error = float('inf')
+        self._best_params = None
+        self._start_time = time.time()
+        
+        if self.log_file:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 70 + "\n")
+                f.write("SFM FREE 3-PARAMETER OPTIMIZATION\n")
+                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 70 + "\n")
+        
+        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL, G1_INITIAL]
+        
+        if self.verbose:
+            print(f"Seeding: alpha={x0[0]}, g_internal={x0[1]}, g1={x0[2]}")
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = differential_evolution(
+                self._objective_free,
+                bounds=bounds,
+                x0=x0,
+                maxiter=maxiter,
+                seed=seed,
+                workers=1,
+                disp=False,
+                polish=True,
+                tol=1e-6,
+                atol=1e-6,
+                popsize=popsize,
+            )
+        
+        elapsed = time.time() - self._start_time
+        
+        alpha_opt, g_internal_opt, g1_opt = result.x
+        
+        # Derive beta from optimal parameters
+        try:
+            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            
+            solver = NonSeparableWavefunctionSolver(
+                alpha=alpha_opt,
+                g_internal=g_internal_opt,
+                g1=g1_opt,
+            )
+            
+            result_e = solver.solve_lepton_self_consistent(
+                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+            )
+            
+            A_e_squared = result_e.structure_norm ** 2
+            beta_opt = 0.000511 / A_e_squared
+            
+        except Exception as e:
+            print(f"Warning: Failed to derive beta: {e}")
+            beta_opt = BETA_INITIAL
+        
+        # For backward compatibility with result structure
+        kappa_opt = g_internal_opt / beta_opt  # Derived kappa
+        L0_opt = 1.0 / beta_opt
+        
+        if self.verbose:
+            print("-" * 70)
+            print(f"Optimal: alpha={alpha_opt:.4f}, g_internal={g_internal_opt:.6f}, g1={g1_opt:.1f}")
+            print(f"Derived: beta={beta_opt:.8f} GeV")
+        
+        calibration_results = self._evaluate_particles(
+            self.calibration, beta_opt, alpha_opt, kappa_opt, g1_opt
+        )
+        validation_results = self._evaluate_particles(
+            self.validation, beta_opt, alpha_opt, kappa_opt, g1_opt
+        )
+        
+        opt_result = OptimizationResult(
+            beta=beta_opt,
+            alpha=alpha_opt,
+            kappa=kappa_opt,  # Derived
+            g1=g1_opt,
+            L0_gev_inv=L0_opt,
+            total_error=result.fun,
+            converged=result.success,
+            calibration_results=calibration_results,
+            validation_results=validation_results,
+            iterations=result.nit,
+            function_evaluations=result.nfev,
+            time_seconds=elapsed,
+            scipy_result=result,
+        )
+        
+        if self.verbose:
+            print("\n" + opt_result.summary())
+        
+        opt_result.save_constants_to_json(save=save_json)
+        
+        return opt_result
+
 
 def run_optimization_ratio(
     verbose: bool = True,
@@ -1541,14 +1791,16 @@ def run_optimization_beta_only(
     return optimizer.optimize_beta_only(beta_bounds=beta_bounds, maxiter=maxiter, save_json=save_json)
 
 
-def run_optimization(
+def run_optimization_free(
     verbose: bool = True,
     maxiter: int = 100,
     log_file: Optional[str] = None,
     save_json: bool = True,
 ) -> OptimizationResult:
     """
-    Run 4-parameter optimization over beta, alpha, kappa, and g1.
+    Run 3-parameter optimization over alpha, g_internal, and g1.
+    
+    Beta is derived from the electron mass after solving.
     
     Args:
         verbose: Print progress information.
@@ -1560,7 +1812,7 @@ def run_optimization(
         OptimizationResult with optimal parameters.
     """
     optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
-    return optimizer.optimize(maxiter=maxiter, save_json=save_json)
+    return optimizer.optimize_free(maxiter=maxiter, save_json=save_json)
 
 
 def create_log_file_path() -> str:
@@ -1590,9 +1842,8 @@ def main():
         epilog="""
 Examples:
   python parameter_optimizer.py                     # ratio mode (default), save to JSON
-  python parameter_optimizer.py --mode ratio        # ratio mode - optimize alpha/kappa for mass ratios
-  python parameter_optimizer.py --mode beta         # beta-only mode
-  python parameter_optimizer.py --mode four         # 4-param mode
+  python parameter_optimizer.py --mode ratio        # ratio mode - optimize alpha/g_internal for mass ratios
+  python parameter_optimizer.py --mode free         # free mode - optimize alpha, g_internal, g1
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
   python parameter_optimizer.py --max-iter 200      # Run 200 iterations
         """
@@ -1601,10 +1852,10 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["beta", "four", "ratio"],
+        choices=["ratio", "free"],
         default="ratio",
-        help="Optimization mode: 'ratio' (default) optimizes alpha/kappa for mass ratios, "
-             "'beta' for beta-only, 'four' for 4-parameter"
+        help="Optimization mode: 'ratio' (default) optimizes alpha/g_internal for mass ratios, "
+             "'free' for 3-parameter (alpha, g_internal, g1)"
     )
     
     parser.add_argument(
@@ -1640,9 +1891,8 @@ Examples:
     
     # Map mode names for display
     mode_names = {
-        'ratio': 'ratio-based (alpha/kappa)',
-        'beta': 'beta-only',
-        'four': '4-parameter',
+        'ratio': 'ratio-based (alpha/g_internal)',
+        'free': '3-parameter (alpha, g_internal, g1)',
     }
     
     # Print startup information
@@ -1655,30 +1905,22 @@ Examples:
     print(f"Log file: {log_file}")
     print()
     print(f"Initial values from constants.json:")
-    print(f"  beta  = {BETA_INITIAL}")
-    print(f"  alpha = {ALPHA_INITIAL}")
-    print(f"  kappa = {KAPPA_INITIAL}")
-    print(f"  g1    = {G1_INITIAL}")
+    print(f"  alpha      = {ALPHA_INITIAL}")
+    print(f"  g_internal = {G_INTERNAL_INITIAL}")
+    print(f"  g1         = {G1_INITIAL}")
     print("=" * 70)
     print()
     
     # Run the appropriate optimization
-    if args.mode == "beta":
-        result = run_optimization_beta_only(
-            verbose=verbose,
-            maxiter=args.max_iter,
-            log_file=log_file,
-            save_json=save_json,
-        )
-    elif args.mode == "ratio":
+    if args.mode == "ratio":
         result = run_optimization_ratio(
             verbose=verbose,
             maxiter=args.max_iter,
             log_file=log_file,
             save_json=save_json,
         )
-    else:  # four
-        result = run_optimization(
+    else:  # free
+        result = run_optimization_free(
             verbose=verbose,
             maxiter=args.max_iter,
             log_file=log_file,
