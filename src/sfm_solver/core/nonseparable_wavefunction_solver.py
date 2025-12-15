@@ -398,10 +398,10 @@ class NonSeparableWavefunctionSolver:
         
         The EM self-energy emerges from the circulation term in the SFM Hamiltonian:
         
-            Ĥ_circ = g₂ |∫ χ* ∂χ/∂σ dσ|²
+            Ĥ_circ = β × g₂ |∫ χ* ∂χ/∂σ dσ|²
         
         For a NORMALIZED wavefunction (∫|χ|²dσ = 1), this gives:
-            E_EM = g₂ |J_normalized|²
+            E_EM = β × g₂ × |J_normalized|²
         
         where J_normalized = J / (∫|χ|²dσ).
         
@@ -420,7 +420,7 @@ class NonSeparableWavefunctionSolver:
             chi_components: Dictionary of wavefunction components
             
         Returns:
-            EM self-energy E_EM = g₂ |J_normalized|²
+            EM self-energy E_EM = β × g₂ × |J_normalized|² in [GeV]
         """
         D1 = self._build_subspace_derivative_matrix()
         dsigma = self.basis.dsigma
@@ -443,8 +443,9 @@ class NonSeparableWavefunctionSolver:
         # This removes the A² scaling, leaving only the charge-dependent part
         J_normalized = J_raw / norm_sq
         
-        # E_EM = g₂ |J_normalized|²
-        E_em = self.g2 * np.abs(J_normalized)**2
+        # E_EM = β × g₂ × |J_normalized|²
+        # Units: [GeV] × dimensionless × dimensionless = [GeV]
+        E_em = self.beta * self.g2 * np.abs(J_normalized)**2
         
         return float(E_em)
     

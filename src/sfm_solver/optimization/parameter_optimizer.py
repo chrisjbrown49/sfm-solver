@@ -268,17 +268,6 @@ CALIBRATION_PARTICLES = [
         k_lepton=1,
         weight=1.0
     ),
-    # MESON - ground state (2-quark composite)
-    ParticleSpec(
-        name='pion',
-        mass_gev=0.140,
-        particle_type='meson',
-        quark='u',
-        antiquark='d',
-        n_rad=1,
-        meson_type='pion_plus',
-        weight=1.0
-    ),
     # BARYON - ground state (3-quark composite)
     ParticleSpec(
         name='proton',
@@ -293,6 +282,17 @@ CALIBRATION_PARTICLES = [
 # Validation particle set - held out to test predictions
 # These are genuine predictions, not used in parameter fitting
 VALIDATION_PARTICLES = [
+    # MESON - moved from calibration (solver needs work)
+    ParticleSpec(
+        name='pion',
+        mass_gev=0.140,
+        particle_type='meson',
+        quark='u',
+        antiquark='d',
+        n_rad=1,
+        meson_type='pion_plus',
+        weight=1.0
+    ),
     # Pions (different charge states)
     ParticleSpec(
         name='pion_minus',
