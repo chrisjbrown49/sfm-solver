@@ -291,6 +291,28 @@ CALIBRATION_PARTICLES = [
 # Validation particle set - held out to test predictions
 # These are genuine predictions, not used in parameter fitting
 VALIDATION_PARTICLES = [
+    # Pions (different charge states)
+    ParticleSpec(
+        name='pion_minus',
+        mass_gev=0.13957,
+        particle_type='meson',
+        quark='d',
+        antiquark='u',
+        n_rad=1,
+        meson_type='pion_minus',
+        weight=1.0
+    ),
+    ParticleSpec(
+        name='pion_zero',
+        mass_gev=0.13498,
+        particle_type='meson',
+        quark='u',  # Actually (uu-bar + dd-bar)/sqrt(2)
+        antiquark='u',
+        n_rad=1,
+        meson_type='pion_zero',
+        weight=1.0
+    ),
+    # Charmonium states
     ParticleSpec(
         name='jpsi',
         mass_gev=3.097,
@@ -301,6 +323,38 @@ VALIDATION_PARTICLES = [
         meson_type='jpsi',
         weight=1.0
     ),
+    ParticleSpec(
+        name='psi_2S',
+        mass_gev=3.6861,
+        particle_type='meson',
+        quark='c',
+        antiquark='c',
+        n_rad=2,  # Radial excitation
+        meson_type='psi_2S',
+        weight=1.0
+    ),
+    # Bottomonium states
+    ParticleSpec(
+        name='upsilon_1S',
+        mass_gev=9.4603,
+        particle_type='meson',
+        quark='b',
+        antiquark='b',
+        n_rad=1,
+        meson_type='upsilon_1S',
+        weight=1.0
+    ),
+    ParticleSpec(
+        name='upsilon_2S',
+        mass_gev=10.0233,
+        particle_type='meson',
+        quark='b',
+        antiquark='b',
+        n_rad=2,  # Radial excitation
+        meson_type='upsilon_2S',
+        weight=1.0
+    ),
+    # Baryons
     ParticleSpec(
         name='neutron',
         mass_gev=0.9396,
