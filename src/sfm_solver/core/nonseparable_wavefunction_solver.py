@@ -1629,9 +1629,10 @@ class NonSeparableWavefunctionSolver:
         chi_primary = chi_primary_q1 + chi_primary_q2 + chi_primary_q3
         
         # === SELF-CONSISTENT ITERATION ===
-        # For composites, effective n_target = number of constituents
-        # Baryon (3 quarks) → n_eff = 3 (like tau)
-        n_eff = 3  # Three constituents in baryon
+        # Baryon is a THREE-QUARK COMPOSITE in SUBSPACE (σ direction)
+        # But appears as a SINGLE PARTICLE in SPATIAL domain (x,y,z)
+        # Therefore: use n=1 spatial ground state (like electron)
+        n_eff = 1  # Baryon is ground state in spatial domain
         
         Delta_x_current = 1.0 / n_eff  # Initial guess
         A_current = 0.1
@@ -1641,7 +1642,7 @@ class NonSeparableWavefunctionSolver:
         history = {'Delta_x': [Delta_x_current], 'A': [A_current], 'delta_sigma': [delta_sigma_current]}
         final_iter = 0
         
-        # Target state for baryon: n_eff=3
+        # Target state for baryon: n=1 (ground state in spatial domain)
         target_key = (n_eff, 0, 0)
         target_idx = None
         for i, state in enumerate(self.basis.spatial_states):
@@ -1667,9 +1668,6 @@ class NonSeparableWavefunctionSolver:
             a_n = max(a_n, MIN_SCALE)
             spatial_coupling = self.basis.compute_spatial_coupling_at_scale(a_n)
             
-            # Update single-well envelope with current delta_sigma
-            single_well_envelope = self._build_envelope(sigma, np.pi, delta_sigma_current)
-            
             # === BUILD chi_components (4D framework) ===
             chi_components = {}
             
@@ -1681,6 +1679,10 @@ class NonSeparableWavefunctionSolver:
             E_target_0 = 2 * n_eff + 0
             
             # Induced components from spatial-subspace coupling
+            # CRITICAL: Use composite chi_primary, not single-well envelope!
+            # E_coupling ~ α² × ∫∫ (∂φ/∂x) × (∂χ_total/∂σ) dxdσ
+            # where χ_total = χ₁ + χ₂ + χ₃ (the three-quark composite)
+            # This captures three-quark interference effects
             for i, state in enumerate(self.basis.spatial_states):
                 key = (state.n, state.l, state.m)
                 if key == target_key:
@@ -1698,9 +1700,9 @@ class NonSeparableWavefunctionSolver:
                 if abs(E_denom) < 0.5:
                     E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
                 
-                # Induced component uses single-well envelope (same as lepton solver)
-                # This maintains consistent amplitude scaling with leptons
-                induced = -self.alpha * R_coupling * single_well_envelope / E_denom
+                # Induced component uses COMPOSITE chi_primary (three-quark wavefunction)
+                # This correctly accounts for interference between the three quarks
+                induced = -self.alpha * R_coupling * chi_primary / E_denom
                 chi_components[key] = induced
             
             # Compute base amplitude from wavefunction structure
