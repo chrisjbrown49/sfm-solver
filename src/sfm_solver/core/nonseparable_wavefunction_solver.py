@@ -140,6 +140,7 @@ class NonSeparableWavefunctionSolver:
         g1: float = 5000.0,  # PHENOMENOLOGICAL - see docstring
         g2: float = 0.004,   # PHENOMENOLOGICAL - see docstring
         V0: float = 1.0,
+        V1: float = 0.0,
         n_max: int = 5,
         l_max: int = 2,
         N_sigma: int = 64,
@@ -161,7 +162,9 @@ class NonSeparableWavefunctionSolver:
                         solver completely independent of the mass unit choice.
             g1: Nonlinear self-interaction strength
             g2: Circulation coupling (for EM)
-            V0: Three-well potential depth (GeV)
+            V0: Three-well potential depth (primary term)
+            V1: Three-well potential secondary depth (cos(6σ) term)
+                The full potential is: V(σ) = V₀(1 - cos(3σ)) + V₁(1 - cos(6σ))
             n_max: Maximum spatial principal quantum number
             l_max: Maximum angular momentum
             N_sigma: Subspace grid points
@@ -191,12 +194,14 @@ class NonSeparableWavefunctionSolver:
         self.g1 = g1
         self.g2 = g2
         self.V0 = V0
+        self.V1 = V1
         
         # Create basis (from correlated_basis.py)
         self.basis = CorrelatedBasis(n_max=n_max, l_max=l_max, N_sigma=N_sigma, a0=a0)
         
         # Three-well potential on subspace grid
-        self.V_sigma = V0 * (1 - np.cos(3 * self.basis.sigma))
+        # V(σ) = V₀(1 - cos(3σ)) + V₁(1 - cos(6σ))
+        self.V_sigma = V0 * (1 - np.cos(3 * self.basis.sigma)) + V1 * (1 - np.cos(6 * self.basis.sigma))
         
         # Precompute spatial coupling matrix
         self._precompute_spatial_coupling()
@@ -367,6 +372,33 @@ class NonSeparableWavefunctionSolver:
         
         return delta_sigma_opt
     
+    def _compute_potential_energy(self, envelope: NDArray) -> float:
+        """
+        Compute expectation value of potential energy for a given envelope.
+        
+        FIRST-PRINCIPLES: Includes full potential in energy denominators:
+            <V> = ∫ V(σ) |envelope|² dσ / ∫ |envelope|² dσ
+        
+        This is necessary because the full Hamiltonian energy is:
+            E = E_kinetic + E_potential = (2n + l) + <V>
+        
+        Args:
+            envelope: The subspace envelope function χ(σ)
+            
+        Returns:
+            Expectation value of V_sigma for this envelope
+        """
+        dsigma = self.basis.dsigma
+        envelope_norm_sq = np.sum(np.abs(envelope)**2) * dsigma
+        
+        if envelope_norm_sq < 1e-10:
+            return 0.0
+        
+        # <V> = ∫ V(σ) |χ|² dσ / ∫ |χ|² dσ
+        V_expectation = np.sum(self.V_sigma * np.abs(envelope)**2) * dsigma / envelope_norm_sq
+        
+        return V_expectation
+    
     def _self_consistent_iteration_core(
         self,
         n_eff: int,
@@ -436,7 +468,11 @@ class NonSeparableWavefunctionSolver:
             # === STEP 3: Build perturbative structure ===
             chi_components = {target_key: chi_primary}
             
-            E_target_0 = 2 * n_eff + 0
+            # FIRST-PRINCIPLES: Include potential energy in energy denominators
+            # E = E_kinetic + <V> = (2n + l) + <V>
+            V_target = self._compute_potential_energy(chi_primary)
+            V_envelope = self._compute_potential_energy(envelope)
+            E_target_0 = 2 * n_eff + 0 + V_target
             
             for i, state in enumerate(self.basis.spatial_states):
                 key = (state.n, state.l, state.m)
@@ -448,7 +484,8 @@ class NonSeparableWavefunctionSolver:
                     chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                     continue
                 
-                E_state = 2 * state.n + state.l
+                # Include potential energy for induced state
+                E_state = 2 * state.n + state.l + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -557,7 +594,7 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
         
         return chi_components
-        
+    
     # =========================================================================
     # SELF-CONSISTENT Δx ITERATION (Step 1-3 of missing physics fix)
     # =========================================================================
@@ -600,9 +637,11 @@ class NonSeparableWavefunctionSolver:
         
         chi_components = {target_key: chi_primary}
         
-        # Energy scale for target state - standard 3D harmonic oscillator form
-        # E = 2n + l (in units where ℏω = 1)
-        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
+        # FIRST-PRINCIPLES: Include potential energy in energy denominators
+        # E = E_kinetic + <V> = (2n + l) + <V>
+        V_target = self._compute_potential_energy(chi_primary)
+        V_envelope = self._compute_potential_energy(envelope)
+        E_target_0 = 2 * n_target + 0 + V_target  # l=0 for target s-wave
         
         # NOTE: No spatial_enhancement factor - n-dependence emerges naturally from:
         # 1. R_ij matrix elements (computed from actual gradient integrals)
@@ -620,10 +659,9 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                 continue
             
-            # Energy denominator - standard 3D harmonic oscillator form
-            # E = 2n + l (in units where ℏω = 1)
-            # See next_steps.md Phase 1, Task 1.2
-            E_state = 2 * state.n + state.l
+            # Energy denominator - includes potential energy (first-principles)
+            # E = (2n + l) + <V>
+            E_state = 2 * state.n + state.l + V_envelope
             E_denom = E_target_0 - E_state
             
             # Regularize small denominators (numerical stability)
@@ -809,7 +847,7 @@ class NonSeparableWavefunctionSolver:
             
             # Update induced components with nonlinear shifts
             total_change = 0.0
-            
+        
             for i, state in enumerate(self.basis.spatial_states):
                 key = (state.n, state.l, state.m)
                 if key == target_key:
@@ -856,9 +894,9 @@ class NonSeparableWavefunctionSolver:
                 # Track change for convergence
                 change = np.sum(np.abs(induced - chi_components_old[key])**2) * dsigma
                 total_change += change
-                
-                chi_components[key] = induced
             
+            chi_components[key] = induced
+        
             # === SECOND-ORDER: l=1 → l=2 transitions (within nonlinear loop) ===
             # Clear and recompute l=2 components to avoid accumulation
             l2_components = {}
@@ -1318,8 +1356,10 @@ class NonSeparableWavefunctionSolver:
             # Primary state: three-quark composite (UNNORMALIZED)
             chi_components[target_key] = chi_primary.copy()
             
-            # Target energy for n_eff = 3
-            E_target_0 = 2 * n_eff + 0
+            # FIRST-PRINCIPLES: Include potential energy in energy denominators
+            V_target = self._compute_potential_energy(chi_primary)
+            V_envelope = self._compute_potential_energy(single_well_envelope)
+            E_target_0 = 2 * n_eff + 0 + V_target
             
             # Induced components from spatial-subspace coupling
             for i, state in enumerate(self.basis.spatial_states):
@@ -1332,7 +1372,8 @@ class NonSeparableWavefunctionSolver:
                     chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                     continue
                 
-                E_state = 2 * state.n + state.l
+                # Include potential energy (first-principles)
+                E_state = 2 * state.n + state.l + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -1511,9 +1552,10 @@ class NonSeparableWavefunctionSolver:
             
             chi_components = {target_key: chi_primary_norm}
             
-            # Energy of target state (first-principles: 3D harmonic oscillator)
-            # n_eff = 2 gives E_target_0 = 4 (like muon)
-            E_target_0 = 2 * n_eff + 0
+            # FIRST-PRINCIPLES: Include potential energy in energy denominators
+            V_target = self._compute_potential_energy(chi_primary_norm)
+            V_envelope = self._compute_potential_energy(single_well_envelope)
+            E_target_0 = 2 * n_eff + 0 + V_target
             
             # Induced components from spatial-subspace coupling
             for i, state in enumerate(self.basis.spatial_states):
@@ -1526,7 +1568,8 @@ class NonSeparableWavefunctionSolver:
                     chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                     continue
                 
-                E_state = 2 * state.n + state.l
+                # Include potential energy (first-principles)
+                E_state = 2 * state.n + state.l + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -1606,7 +1649,7 @@ class NonSeparableWavefunctionSolver:
             delta_x_final=Delta_x_current,
             delta_sigma_final=delta_sigma_final,
         )
-
+    
     # =========================================
     # Accessor methods for use by energy minimizer
     # =========================================
