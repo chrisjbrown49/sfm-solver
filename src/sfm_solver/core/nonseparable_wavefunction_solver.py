@@ -80,6 +80,13 @@ class WavefunctionStructure:
     
     # Final subspace width (from energy minimization)
     delta_sigma_final: Optional[float] = None
+    
+    # Electromagnetic self-energy (from circulation)
+    # E_EM = g₂ |J|² where J = ∫ χ* ∂χ/∂σ dσ
+    em_energy: Optional[float] = None
+    
+    # Net circulation (for charge calculation)
+    circulation: Optional[complex] = None
 
 
 class NonSeparableWavefunctionSolver:
@@ -135,12 +142,13 @@ class NonSeparableWavefunctionSolver:
     def __init__(
         self,
         alpha: float,
-        beta: float = None,  # No longer used in solver - kept for backward compat
+        beta: float = 0.000511,  # Mass scaling: m = beta * A^2 (calibrated to electron)
         g_internal: float = None,
-        g1: float = 5000.0,  # PHENOMENOLOGICAL - see docstring
-        g2: float = 0.004,   # PHENOMENOLOGICAL - see docstring
-        V0: float = 1.0,
-        V1: float = 0.0,
+        g1: float = None,  # Nonlinear self-interaction (loads from constants if None)
+        g2: float = None,  # Circulation/EM coupling (loads from constants if None)
+        lambda_so: float = None,  # Spin-orbit coupling (loads from constants if None)
+        V0: float = None,  # Three-well primary depth (loads from constants if None)
+        V1: float = None,  # Three-well secondary depth (loads from constants if None)
         n_max: int = 5,
         l_max: int = 2,
         N_sigma: int = 64,
@@ -191,17 +199,44 @@ class NonSeparableWavefunctionSolver:
             from sfm_solver.core.constants import G_INTERNAL
             self.g_internal = G_INTERNAL
         
-        self.g1 = g1
-        self.g2 = g2
-        self.V0 = V0
-        self.V1 = V1
+        # Load g1, g2, lambda_so from constants if not provided
+        if g1 is not None:
+            self.g1 = g1
+        else:
+            from sfm_solver.core.constants import G1
+            self.g1 = G1
+        
+        if g2 is not None:
+            self.g2 = g2
+        else:
+            from sfm_solver.core.constants import G2
+            self.g2 = G2
+        
+        if lambda_so is not None:
+            self.lambda_so = lambda_so
+        else:
+            from sfm_solver.core.constants import LAMBDA_SO
+            self.lambda_so = LAMBDA_SO
+        
+        # Load V0 and V1 from constants if not provided
+        if V0 is not None:
+            self.V0 = V0
+        else:
+            from sfm_solver.core.constants import V0 as V0_CONST
+            self.V0 = V0_CONST
+        
+        if V1 is not None:
+            self.V1 = V1
+        else:
+            from sfm_solver.core.constants import V1 as V1_CONST
+            self.V1 = V1_CONST
         
         # Create basis (from correlated_basis.py)
         self.basis = CorrelatedBasis(n_max=n_max, l_max=l_max, N_sigma=N_sigma, a0=a0)
         
         # Three-well potential on subspace grid
         # V(σ) = V₀(1 - cos(3σ)) + V₁(1 - cos(6σ))
-        self.V_sigma = V0 * (1 - np.cos(3 * self.basis.sigma)) + V1 * (1 - np.cos(6 * self.basis.sigma))
+        self.V_sigma = self.V0 * (1 - np.cos(3 * self.basis.sigma)) + self.V1 * (1 - np.cos(6 * self.basis.sigma))
         
         # Precompute spatial coupling matrix
         self._precompute_spatial_coupling()
@@ -307,6 +342,112 @@ class NonSeparableWavefunctionSolver:
         # k_eff = Im[∫χ*dχ/dσ] / ∫|χ|²
         return float(np.imag(integral) / norm_sq)
     
+    def _compute_circulation(
+        self,
+        chi_components: Dict[Tuple[int, int, int], NDArray]
+    ) -> complex:
+        """
+        Compute circulation integral J = ∫ χ* ∂χ/∂σ dσ.
+        
+        FIRST-PRINCIPLES:
+        =================
+        
+        The circulation integral is the fundamental quantity that determines
+        both charge and EM self-energy in SFM:
+        
+            J = ∫₀^(2π) χ*(σ) ∂χ/∂σ dσ
+        
+        For a winding state χ = A × exp(ikσ) × f(σ):
+            J ≈ i × k × A²
+        
+        Physical significance:
+        - Im(J) determines the winding number k (and thus charge)
+        - |J|² determines the EM self-energy: E_EM = g₂ |J|²
+        
+        Args:
+            chi_components: Dictionary of wavefunction components
+            
+        Returns:
+            Complex circulation integral J
+        """
+        D1 = self._build_subspace_derivative_matrix()
+        dsigma = self.basis.dsigma
+        
+        # Sum all components to get total wavefunction
+        chi_total = np.zeros(self.basis.N_sigma, dtype=complex)
+        for chi in chi_components.values():
+            chi_total += chi
+        
+        # Compute ∂χ/∂σ
+        dchi_total = D1 @ chi_total
+        
+        # Circulation integral: J = ∫ χ* ∂χ/∂σ dσ
+        J = np.sum(np.conj(chi_total) * dchi_total) * dsigma
+        
+        return J
+    
+    def _compute_em_self_energy(
+        self,
+        chi_components: Dict[Tuple[int, int, int], NDArray]
+    ) -> float:
+        """
+        Compute electromagnetic self-energy from NORMALIZED circulation.
+        
+        FIRST-PRINCIPLES:
+        =================
+        
+        The EM self-energy emerges from the circulation term in the SFM Hamiltonian:
+        
+            Ĥ_circ = g₂ |∫ χ* ∂χ/∂σ dσ|²
+        
+        For a NORMALIZED wavefunction (∫|χ|²dσ = 1), this gives:
+            E_EM = g₂ |J_normalized|²
+        
+        where J_normalized = J / (∫|χ|²dσ).
+        
+        CRITICAL: We must normalize the circulation to prevent A⁴ scaling.
+        The raw circulation J ~ k × A², so |J|² ~ k² × A⁴, which creates
+        runaway growth in the self-consistent iteration.
+        
+        By using J_normalized = J/A², we get |J_normalized|² ~ k² (charge-dependent
+        only, independent of amplitude), which is the correct physics.
+        
+        Physical interpretation:
+        - For charged particles (|k| > 0): E_EM > 0 (positive mass contribution)
+        - For neutral particles (k ≈ 0): E_EM ≈ 0 (no EM contribution)
+        
+        Args:
+            chi_components: Dictionary of wavefunction components
+            
+        Returns:
+            EM self-energy E_EM = g₂ |J_normalized|²
+        """
+        D1 = self._build_subspace_derivative_matrix()
+        dsigma = self.basis.dsigma
+        
+        # Sum all components to get total wavefunction
+        chi_total = np.zeros(self.basis.N_sigma, dtype=complex)
+        for chi in chi_components.values():
+            chi_total += chi
+        
+        # Compute normalization (amplitude squared)
+        norm_sq = np.sum(np.abs(chi_total)**2) * dsigma
+        if norm_sq < 1e-20:
+            return 0.0
+        
+        # Compute raw circulation: J = ∫ χ* ∂χ/∂σ dσ
+        dchi_total = D1 @ chi_total
+        J_raw = np.sum(np.conj(chi_total) * dchi_total) * dsigma
+        
+        # Normalize: J_normalized = J / (∫|χ|²dσ)
+        # This removes the A² scaling, leaving only the charge-dependent part
+        J_normalized = J_raw / norm_sq
+        
+        # E_EM = g₂ |J_normalized|²
+        E_em = self.g2 * np.abs(J_normalized)**2
+        
+        return float(E_em)
+    
     def _build_envelope(
         self,
         sigma: NDArray,
@@ -328,6 +469,56 @@ class NonSeparableWavefunctionSolver:
             Gaussian envelope array
         """
         return np.exp(-(sigma - center)**2 / delta_sigma)
+    
+    def _build_envelope_with_spinorbit(
+        self,
+        sigma: NDArray,
+        center: float,
+        delta_sigma: float,
+        k_winding: int,
+    ) -> NDArray:
+        """
+        Build Gaussian envelope with spin-orbit coupling shift.
+        
+        FIRST-PRINCIPLES:
+        =================
+        
+        The spin-orbit Hamiltonian H_so = lambda (d/dsigma x sigma_z) creates
+        different effective potentials for particles with different windings:
+        
+            V_eff(sigma, k) = V(sigma) - lambda * k * sigma_z
+        
+        For fermions with spin alignment, this shifts the envelope center:
+            delta_shift = lambda * k / V0
+        
+        Positive winding (k > 0, e.g., u quark with k=+5):
+            -> envelope shifted in one direction
+            
+        Negative winding (k < 0, e.g., d quark with k=-3):
+            -> envelope shifted in opposite direction
+        
+        This creates DIFFERENT interference patterns for proton (uud) vs
+        neutron (udd), leading to different amplitudes and thus masses.
+        
+        Args:
+            sigma: Subspace grid
+            center: Base center position (well center)
+            delta_sigma: Width parameter
+            k_winding: Winding number (includes sign)
+            
+        Returns:
+            Gaussian envelope with spin-orbit shifted center
+        """
+        # Spin-orbit shift: delta = lambda * k / V0
+        # This is the envelope center shift from spin-orbit coupling
+        if self.V0 > 0:
+            so_shift = self.lambda_so * k_winding / self.V0
+        else:
+            so_shift = 0.0
+        
+        shifted_center = center + so_shift
+        
+        return np.exp(-(sigma - shifted_center)**2 / delta_sigma)
     
     def _compute_optimal_delta_sigma(self, A: float) -> float:
         """
@@ -371,6 +562,49 @@ class NonSeparableWavefunctionSolver:
         delta_sigma_opt = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, delta_sigma_opt))
         
         return delta_sigma_opt
+    
+    def _compute_optimal_delta_sigma_with_k(self, A: float, k: int) -> float:
+        """
+        Compute optimal subspace width accounting for winding number k.
+        
+        FIRST-PRINCIPLES DERIVATION:
+        ============================
+        
+        The subspace kinetic energy scales with k² (from winding):
+            E_kin,sigma ~ k²/delta_sigma²
+        
+        The full energy balance is:
+            E = k²/delta_sigma² + V₀×delta_sigma + g₁×A⁴/delta_sigma
+        
+        Minimizing with respect to delta_sigma:
+            dE/d(delta_sigma) = -2k²/delta_sigma³ + V₀ - g₁×A⁴/delta_sigma² = 0
+        
+        For the dominant balance (V₀ subdominant):
+            delta_sigma_opt ~ (2k²/(g₁×A⁴))^(1/3) ~ k^(2/3)
+        
+        Args:
+            A: Current amplitude estimate
+            k: Winding number (absolute value used)
+            
+        Returns:
+            Optimal delta_sigma including k² scaling
+        """
+        k_abs = abs(k) if k != 0 else 1
+        
+        if self.g1 <= 0 or A < 1e-10:
+            # Fallback with k-dependent default
+            return 0.5 * (k_abs / 1.0) ** (2.0/3.0)
+        
+        # Energy minimization including k² kinetic term
+        k_squared = k_abs ** 2
+        A_fourth = A ** 4
+        delta_sigma_opt = (2.0 * k_squared / (self.g1 * A_fourth)) ** (1.0/3.0)
+        
+        # Physics-based bounds (scale with k^(2/3))
+        MIN_DELTA_SIGMA = 0.1 * (k_abs ** (2.0/3.0))
+        MAX_DELTA_SIGMA = 2.0
+        
+        return max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, delta_sigma_opt))
     
     def _compute_potential_energy(self, envelope: NDArray) -> float:
         """
@@ -1226,6 +1460,63 @@ class NonSeparableWavefunctionSolver:
         
         return np.exp(-(sigma - center)**2 / width)
 
+    def _well_envelope_with_spinorbit(
+        self, 
+        well_index: int, 
+        sigma: NDArray, 
+        k_winding: int,
+        width: float = None
+    ) -> NDArray:
+        """
+        Generate Gaussian envelope with spin-orbit coupling shift.
+        
+        FIRST-PRINCIPLES:
+        =================
+        
+        The spin-orbit Hamiltonian H_so = lambda (d/dsigma x sigma_z) creates
+        different effective potentials for quarks with different windings:
+        
+            V_eff(sigma, k) = V(sigma) - lambda * k * sigma_z
+        
+        This shifts the envelope center from the well minimum:
+            delta_shift = lambda * k / V0
+        
+        For proton (uud) vs neutron (udd):
+            - u quark (k=+5): shifted one direction
+            - d quark (k=-3): shifted opposite direction
+        
+        This creates DIFFERENT interference patterns, leading to different
+        total amplitudes A and thus different masses m = beta * A^2.
+        
+        Args:
+            well_index: 1, 2, or 3 (for the three wells)
+            sigma: Subspace grid
+            k_winding: Winding number with sign (e.g., +5 for u, -3 for d)
+            width: Width parameter (if None, computed from k^(2/3) scaling)
+            
+        Returns:
+            Envelope with spin-orbit shifted center and k-dependent width
+        """
+        # Well centers from V = V0(1 - cos(3*sigma)) minima
+        well_centers = [np.pi/3, np.pi, 5*np.pi/3]
+        base_center = well_centers[well_index - 1]
+        
+        # Spin-orbit shift: delta = lambda * k / V0
+        if self.V0 > 0:
+            so_shift = self.lambda_so * k_winding / self.V0
+        else:
+            so_shift = 0.0
+        
+        shifted_center = base_center + so_shift
+        
+        # Width: use k-dependent width if not specified
+        # Higher k -> wider envelope (k^(2/3) scaling from kinetic energy)
+        if width is None:
+            k_abs = abs(k_winding) if k_winding != 0 else 1
+            width = 0.5 * (k_abs / 1.0) ** (2.0/3.0)
+        
+        return np.exp(-(sigma - shifted_center)**2 / width)
+
     # =========================================================================
     # BARYON SELF-CONSISTENT SOLVER (4D FRAMEWORK)
     # =========================================================================
@@ -1244,6 +1535,7 @@ class NonSeparableWavefunctionSolver:
         self,
         quark_wells: tuple = (1, 2, 3),
         color_phases: tuple = (0, 2*np.pi/3, 4*np.pi/3),
+        quark_windings: tuple = None,  # Quark winding numbers for EM
         n_radial: int = 1,
         max_iter_outer: int = 30,
         tol_outer: float = 1e-4,
@@ -1264,48 +1556,75 @@ class NonSeparableWavefunctionSolver:
             χ_primary = χ_q1(σ) + χ_q2(σ) + χ_q3(σ)
         
         where each quark component is localized in a different well with
-        color phases (0, 2π/3, 4π/3) for color neutrality.
+        color phases (0, 2π/3, 4π/3) for color neutrality AND winding
+        numbers that determine quark charges:
         
-        Induced components arise from spatial-subspace coupling:
-            χ_{nlm}(σ) = -α × R_{nlm,target} × envelope / E_denom
+            χ_qi(σ) = envelope(σ_well_i) × exp(i × phi_color_i) × exp(i × k_i × σ)
         
-        The self-confinement follows the same physics as leptons:
-            Δx = 1/(G_internal × A⁶)^(1/3)
+        QUARK WINDING NUMBERS (First-Principles):
+        =========================================
         
-        where A is computed from the composite wavefunction.
+        The winding number k determines electric charge through the
+        circulation integral J = ∫ χ* ∂χ/∂σ dσ:
+        
+            - u quark: k = +5 → Q = +2/3 e (from 3-fold symmetry)
+            - d quark: k = -3 → Q = -1/3 e
+            
+        For baryons:
+            - Proton (uud): k = (+5, +5, -3) → Q_total = +1 e
+            - Neutron (udd): k = (+5, -3, -3) → Q_total = 0
+        
+        The EM self-energy E_EM = g₂ |J|² creates mass splitting.
         
         Args:
             quark_wells: Tuple of (q1_well, q2_well, q3_well), each 1-3
             color_phases: Tuple of (phi1, phi2, phi3) for color neutrality
+            quark_windings: Tuple of (k1, k2, k3) winding numbers.
+                           Default (None) = proton (uud): (+5, +5, -3)
+                           For neutron (udd): (+5, -3, -3)
             n_radial: Radial quantum number (1=ground, 2=first excited)
             max_iter_outer: Maximum self-consistent iterations
             tol_outer: Convergence tolerance
             verbose: Print progress
             
         Returns:
-            WavefunctionStructure with converged baryon wavefunction
+            WavefunctionStructure with converged baryon wavefunction and EM energy
         """
+        # Default to proton winding: uud = (+5, +5, -3)
+        if quark_windings is None:
+            quark_windings = (5, 5, -3)  # Proton (uud)
+        
+        k1, k2, k3 = quark_windings
+        net_winding = k1 + k2 + k3
+        
         if verbose:
             print(f"\n=== Self-Consistent Baryon Solver (4D Framework) ===")
             print(f"Quark wells: {quark_wells}, Color phases: {color_phases}")
+            print(f"Quark windings: {quark_windings} -> net k = {net_winding}")
         
         sigma = self.basis.sigma
         dsigma = self.basis.dsigma
         
         # === BUILD COMPOSITE PRIMARY WAVEFUNCTION ===
-        # Each quark component localized in its well with color phase
+        # Each quark component localized in its well with:
+        #   - Color phase (for color neutrality)
+        #   - Winding phase exp(i*k*σ) (for EM charge)
         q1_well, q2_well, q3_well = quark_wells
         phi1, phi2, phi3 = color_phases
         
-        # Quark envelopes (first-principles: well localization)
-        envelope_q1 = self._well_envelope(q1_well, sigma)
-        envelope_q2 = self._well_envelope(q2_well, sigma)
-        envelope_q3 = self._well_envelope(q3_well, sigma)
+        # Quark envelopes with spin-orbit coupling (FIRST-PRINCIPLES)
+        # Different windings create different envelope shifts and widths
+        envelope_q1 = self._well_envelope_with_spinorbit(q1_well, sigma, k1)
+        envelope_q2 = self._well_envelope_with_spinorbit(q2_well, sigma, k2)
+        envelope_q3 = self._well_envelope_with_spinorbit(q3_well, sigma, k3)
         
         # Composite primary wavefunction (UNNORMALIZED during iteration)
-        chi_primary_q1 = envelope_q1 * np.exp(1j * phi1)
-        chi_primary_q2 = envelope_q2 * np.exp(1j * phi2)
-        chi_primary_q3 = envelope_q3 * np.exp(1j * phi3)
+        # Each quark has: envelope × color_phase × winding_phase
+        # The spin-orbit shifted envelopes create different interference patterns
+        # for proton (uud) vs neutron (udd), leading to different amplitudes
+        chi_primary_q1 = envelope_q1 * np.exp(1j * phi1) * np.exp(1j * k1 * sigma)
+        chi_primary_q2 = envelope_q2 * np.exp(1j * phi2) * np.exp(1j * k2 * sigma)
+        chi_primary_q3 = envelope_q3 * np.exp(1j * phi3) * np.exp(1j * k3 * sigma)
         chi_primary = chi_primary_q1 + chi_primary_q2 + chi_primary_q3
         
         # === SELF-CONSISTENT ITERATION ===
@@ -1356,10 +1675,9 @@ class NonSeparableWavefunctionSolver:
             # Primary state: three-quark composite (UNNORMALIZED)
             chi_components[target_key] = chi_primary.copy()
             
-            # FIRST-PRINCIPLES: Include potential energy in energy denominators
-            V_target = self._compute_potential_energy(chi_primary)
-            V_envelope = self._compute_potential_energy(single_well_envelope)
-            E_target_0 = 2 * n_eff + 0 + V_target
+            # Standard perturbation theory: use kinetic energies only in denominators
+            # The potential is already included through the envelope shapes
+            E_target_0 = 2 * n_eff + 0
             
             # Induced components from spatial-subspace coupling
             for i, state in enumerate(self.basis.spatial_states):
@@ -1372,8 +1690,8 @@ class NonSeparableWavefunctionSolver:
                     chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
                     continue
                 
-                # Include potential energy (first-principles)
-                E_state = 2 * state.n + state.l + V_envelope
+                # Standard perturbation theory: kinetic energy only
+                E_state = 2 * state.n + state.l
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -1384,10 +1702,19 @@ class NonSeparableWavefunctionSolver:
                 induced = -self.alpha * R_coupling * single_well_envelope / E_denom
                 chi_components[key] = induced
             
-            # Compute total amplitude A (UNNORMALIZED)
-            A_new = np.sqrt(self._compute_total_amplitude(chi_components))
+            # Compute base amplitude from wavefunction structure
+            A_base = np.sqrt(self._compute_total_amplitude(chi_components))
             
-            # Self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
+            # Apply EM self-energy to effective amplitude (FIRST-PRINCIPLES)
+            # m_total = beta * (A^2 + E_EM/beta) = beta * A_eff^2
+            E_em = self._compute_em_self_energy(chi_components)
+            A_eff_sq = A_base**2 + E_em / self.beta
+            A_new = np.sqrt(max(A_eff_sq, A_base**2))
+            
+            if verbose:
+                print(f"  A_base={A_base:.6f}, E_em={E_em:.6e}, A_eff={A_new:.6f}")
+            
+            # Self-confinement with effective amplitude: Δx = 1/(G_internal × A⁶)^(1/3)
             A_sixth = A_new ** 6
             if self.g_internal > 0 and A_sixth > 1e-30:
                 Delta_x_new = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)
@@ -1435,9 +1762,16 @@ class NonSeparableWavefunctionSolver:
         structure_norm = A_current
         delta_sigma_final = delta_sigma_current
         
+        # Compute EM self-energy from circulation (FIRST-PRINCIPLES)
+        # E_EM = g₂ |J|² where J = ∫ χ* ∂χ/∂σ dσ
+        circulation = self._compute_circulation(chi_components_final)
+        em_energy = self._compute_em_self_energy(chi_components_final)
+        
         if verbose:
             print(f"\n=== Final Baryon Structure (4D Framework) ===")
             print(f"  dx={Delta_x_current:.6f}, A={A_current:.6f}, ds={delta_sigma_final:.6f}")
+            print(f"  k_eff={k_eff:.4f}, |J|^2={np.abs(circulation)**2:.4e}")
+            print(f"  EM self-energy: E_EM = g2*|J|^2 = {em_energy:.4e}")
             # Verify color neutrality
             phase_sum = np.exp(1j * phi1) + np.exp(1j * phi2) + np.exp(1j * phi3)
             print(f"  Color neutrality check: |sum(e^(i*phi))| = {np.abs(phase_sum):.2e} (should be ~0)")
@@ -1445,7 +1779,7 @@ class NonSeparableWavefunctionSolver:
         return WavefunctionStructure(
             chi_components=chi_components_final,
             n_target=n_eff,
-            k_winding=0,  # Color neutral - net winding is zero
+            k_winding=net_winding,  # Net winding from quark charges
             l_composition=l_composition,
             k_eff=k_eff,
             structure_norm=structure_norm,
@@ -1455,6 +1789,8 @@ class NonSeparableWavefunctionSolver:
             convergence_history=history,
             delta_x_final=Delta_x_current,
             delta_sigma_final=delta_sigma_final,
+            em_energy=em_energy,
+            circulation=circulation,
         )
 
     def solve_meson_self_consistent(

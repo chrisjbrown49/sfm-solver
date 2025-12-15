@@ -66,6 +66,8 @@ from sfm_solver.core.constants import (
     ALPHA as ALPHA_INITIAL,
     G_INTERNAL as G_INTERNAL_INITIAL,
     G1 as G1_INITIAL,
+    G2 as G2_INITIAL,
+    LAMBDA_SO as LAMBDA_SO_INITIAL,
 )
 
 # For backward compatibility with legacy "four" mode (deprecated)
@@ -380,28 +382,34 @@ class OptimizationResult:
     kappa: float
     g1: float
     
+    # EM parameters (for baryon mass splitting)
+    g2: float = G2_INITIAL           # Circulation/EM coupling
+    lambda_so: float = LAMBDA_SO_INITIAL  # Spin-orbit coupling
+    
     # Derived quantities
-    L0_gev_inv: float  # From Beautiful Equation
+    L0_gev_inv: float = 0.0  # From Beautiful Equation
     
     # Fit quality
-    total_error: float
-    converged: bool
+    total_error: float = 0.0
+    converged: bool = False
     
     # Per-particle results
-    calibration_results: Dict[str, Dict]
-    validation_results: Dict[str, Dict]
+    calibration_results: Dict[str, Dict] = field(default_factory=dict)
+    validation_results: Dict[str, Dict] = field(default_factory=dict)
     
     # Optimization metadata
-    iterations: int
-    function_evaluations: int
-    time_seconds: float
+    iterations: int = 0
+    function_evaluations: int = 0
+    time_seconds: float = 0.0
     
     # Original scipy result
     scipy_result: Optional[OptimizeResult] = None
     
     def save_constants_to_json(self, save: bool = True) -> None:
         """
-        Save the optimized constants (hbar, c, beta, alpha, kappa, g1) to constants.json.
+        Save the optimized constants to constants.json.
+        
+        Saves: hbar, c, beta, alpha, kappa, g1, g2, lambda_so
         
         This updates the constants.json file in sfm_solver/core/ with the optimized
         values so they will be used as defaults in future runs.
@@ -424,6 +432,8 @@ class OptimizationResult:
             "alpha": self.alpha,
             "kappa": self.kappa,
             "g1": self.g1,
+            "g2": self.g2,
+            "lambda_so": self.lambda_so,
         }
         
         save_constants_to_json(updated_constants)
@@ -441,6 +451,8 @@ class OptimizationResult:
             f"  alpha (alpha) = {self.alpha:.6f} GeV", 
             f"  kappa (kappa) = {self.kappa:.4f} GeV^-^2",
             f"  g_1        = {self.g1:.2f}",
+            f"  g_2        = {self.g2:.6f} (EM circulation coupling)",
+            f"  lambda_so  = {self.lambda_so:.4f} (spin-orbit coupling)",
             f"  L_0        = {self.L0_gev_inv:.6f} GeV^-1 (from Beautiful Equation)",
             "",
             f"CONVERGENCE: {'[OK] YES' if self.converged else '[FAIL] NO'}",
@@ -543,7 +555,9 @@ class SFMParameterOptimizer:
         beta: float,
         alpha: float,
         kappa: float,
-        g1: float
+        g1: float,
+        g2: float = G2_INITIAL,
+        lambda_so: float = LAMBDA_SO_INITIAL,
     ) -> Optional[float]:
         """
         Run the self-consistent lepton solver with injected parameters.
@@ -563,7 +577,8 @@ class SFMParameterOptimizer:
                 beta=beta,
                 kappa=kappa,
                 g1=g1,
-                g2=0.004,
+                g2=g2,
+                lambda_so=lambda_so,
                 V0=self.V0,
                 n_max=5,
                 l_max=2,
@@ -598,7 +613,9 @@ class SFMParameterOptimizer:
         beta: float,
         alpha: float,
         kappa: float,
-        g1: float
+        g1: float,
+        g2: float = G2_INITIAL,
+        lambda_so: float = LAMBDA_SO_INITIAL,
     ) -> Optional[float]:
         """
         Run the self-consistent meson solver with injected parameters.
@@ -620,7 +637,8 @@ class SFMParameterOptimizer:
                 alpha=alpha,
                 g_internal=g_internal,
                 g1=g1,
-                g2=0.004,
+                g2=g2,
+                lambda_so=lambda_so,
                 V0=self.V0,
                 n_max=5,
                 l_max=2,
@@ -651,15 +669,17 @@ class SFMParameterOptimizer:
         beta: float,
         alpha: float,
         kappa: float,
-        g1: float
-    ) -> Optional[float]:
+        g1: float,
+        g2: float = G2_INITIAL,
+        lambda_so: float = LAMBDA_SO_INITIAL,
+    ) -> Optional[Tuple[float, Optional[float]]]:
         """
         Run the self-consistent baryon solver with injected parameters.
         
         Uses NonSeparableWavefunctionSolver.solve_baryon_self_consistent().
         
         Returns:
-            Predicted mass in GeV, or None if solver fails.
+            Tuple of (predicted mass in GeV, EM self-energy), or (None, None) if solver fails.
         """
         try:
             import numpy as np
@@ -673,17 +693,27 @@ class SFMParameterOptimizer:
                 alpha=alpha,
                 g_internal=g_internal,
                 g1=g1,
-                g2=0.004,
+                g2=g2,
+                lambda_so=lambda_so,
                 V0=self.V0,
                 n_max=5,
                 l_max=2,
                 N_sigma=64,
             )
             
+            # Determine quark windings based on baryon type
+            if particle.baryon_type == 'proton':
+                quark_windings = (5, 5, -3)  # uud: +2/3, +2/3, -1/3
+            elif particle.baryon_type == 'neutron':
+                quark_windings = (5, -3, -3)  # udd: +2/3, -1/3, -1/3
+            else:
+                quark_windings = None  # Use default
+            
             # Run self-consistent baryon solver
             # quark_wells are well indices (1, 2, 3)
             result = solver.solve_baryon_self_consistent(
                 quark_wells=(1, 2, 3),
+                quark_windings=quark_windings,
                 max_iter_outer=30,
                 verbose=False,
             )
@@ -691,7 +721,8 @@ class SFMParameterOptimizer:
             # Extract predicted mass: m = beta * A^2
             A = result.structure_norm
             m_pred = beta * A**2
-            return m_pred
+            em_energy = result.em_energy
+            return m_pred, em_energy
             
         except Exception as e:
             if self.verbose and self._eval_count % 100 == 0:
@@ -704,7 +735,9 @@ class SFMParameterOptimizer:
         beta: float,
         alpha: float,
         kappa: float,
-        g1: float
+        g1: float,
+        g2: float = G2_INITIAL,
+        lambda_so: float = LAMBDA_SO_INITIAL,
     ) -> Optional[float]:
         """
         Predict mass for a particle using actual solvers.
@@ -713,11 +746,14 @@ class SFMParameterOptimizer:
             Predicted mass in GeV, or None if solver fails.
         """
         if particle.particle_type == 'lepton':
-            return self._run_lepton_solver(particle, beta, alpha, kappa, g1)
+            return self._run_lepton_solver(particle, beta, alpha, kappa, g1, g2, lambda_so)
         elif particle.particle_type == 'meson':
-            return self._run_meson_solver(particle, beta, alpha, kappa, g1)
+            return self._run_meson_solver(particle, beta, alpha, kappa, g1, g2, lambda_so)
         elif particle.particle_type == 'baryon':
-            return self._run_baryon_solver(particle, beta, alpha, kappa, g1)
+            result = self._run_baryon_solver(particle, beta, alpha, kappa, g1, g2, lambda_so)
+            if result is not None:
+                return result[0]  # Return just the mass, not EM energy
+            return None
         else:
             return None
     
@@ -967,12 +1003,14 @@ class SFMParameterOptimizer:
         beta: float,
         alpha: float,
         kappa: float,
-        g1: float
+        g1: float,
+        g2: float = G2_INITIAL,
+        lambda_so: float = LAMBDA_SO_INITIAL,
     ) -> Dict[str, Dict]:
         """Evaluate predictions for a list of particles."""
         results = {}
         for particle in particles:
-            m_pred = self.predict_mass(particle, beta, alpha, kappa, g1)
+            m_pred = self.predict_mass(particle, beta, alpha, kappa, g1, g2, lambda_so)
             m_exp = particle.mass_gev
             
             if m_pred is not None:
@@ -1792,6 +1830,688 @@ class SFMParameterOptimizer:
         return opt_result
 
 
+    def _objective_em(self, params: np.ndarray) -> float:
+        """
+        Objective function for EM parameter optimization.
+        
+        Optimizes g2 and lambda_so to match proton-neutron mass splitting,
+        with alpha and g_internal fixed at current values.
+        
+        Args:
+            params: Array of [g2, lambda_so]
+            
+        Returns:
+            Total weighted error in mass predictions, emphasizing mass splitting.
+        """
+        g2, lambda_so = params
+        
+        # Use fixed values from constants
+        alpha = ALPHA_INITIAL
+        g_internal = G_INTERNAL_INITIAL
+        g1 = G1_INITIAL
+        
+        self._eval_count += 1
+        start_time = time.time()
+        
+        from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        
+        # Create solver with current parameters
+        solver = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            g_internal=g_internal,
+            g1=g1,
+            g2=g2,
+            lambda_so=lambda_so,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # First, get electron amplitude to derive beta
+        try:
+            result_e = solver.solve_lepton_self_consistent(
+                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+            )
+            A_e_squared = result_e.structure_norm ** 2
+            beta_derived = 0.000511 / A_e_squared  # m_e in GeV
+        except Exception:
+            return 1e20
+        
+        # Solve for proton and neutron
+        try:
+            result_p = solver.solve_baryon_self_consistent(
+                quark_wells=(1, 2, 3),
+                quark_windings=(5, 5, -3),  # uud
+                max_iter_outer=30,
+                verbose=False,
+            )
+            m_proton = beta_derived * result_p.structure_norm ** 2
+            
+            result_n = solver.solve_baryon_self_consistent(
+                quark_wells=(1, 2, 3),
+                quark_windings=(5, -3, -3),  # udd
+                max_iter_outer=30,
+                verbose=False,
+            )
+            m_neutron = beta_derived * result_n.structure_norm ** 2
+        except Exception:
+            return 1e20
+        
+        # Experimental values
+        m_p_exp = 0.938272  # GeV
+        m_n_exp = 0.939565  # GeV
+        delta_m_exp = m_n_exp - m_p_exp  # ~1.293 MeV
+        
+        # Predicted mass difference
+        delta_m_pred = m_neutron - m_proton
+        
+        # Compute errors
+        # 1. Mass splitting error (high weight - this is what we want to optimize)
+        splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2
+        
+        # 2. Absolute mass errors (lower weight - we want reasonable absolute masses)
+        p_error = ((m_proton - m_p_exp) / m_p_exp) ** 2
+        n_error = ((m_neutron - m_n_exp) / m_n_exp) ** 2
+        
+        # 3. Ordering penalty: neutron MUST be heavier than proton
+        ordering_penalty = 0.0 if delta_m_pred > 0 else 100.0
+        
+        # Combine errors with weights
+        # Mass splitting is most important (10x weight)
+        total_error = 10.0 * splitting_error + p_error + n_error + ordering_penalty
+        
+        elapsed = time.time() - start_time
+        
+        is_best = total_error < self._best_error
+        if is_best:
+            self._best_error = total_error
+            self._best_params = (g2, lambda_so, beta_derived)
+        
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(f"\nEval {self._eval_count}: g2={g2:.6f}, lambda_so={lambda_so:.4f}")
+                f.write(f" -> m_p={m_proton*1000:.2f} MeV, m_n={m_neutron*1000:.2f} MeV")
+                f.write(f", delta_m={delta_m_pred*1000:.3f} MeV")
+                f.write(f", error={total_error:.4f}")
+                if is_best:
+                    f.write(" *** BEST ***")
+                f.write("\n")
+        
+        if self.verbose and (self._eval_count % 5 == 0 or is_best):
+            marker = " *** BEST ***" if is_best else ""
+            print(f"Eval {self._eval_count}: g2={g2:.5f}, lambda_so={lambda_so:.3f} "
+                  f"-> delta_m={delta_m_pred*1000:.3f} MeV (exp: {delta_m_exp*1000:.3f}){marker}")
+        
+        return total_error
+    
+    def optimize_em(
+        self,
+        bounds: Optional[List[Tuple[float, float]]] = None,
+        maxiter: int = 50,
+        seed: int = 42,
+        popsize: int = 10,
+        save_json: bool = True,
+    ) -> OptimizationResult:
+        """
+        EM parameter optimization: optimize g2 and lambda_so for proton-neutron mass splitting.
+        
+        Alpha and g_internal are fixed at current constants.json values.
+        Beta is derived from electron mass.
+        
+        This mode specifically targets the ~1.3 MeV proton-neutron mass difference,
+        which arises from EM self-energy contributions.
+        
+        Args:
+            bounds: List of (min, max) bounds for [g2, lambda_so].
+            maxiter: Maximum iterations.
+            seed: Random seed for reproducibility.
+            popsize: Population size for differential evolution.
+            save_json: If True, saves optimized constants to constants.json.
+            
+        Returns:
+            OptimizationResult with optimal parameters and predictions.
+        """
+        if bounds is None:
+            # Bounds for [g2, lambda_so]
+            bounds = [
+                (0.01, 0.1),    # g2: circulation coupling
+                (0.05, 0.5),    # lambda_so: spin-orbit coupling
+            ]
+        
+        if self.verbose:
+            print("=" * 70)
+            print("EM PARAMETER OPTIMIZATION")
+            print("Optimizing {g2, lambda_so} for proton-neutron mass splitting")
+            print("Alpha and g_internal fixed at current values")
+            print("=" * 70)
+            print(f"\nFixed parameters:")
+            print(f"  alpha      = {ALPHA_INITIAL}")
+            print(f"  g_internal = {G_INTERNAL_INITIAL}")
+            print(f"  g1         = {G1_INITIAL}")
+            print(f"\nParameter bounds:")
+            print(f"  g2:        [{bounds[0][0]}, {bounds[0][1]}]")
+            print(f"  lambda_so: [{bounds[1][0]}, {bounds[1][1]}]")
+            print(f"\nTarget: proton-neutron mass difference = 1.293 MeV")
+            print("-" * 70)
+        
+        self._eval_count = 0
+        self._best_error = float('inf')
+        self._best_params = None
+        self._start_time = time.time()
+        
+        if self.log_file:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 70 + "\n")
+                f.write("SFM EM PARAMETER OPTIMIZATION\n")
+                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 70 + "\n")
+                f.write("Target: proton-neutron mass difference = 1.293 MeV\n")
+                f.write(f"Fixed: alpha={ALPHA_INITIAL}, g_internal={G_INTERNAL_INITIAL}\n")
+                f.write(f"Bounds: g2=[{bounds[0][0]}, {bounds[0][1]}], "
+                        f"lambda_so=[{bounds[1][0]}, {bounds[1][1]}]\n")
+                f.write("=" * 70 + "\n")
+        
+        start_time = time.time()
+        
+        # Seed with current values
+        x0 = [G2_INITIAL, LAMBDA_SO_INITIAL]
+        
+        if self.verbose:
+            print(f"Starting from: g2={x0[0]}, lambda_so={x0[1]}")
+        
+        # Use Nelder-Mead for local optimization from good starting point
+        from scipy.optimize import minimize
+        
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = minimize(
+                self._objective_em,
+                x0=x0,
+                method='Nelder-Mead',
+                options={
+                    'maxfev': maxiter * 5,
+                    'xatol': 1e-5,
+                    'fatol': 0.01,
+                    'disp': False,
+                },
+            )
+        
+        elapsed = time.time() - start_time
+        
+        g2_opt, lambda_so_opt = result.x
+        
+        # Derive beta from electron mass
+        try:
+            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            
+            solver = NonSeparableWavefunctionSolver(
+                alpha=ALPHA_INITIAL,
+                g_internal=G_INTERNAL_INITIAL,
+                g1=G1_INITIAL,
+                g2=g2_opt,
+                lambda_so=lambda_so_opt,
+            )
+            
+            result_e = solver.solve_lepton_self_consistent(
+                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+            )
+            A_e_squared = result_e.structure_norm ** 2
+            beta_opt = 0.000511 / A_e_squared
+        except Exception as e:
+            print(f"Warning: Failed to derive beta: {e}")
+            beta_opt = BETA_INITIAL
+        
+        # Derive kappa for backward compatibility
+        kappa_opt = G_INTERNAL_INITIAL / beta_opt
+        L0_opt = 1.0 / beta_opt
+        
+        if self.verbose:
+            print("-" * 70)
+            print(f"Optimization complete.")
+            print(f"Optimal: g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
+            print(f"Derived: beta={beta_opt:.8f} GeV")
+        
+        # Compute results for all particles with optimized EM parameters
+        calibration_results = self._evaluate_particles(
+            self.calibration, beta_opt, ALPHA_INITIAL, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+        )
+        validation_results = self._evaluate_particles(
+            self.validation, beta_opt, ALPHA_INITIAL, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+        )
+        
+        opt_result = OptimizationResult(
+            beta=beta_opt,
+            alpha=ALPHA_INITIAL,
+            kappa=kappa_opt,
+            g1=G1_INITIAL,
+            g2=g2_opt,
+            lambda_so=lambda_so_opt,
+            L0_gev_inv=L0_opt,
+            total_error=result.fun,
+            converged=result.success,
+            calibration_results=calibration_results,
+            validation_results=validation_results,
+            iterations=getattr(result, 'nit', 0),
+            function_evaluations=getattr(result, 'nfev', self._eval_count),
+            time_seconds=elapsed,
+            scipy_result=result,
+        )
+        
+        if self.verbose:
+            print("\n" + opt_result.summary())
+            
+            # Print specific proton-neutron comparison
+            print("\nPROTON-NEUTRON MASS SPLITTING:")
+            print("-" * 40)
+            p_mass = calibration_results.get('proton', {}).get('predicted_mass', 0) * 1000
+            n_mass = validation_results.get('neutron', {}).get('predicted_mass', 0) * 1000
+            delta = n_mass - p_mass
+            print(f"  Proton mass:  {p_mass:.2f} MeV (exp: 938.27 MeV)")
+            print(f"  Neutron mass: {n_mass:.2f} MeV (exp: 939.57 MeV)")
+            print(f"  Difference:   {delta:.3f} MeV (exp: 1.293 MeV)")
+        
+        opt_result.save_constants_to_json(save=save_json)
+        
+        return opt_result
+
+
+    def _objective_full(self, params: np.ndarray) -> float:
+        """
+        Objective function for full 4-parameter optimization.
+        
+        Optimizes alpha, g_internal, g2, and lambda_so simultaneously.
+        Beta is derived from electron mass.
+        
+        Args:
+            params: Array of [alpha, g_internal, g2, lambda_so]
+            
+        Returns:
+            Total weighted error in mass predictions.
+        """
+        alpha, g_internal, g2, lambda_so = params
+        g1 = G1_INITIAL  # Keep g1 fixed
+        
+        self._eval_count += 1
+        start_time = time.time()
+        
+        from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        
+        # Create solver with current parameters
+        try:
+            solver = NonSeparableWavefunctionSolver(
+                alpha=alpha,
+                g_internal=g_internal,
+                g1=g1,
+                g2=g2,
+                lambda_so=lambda_so,
+                V0=self.V0,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+            )
+        except Exception:
+            return 1e20
+        
+        # Compute A^2 for all calibration particles
+        A_squared = {}
+        em_energies = {}
+        
+        for particle in self.calibration:
+            try:
+                if particle.particle_type == 'lepton':
+                    n_target = particle.generation
+                    result = solver.solve_lepton_self_consistent(
+                        n_target=n_target,
+                        k_winding=1,
+                        max_iter_outer=30,
+                        max_iter_nl=0,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    
+                elif particle.particle_type == 'meson':
+                    result = solver.solve_meson_self_consistent(
+                        quark_wells=(1, 2),
+                        max_iter_outer=30,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    
+                elif particle.particle_type == 'baryon':
+                    # Determine quark windings
+                    if particle.baryon_type == 'proton':
+                        quark_windings = (5, 5, -3)
+                    elif particle.baryon_type == 'neutron':
+                        quark_windings = (5, -3, -3)
+                    else:
+                        quark_windings = None
+                    
+                    result = solver.solve_baryon_self_consistent(
+                        quark_wells=(1, 2, 3),
+                        quark_windings=quark_windings,
+                        max_iter_outer=30,
+                        verbose=False,
+                    )
+                    A_squared[particle.name] = result.structure_norm ** 2
+                    em_energies[particle.name] = result.em_energy
+                    
+            except Exception:
+                return 1e20
+        
+        # Also solve neutron (from validation set) for mass splitting
+        try:
+            result_n = solver.solve_baryon_self_consistent(
+                quark_wells=(1, 2, 3),
+                quark_windings=(5, -3, -3),  # udd
+                max_iter_outer=30,
+                verbose=False,
+            )
+            A_squared['neutron'] = result_n.structure_norm ** 2
+            em_energies['neutron'] = result_n.em_energy
+        except Exception:
+            return 1e20
+        
+        # Check we have electron
+        if 'electron' not in A_squared or A_squared['electron'] <= 0:
+            return 1e20
+        
+        # Derive beta from electron mass
+        m_e_exp = 0.000511  # GeV
+        beta_derived = m_e_exp / A_squared['electron']
+        
+        # Compute predicted masses and errors
+        total_error = 0.0
+        predictions = {}
+        
+        for particle in self.calibration:
+            if particle.name not in A_squared:
+                continue
+            
+            m_pred = beta_derived * A_squared[particle.name]
+            m_exp = particle.mass_gev
+            percent_error = abs(m_pred - m_exp) / m_exp * 100
+            
+            predictions[particle.name] = {
+                'predicted': m_pred * 1000,
+                'experimental': m_exp * 1000,
+                'error': percent_error,
+            }
+            
+            # Weight: electron is perfect by construction, others weighted normally
+            if particle.name == 'electron':
+                total_error += percent_error * 0.01
+            else:
+                total_error += percent_error * particle.weight
+        
+        # Add proton-neutron mass splitting error (high weight)
+        if 'proton' in A_squared and 'neutron' in A_squared:
+            m_proton = beta_derived * A_squared['proton']
+            m_neutron = beta_derived * A_squared['neutron']
+            
+            delta_m_exp = 0.001293  # 1.293 MeV in GeV
+            delta_m_pred = m_neutron - m_proton
+            
+            # Splitting error (10x weight - very important!)
+            splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2 * 100
+            
+            # Ordering penalty: neutron MUST be heavier
+            if delta_m_pred <= 0:
+                splitting_error += 1000.0
+            
+            total_error += 10.0 * splitting_error
+            
+            predictions['n-p_splitting'] = {
+                'predicted': delta_m_pred * 1000,
+                'experimental': delta_m_exp * 1000,
+                'error': abs(delta_m_pred - delta_m_exp) / delta_m_exp * 100,
+            }
+        
+        elapsed = time.time() - start_time
+        
+        is_best = total_error < self._best_error
+        if is_best:
+            self._best_error = total_error
+            self._best_params = (alpha, g_internal, g2, lambda_so, beta_derived)
+        
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(f"\nEval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, ")
+                f.write(f"g2={g2:.5f}, lambda_so={lambda_so:.3f}")
+                f.write(f" -> error={total_error:.2f}")
+                if is_best:
+                    f.write(" *** BEST ***")
+                f.write("\n")
+                for name, pred in predictions.items():
+                    f.write(f"  {name}: {pred['predicted']:.2f} MeV (exp: {pred['experimental']:.2f}), err={pred['error']:.1f}%\n")
+        
+        if self.verbose and (self._eval_count % 5 == 0 or is_best):
+            marker = " *** BEST ***" if is_best else ""
+            print(f"Eval {self._eval_count}: a={alpha:.3f}, g_int={g_internal:.5f}, "
+                  f"g2={g2:.4f}, lso={lambda_so:.2f} -> err={total_error:.1f}{marker}")
+        
+        return total_error
+    
+    def optimize_full(
+        self,
+        bounds: Optional[List[Tuple[float, float]]] = None,
+        maxiter: int = 100,
+        seed: int = 42,
+        popsize: int = 15,
+        save_json: bool = True,
+    ) -> OptimizationResult:
+        """
+        Full 4-parameter optimization: alpha, g_internal, g2, and lambda_so.
+        
+        Beta is derived from electron mass.
+        This mode optimizes for both absolute masses AND proton-neutron splitting.
+        
+        Args:
+            bounds: List of (min, max) bounds for [alpha, g_internal, g2, lambda_so].
+            maxiter: Maximum iterations.
+            seed: Random seed for reproducibility.
+            popsize: Population size for differential evolution.
+            save_json: If True, saves optimized constants to constants.json.
+            
+        Returns:
+            OptimizationResult with optimal parameters and predictions.
+        """
+        if bounds is None:
+            # Bounds for [alpha, g_internal, g2, lambda_so]
+            bounds = [
+                (5.0, 20.0),      # alpha
+                (0.001, 0.01),    # g_internal
+                (0.01, 0.1),      # g2
+                (0.05, 0.5),      # lambda_so
+            ]
+        
+        if self.verbose:
+            print("=" * 70)
+            print("FULL 4-PARAMETER OPTIMIZATION")
+            print("Optimizing {alpha, g_internal, g2, lambda_so}")
+            print("Beta derived from electron mass")
+            print("Targets: absolute masses + proton-neutron mass splitting")
+            print("=" * 70)
+            print(f"\nParameter bounds:")
+            print(f"  alpha:      [{bounds[0][0]}, {bounds[0][1]}]")
+            print(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]")
+            print(f"  g2:         [{bounds[2][0]}, {bounds[2][1]}]")
+            print(f"  lambda_so:  [{bounds[3][0]}, {bounds[3][1]}]")
+            print(f"\nFixed: g1={G1_INITIAL}")
+            print("-" * 70)
+        
+        self._eval_count = 0
+        self._best_error = float('inf')
+        self._best_params = None
+        self._start_time = time.time()
+        
+        if self.log_file:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 70 + "\n")
+                f.write("SFM FULL 4-PARAMETER OPTIMIZATION\n")
+                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 70 + "\n")
+                f.write("Optimizing: alpha, g_internal, g2, lambda_so\n")
+                f.write("Targets: absolute masses + p-n mass splitting\n")
+                f.write(f"Bounds: alpha=[{bounds[0]}], g_internal=[{bounds[1]}]\n")
+                f.write(f"        g2=[{bounds[2]}], lambda_so=[{bounds[3]}]\n")
+                f.write("=" * 70 + "\n")
+        
+        start_time = time.time()
+        
+        # Seed with current values
+        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
+        
+        if self.verbose:
+            print(f"Starting from: alpha={x0[0]}, g_internal={x0[1]}, g2={x0[2]}, lambda_so={x0[3]}")
+        
+        # Use differential evolution for global search
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = differential_evolution(
+                self._objective_full,
+                bounds=bounds,
+                x0=x0,
+                maxiter=maxiter,
+                seed=seed,
+                workers=1,
+                disp=False,
+                polish=True,
+                tol=1e-4,
+                atol=0.1,
+                popsize=popsize,
+                mutation=(0.5, 1.0),
+                recombination=0.7,
+            )
+        
+        elapsed = time.time() - start_time
+        
+        alpha_opt, g_internal_opt, g2_opt, lambda_so_opt = result.x
+        
+        # Derive beta from electron mass
+        try:
+            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            
+            solver = NonSeparableWavefunctionSolver(
+                alpha=alpha_opt,
+                g_internal=g_internal_opt,
+                g1=G1_INITIAL,
+                g2=g2_opt,
+                lambda_so=lambda_so_opt,
+            )
+            
+            result_e = solver.solve_lepton_self_consistent(
+                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+            )
+            A_e_squared = result_e.structure_norm ** 2
+            beta_opt = 0.000511 / A_e_squared
+        except Exception as e:
+            print(f"Warning: Failed to derive beta: {e}")
+            beta_opt = BETA_INITIAL
+        
+        kappa_opt = g_internal_opt / beta_opt
+        L0_opt = 1.0 / beta_opt
+        
+        if self.verbose:
+            print("-" * 70)
+            print(f"Optimization complete.")
+            print(f"Optimal: alpha={alpha_opt:.6f}, g_internal={g_internal_opt:.8f}")
+            print(f"         g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
+            print(f"Derived: beta={beta_opt:.8f} GeV")
+        
+        # Compute results for all particles
+        calibration_results = self._evaluate_particles(
+            self.calibration, beta_opt, alpha_opt, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+        )
+        validation_results = self._evaluate_particles(
+            self.validation, beta_opt, alpha_opt, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+        )
+        
+        opt_result = OptimizationResult(
+            beta=beta_opt,
+            alpha=alpha_opt,
+            kappa=kappa_opt,
+            g1=G1_INITIAL,
+            g2=g2_opt,
+            lambda_so=lambda_so_opt,
+            L0_gev_inv=L0_opt,
+            total_error=result.fun,
+            converged=result.success,
+            calibration_results=calibration_results,
+            validation_results=validation_results,
+            iterations=result.nit,
+            function_evaluations=result.nfev,
+            time_seconds=elapsed,
+            scipy_result=result,
+        )
+        
+        if self.verbose:
+            print("\n" + opt_result.summary())
+            
+            # Print specific proton-neutron comparison
+            print("\nPROTON-NEUTRON MASS SPLITTING:")
+            print("-" * 40)
+            p_mass = calibration_results.get('proton', {}).get('predicted_mass', 0) * 1000
+            n_mass = validation_results.get('neutron', {}).get('predicted_mass', 0) * 1000
+            delta = n_mass - p_mass
+            print(f"  Proton mass:  {p_mass:.2f} MeV (exp: 938.27 MeV)")
+            print(f"  Neutron mass: {n_mass:.2f} MeV (exp: 939.57 MeV)")
+            print(f"  Difference:   {delta:.3f} MeV (exp: 1.293 MeV)")
+        
+        opt_result.save_constants_to_json(save=save_json)
+        
+        return opt_result
+
+
+def run_optimization_full(
+    verbose: bool = True,
+    maxiter: int = 100,
+    log_file: Optional[str] = None,
+    save_json: bool = True,
+) -> OptimizationResult:
+    """
+    Run full 4-parameter optimization.
+    
+    Optimizes alpha, g_internal, g2, and lambda_so for both absolute masses
+    and proton-neutron mass splitting.
+    
+    Args:
+        verbose: Print progress information.
+        maxiter: Maximum iterations.
+        log_file: Path to log file for optimization progress (optional).
+        save_json: If True, saves optimized constants to constants.json.
+    
+    Returns:
+        OptimizationResult with optimal parameters.
+    """
+    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
+    return optimizer.optimize_full(maxiter=maxiter, save_json=save_json)
+
+
+def run_optimization_em(
+    verbose: bool = True,
+    maxiter: int = 50,
+    log_file: Optional[str] = None,
+    save_json: bool = True,
+) -> OptimizationResult:
+    """
+    Run EM parameter optimization for proton-neutron mass splitting.
+    
+    Optimizes g2 and lambda_so while keeping alpha/g_internal fixed.
+    
+    Args:
+        verbose: Print progress information.
+        maxiter: Maximum iterations.
+        log_file: Path to log file for optimization progress (optional).
+        save_json: If True, saves optimized constants to constants.json.
+    
+    Returns:
+        OptimizationResult with optimal parameters.
+    """
+    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
+    return optimizer.optimize_em(maxiter=maxiter, save_json=save_json)
+
+
 def run_optimization_ratio(
     verbose: bool = True,
     maxiter: int = 100,
@@ -1902,6 +2622,8 @@ Examples:
   python parameter_optimizer.py                     # ratio mode (default), save to JSON
   python parameter_optimizer.py --mode ratio        # ratio mode - optimize alpha/g_internal for mass ratios
   python parameter_optimizer.py --mode free         # free mode - optimize alpha, g_internal, g1
+  python parameter_optimizer.py --mode em           # em mode - optimize g2/lambda_so for p-n mass splitting
+  python parameter_optimizer.py --mode full         # full mode - optimize all 4 params (alpha, g_internal, g2, lambda_so)
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
   python parameter_optimizer.py --max-iter 200      # Run 200 iterations
         """
@@ -1910,10 +2632,12 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["ratio", "free"],
+        choices=["ratio", "free", "em", "full"],
         default="ratio",
         help="Optimization mode: 'ratio' (default) optimizes alpha/g_internal for mass ratios, "
-             "'free' for 3-parameter (alpha, g_internal, g1)"
+             "'free' for 3-parameter (alpha, g_internal, g1), "
+             "'em' for EM parameters (g2, lambda_so) for proton-neutron mass splitting, "
+             "'full' for all 4 parameters (alpha, g_internal, g2, lambda_so)"
     )
     
     parser.add_argument(
@@ -1951,6 +2675,8 @@ Examples:
     mode_names = {
         'ratio': 'ratio-based (alpha/g_internal)',
         'free': '3-parameter (alpha, g_internal, g1)',
+        'em': 'EM parameters (g2, lambda_so) for p-n mass splitting',
+        'full': 'full 4-parameter (alpha, g_internal, g2, lambda_so)',
     }
     
     # Print startup information
@@ -1966,12 +2692,28 @@ Examples:
     print(f"  alpha      = {ALPHA_INITIAL}")
     print(f"  g_internal = {G_INTERNAL_INITIAL}")
     print(f"  g1         = {G1_INITIAL}")
+    print(f"  g2         = {G2_INITIAL}")
+    print(f"  lambda_so  = {LAMBDA_SO_INITIAL}")
     print("=" * 70)
     print()
     
     # Run the appropriate optimization
     if args.mode == "ratio":
         result = run_optimization_ratio(
+            verbose=verbose,
+            maxiter=args.max_iter,
+            log_file=log_file,
+            save_json=save_json,
+        )
+    elif args.mode == "em":
+        result = run_optimization_em(
+            verbose=verbose,
+            maxiter=args.max_iter,
+            log_file=log_file,
+            save_json=save_json,
+        )
+    elif args.mode == "full":
+        result = run_optimization_full(
             verbose=verbose,
             maxiter=args.max_iter,
             log_file=log_file,

@@ -26,6 +26,10 @@ _DEFAULT_CONSTANTS: Dict[str, Any] = {
     "alpha": 10.5,  # GeV (spatial-subspace coupling)
     "g_internal": 0.003,  # FUNDAMENTAL: gravitational self-confinement in amplitude units
     "g1": 5000.0,  # dimensionless (nonlinear self-interaction)
+    "g2": 0.035,  # dimensionless (circulation/EM coupling)
+    "lambda_so": 0.2,  # dimensionless (spin-orbit coupling strength)
+    "V0": 1.0,  # GeV (primary three-well potential depth)
+    "V1": 0.0,  # GeV (secondary six-well potential depth)
 }
 
 
@@ -102,6 +106,104 @@ G_INTERNAL: float = _LOADED_CONSTANTS.get("g_internal", 0.003)
 
 # G1: nonlinear self-interaction coupling
 G1: float = _LOADED_CONSTANTS["g1"]
+
+# =============================================================================
+# G2: Circulation/Electromagnetic Coupling
+# =============================================================================
+# Status: CALIBRATED (theoretically derivable - work remaining)
+#
+# G2 controls the electromagnetic self-energy through the circulation integral:
+#     E_EM = g2 × |J_normalized|²
+#
+# where J = ∫ χ* ∂χ/∂σ dσ is the circulation (related to charge/winding).
+#
+# THEORETICAL BASIS:
+#     The SFM predicts that g2 should emerge from the 5D geometry and be
+#     related to the fine structure constant α_EM ≈ 1/137. Specifically:
+#         g2 ~ α_EM × (characteristic scale factors)
+#
+#     Current value calibrated to match proton-neutron mass splitting.
+#
+# PATH TO FIRST-PRINCIPLES:
+#     Derive g2 from: (1) 5D metric structure, (2) compactification geometry,
+#     (3) relationship to α_EM and other coupling constants.
+# =============================================================================
+G2: float = _LOADED_CONSTANTS.get("g2", 0.035)
+
+# =============================================================================
+# LAMBDA_SO: Spin-Orbit Coupling Strength
+# =============================================================================
+# Status: CALIBRATED (theoretically derivable - work remaining)
+#
+# Lambda_so controls the spin-orbit coupling in the SFM Hamiltonian:
+#     H_so = λ (∂/∂σ ⊗ σ_z)
+#
+# This creates different effective potentials for particles with different
+# winding numbers k (which determine charge):
+#     V_eff = V(σ) ∓ λk
+#
+# The ± depends on spin orientation. This shifts envelope centers and widths
+# for different quarks (u: k=+5, d: k=-3), creating mass splitting.
+#
+# THEORETICAL BASIS:
+#     Lambda_so has dimensions of action ([λ] = ℏ). From dimensional analysis
+#     and the SFM structure, we expect:
+#         λ ~ ℏ × (geometric factors)
+#
+#     The natural k-scaling is automatic: the effect is λ×k, so higher
+#     winding numbers (larger |k|) have proportionally larger effects.
+#
+# PATH TO FIRST-PRINCIPLES:
+#     Derive λ from: (1) 5D spin-geometry coupling, (2) relationship to
+#     fine structure constant α_EM, (3) constraints from neutrino physics
+#     (neutrinos have λ_ν ~ 10⁻⁹ λ_charged).
+# =============================================================================
+LAMBDA_SO: float = _LOADED_CONSTANTS.get("lambda_so", 0.2)
+
+# =============================================================================
+# V0: Primary Three-Well Potential Depth
+# =============================================================================
+# Status: FIXED (geometric origin from 5D compactification)
+#
+# V0 sets the depth of the primary three-well potential in the subspace:
+#     V(σ) = V0 × (1 - cos(3σ)) + V1 × (1 - cos(6σ))
+#
+# The cos(3σ) term creates three minima at σ = 0, 2π/3, 4π/3 corresponding
+# to the three color charges (red, green, blue). These are the locations
+# where quarks can be localized.
+#
+# THEORETICAL BASIS:
+#     V0 emerges from the 5D geometry and should be related to β through
+#     the compactification scale. Currently fixed at 1.0 GeV.
+#
+# PATH TO FIRST-PRINCIPLES:
+#     Derive V0 from: (1) 5D metric structure, (2) relationship to β,
+#     (3) constraints from QCD color confinement.
+# =============================================================================
+V0: float = _LOADED_CONSTANTS.get("V0", 1.0)
+
+# =============================================================================
+# V1: Secondary Six-Well Potential Depth
+# =============================================================================
+# Status: EXPLORATORY (geometric origin unclear)
+#
+# V1 adds a secondary six-well structure to the subspace potential:
+#     V(σ) = V0 × (1 - cos(3σ)) + V1 × (1 - cos(6σ))
+#
+# The cos(6σ) term creates six secondary minima, potentially allowing
+# more fine structure in quark localization. Currently set to 0.0.
+#
+# THEORETICAL BASIS:
+#     The need for V1 is uncertain. It may arise from:
+#     (1) Higher-order corrections to the 5D potential
+#     (2) Quantum corrections from quark interactions
+#     (3) May not be needed at all if primary wells suffice
+#
+# PATH TO FIRST-PRINCIPLES:
+#     Determine if V1 is required from first principles or if it's a
+#     phenomenological artifact that should be eliminated.
+# =============================================================================
+V1: float = _LOADED_CONSTANTS.get("V1", 0.0)
 
 # =============================================================================
 # Single-Field Model Fundamental Constants (SI units)
