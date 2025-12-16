@@ -81,8 +81,8 @@ class WavefunctionStructure:
     # Final subspace width (from energy minimization)
     delta_sigma_final: Optional[float] = None
     
-    # Electromagnetic self-energy (from circulation)
-    # E_EM = g₂ |J|² where J = ∫ χ* ∂χ/∂σ dσ
+    # Electromagnetic contribution to amplitude squared (dimensionless)
+    # ΔA²_EM = g₂ |J_normalized|² where J = ∫ χ* ∂χ/∂σ dσ
     em_energy: Optional[float] = None
     
     # Net circulation (for charge calculation)
@@ -142,7 +142,6 @@ class NonSeparableWavefunctionSolver:
     def __init__(
         self,
         alpha: float,
-        beta: float = 0.000511,  # Mass scaling: m = beta * A^2 (calibrated to electron)
         g_internal: float = None,
         g1: float = None,  # Nonlinear self-interaction (loads from constants if None)
         g2: float = None,  # Circulation/EM coupling (loads from constants if None)
@@ -153,17 +152,12 @@ class NonSeparableWavefunctionSolver:
         l_max: int = 2,
         N_sigma: int = 64,
         a0: float = 1.0,
-        g_eff: float = None,  # DEPRECATED: use g_internal instead
-        kappa: float = None,  # DEPRECATED: use g_internal instead
     ):
         """
         Initialize the solver with SFM parameters.
         
         Args:
             alpha: Spatial-subspace coupling strength (GeV)
-            beta: DEPRECATED - no longer used in solver physics.
-                  Mass is computed after solving: m = β_output × A²
-                  where β_output = m_e_exp / A_e²
             g_internal: FUNDAMENTAL gravitational self-confinement constant
                         This controls self-confinement: Δx = 1/(g_internal × A⁶)^(1/3)
                         g_internal works directly with amplitude A, making the
@@ -177,25 +171,13 @@ class NonSeparableWavefunctionSolver:
             l_max: Maximum angular momentum
             N_sigma: Subspace grid points
             a0: Characteristic length scale
-            g_eff: DEPRECATED - use g_internal instead
-            kappa: DEPRECATED - use g_internal instead
         """
         self.alpha = alpha
-        self.beta = beta if beta is not None else 100.0  # Only for backward compat
         
-        # Handle g_internal (preferred) vs deprecated g_eff/kappa
+        # Load g_internal from constants if not provided
         if g_internal is not None:
             self.g_internal = g_internal
-        elif g_eff is not None:
-            # DEPRECATED: convert g_eff to g_internal
-            # g_internal = g_eff × β³
-            self.g_internal = g_eff * (self.beta ** 3)
-        elif kappa is not None:
-            # DEPRECATED: convert kappa to g_internal
-            # kappa = g_eff × β², so g_eff = kappa/β², g_internal = g_eff × β³ = kappa × β
-            self.g_internal = kappa * self.beta
         else:
-            # Default from constants
             from sfm_solver.core.constants import G_INTERNAL
             self.g_internal = G_INTERNAL
         
@@ -460,19 +442,17 @@ class NonSeparableWavefunctionSolver:
         chi_components: Dict[Tuple[int, int, int], NDArray]
     ) -> float:
         """
-        Compute electromagnetic self-energy from NORMALIZED circulation.
+        Compute electromagnetic self-energy contribution to amplitude squared.
         
         FIRST-PRINCIPLES:
         =================
         
-        The EM self-energy emerges from the circulation term in the SFM Hamiltonian:
+        The EM self-energy emerges from the circulation term in the SFM Hamiltonian.
+        This contributes to the effective amplitude squared:
         
-            Ĥ_circ = β × g₂ |∫ χ* ∂χ/∂σ dσ|²
+            A²_eff = A²_base + g₂ × |J_normalized|²
         
-        For a NORMALIZED wavefunction (∫|χ|²dσ = 1), this gives:
-            E_EM = β × g₂ × |J_normalized|²
-        
-        where J_normalized = J / (∫|χ|²dσ).
+        where J_normalized = J / (∫|χ|²dσ) is the normalized circulation.
         
         CRITICAL: We must normalize the circulation to prevent A⁴ scaling.
         The raw circulation J ~ k × A², so |J|² ~ k² × A⁴, which creates
@@ -482,14 +462,14 @@ class NonSeparableWavefunctionSolver:
         only, independent of amplitude), which is the correct physics.
         
         Physical interpretation:
-        - For charged particles (|k| > 0): E_EM > 0 (positive mass contribution)
-        - For neutral particles (k ≈ 0): E_EM ≈ 0 (no EM contribution)
+        - For charged particles (|k| > 0): EM contribution > 0 (increases effective A²)
+        - For neutral particles (k ≈ 0): EM contribution ≈ 0 (no EM effect)
         
         Args:
             chi_components: Dictionary of wavefunction components
             
         Returns:
-            EM self-energy E_EM = β × g₂ × |J_normalized|² in [GeV]
+            EM contribution to A²: ΔA² = g₂ × |J_normalized|² (dimensionless)
         """
         D1 = self._build_subspace_derivative_matrix()
         dsigma = self.basis.dsigma
@@ -512,11 +492,10 @@ class NonSeparableWavefunctionSolver:
         # This removes the A² scaling, leaving only the charge-dependent part
         J_normalized = J_raw / norm_sq
         
-        # E_EM = β × g₂ × |J_normalized|²
-        # Units: [GeV] × dimensionless × dimensionless = [GeV]
-        E_em = self.beta * self.g2 * np.abs(J_normalized)**2
+        # ΔA² = g₂ × |J_normalized|² (dimensionless contribution to amplitude squared)
+        delta_A_sq = self.g2 * np.abs(J_normalized)**2
         
-        return float(E_em)
+        return float(delta_A_sq)
     
     def _build_envelope(
         self,
@@ -1926,17 +1905,18 @@ class NonSeparableWavefunctionSolver:
             A_base = np.sqrt(self._compute_total_amplitude(chi_components))
             
             # === COMPUTE EM SELF-ENERGY (for mass splitting) ===
-            E_em = self._compute_em_self_energy(chi_components)
+            # Returns dimensionless contribution to A²
+            delta_A_sq_em = self._compute_em_self_energy(chi_components)
             
             # Apply EM correction to amplitude
-            A_eff_sq = A_base**2 + E_em / self.beta
+            A_eff_sq = A_base**2 + delta_A_sq_em
             A_new = np.sqrt(max(A_eff_sq, A_base**2))
             
             if verbose:
                 print(f"\nHybrid Results:")
                 print(f"  A_scf (quark composite) = {A_scf:.6f}")
                 print(f"  A_base (with spatial coupling) = {A_base:.6f}")
-                print(f"  E_EM = {E_em:.6e}")
+                print(f"  ΔA²_EM (g2*|J|²) = {delta_A_sq_em:.6e}")
                 print(f"  A_eff (final) = {A_new:.6f}")
             
             # === UPDATE SPATIAL SCALE (gravitational self-confinement) ===
@@ -1983,13 +1963,13 @@ class NonSeparableWavefunctionSolver:
         # Compute EM self-energy from circulation (FIRST-PRINCIPLES)
         # E_EM = g₂ |J|² where J = ∫ χ* ∂χ/∂σ dσ
         circulation = self._compute_circulation(chi_components_final)
-        em_energy = self._compute_em_self_energy(chi_components_final)
+        delta_A_sq_em = self._compute_em_self_energy(chi_components_final)
         
         if verbose:
             print(f"\n=== Final Baryon Structure (SCF Method) ===")
             print(f"  Delta_x={Delta_x_current:.6f}, A={A_current:.6f}")
             print(f"  k_eff={k_eff:.4f}, |J|^2={np.abs(circulation)**2:.4e}")
-            print(f"  EM self-energy: E_EM = g2*|J|^2 = {em_energy:.4e}")
+            print(f"  EM amplitude correction: Delta_A_sq_EM = g2*|J_norm|² = {em_energy:.4e}")
             # Verify color neutrality
             phi1, phi2, phi3 = color_phases
             phase_sum = np.exp(1j * phi1) + np.exp(1j * phi2) + np.exp(1j * phi3)
@@ -2008,7 +1988,7 @@ class NonSeparableWavefunctionSolver:
             convergence_history=history,
             delta_x_final=Delta_x_current,
             delta_sigma_final=None,  # Not used in SCF method
-            em_energy=em_energy,
+            em_energy=delta_A_sq_em,  # Field name is em_energy, not delta_A_sq_em
             circulation=circulation,
         )
     
@@ -2418,9 +2398,11 @@ class NonSeparableWavefunctionSolver:
         
         # === INITIALIZE SPATIAL SCALE ===
         # KEY FIX: All three quarks share a SINGLE Δx determined by composite amplitude
-        # Start with Δx from SCF amplitude
-        Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else 1.0/3.0
-        A_current = A_scf
+        # Start with MUCH TIGHTER confinement to trigger amplification
+        # Use target amplitude A~40 for initialization instead of low SCF value
+        A_target_init = 40.0  # Target amplitude for proper baryon mass
+        Delta_x_baryon = 1.0 / (self.g_internal * A_target_init**6) ** (1.0/3.0)
+        A_current = A_scf  # But start amplitude tracking from SCF
         
         if verbose:
             print(f"\n=== STEP 2: 4D Spatial-Subspace Coupling with Collective Confinement ===")
@@ -2512,9 +2494,29 @@ class NonSeparableWavefunctionSolver:
                     break
             
             # === COMPUTE 4D COMPOSITE AMPLITUDE ===
-            A_new = self.compute_4D_baryon_amplitude(quark1_chi, quark2_chi, quark3_chi)
+            A_base = self.compute_4D_baryon_amplitude(quark1_chi, quark2_chi, quark3_chi)
             
-            # === UPDATE BARYON Δx FROM COMPOSITE AMPLITUDE ===
+            # === APPLY EM CORRECTION ===
+            # Build composite for EM calculation
+            chi_components_temp = {}
+            all_keys = set(quark1_chi.keys()) | set(quark2_chi.keys()) | set(quark3_chi.keys())
+            for key in all_keys:
+                chi1 = quark1_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                chi2 = quark2_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                chi3 = quark3_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                chi_components_temp[key] = chi1 + chi2 + chi3
+            
+            # Compute EM contribution to A²
+            delta_A_sq_em = self._compute_em_self_energy(chi_components_temp)
+            
+            # Apply EM correction to amplitude
+            A_eff_sq = A_base**2 + delta_A_sq_em
+            A_new = np.sqrt(max(A_eff_sq, A_base**2))
+            
+            if verbose and iter_outer == 0:
+                print(f"  A_base = {A_base:.6f}, Delta_A_sq_EM = {delta_A_sq_em:.4e}, A_eff = {A_new:.6f}")
+            
+            # === UPDATE BARYON Δx FROM COMPOSITE AMPLITUDE (with EM correction) ===
             # KEY: Self-confinement uses COMPOSITE amplitude, not individual quark amplitudes!
             # Δx_baryon = 1/(g_internal × A_composite^6)^(1/3)
             A_sixth = A_new ** 6
@@ -2572,9 +2574,9 @@ class NonSeparableWavefunctionSolver:
         if verbose:
             print(f"\n=== Final 4D Baryon Structure ===")
             print(f"  A_composite = {A_current:.6f}")
-            print(f"  Dx_baryon = {Delta_x_baryon:.6f} (shared by all three quarks)")
+            print(f"  Delta_x_baryon = {Delta_x_baryon:.6f} (shared by all three quarks)")
             print(f"  k_eff = {k_eff:.4f}, |J|^2 = {np.abs(circulation)**2:.4e}")
-            print(f"  E_EM = {em_energy:.4e}")
+            print(f"  Delta_A_sq_EM = {em_energy:.4e}")
             phase_sum = np.exp(1j*phi1) + np.exp(1j*phi2) + np.exp(1j*phi3)
             print(f"  Color neutrality: |sum(e^(iphi))| = {np.abs(phase_sum):.2e}")
         
@@ -2829,8 +2831,7 @@ def test_wavefunction_solver():
     
     solver = NonSeparableWavefunctionSolver(
         alpha=20.0,
-        beta=100.0,
-        kappa=0.0001,
+        g_internal=0.003,
         g1=5000.0,
         g2=0.004,
         V0=1.0,
