@@ -1155,7 +1155,7 @@ class SFMParameterOptimizer:
         
         from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
         
-        # Create solver with current parameters
+        # STEP 1: Create solver WITHOUT beta to derive beta from electron
         solver = NonSeparableWavefunctionSolver(
             alpha=alpha,
             g_internal=g_internal,
@@ -1168,19 +1168,33 @@ class SFMParameterOptimizer:
             N_sigma=64,
         )
         
-        # First, get electron amplitude to derive beta
+        # Derive beta from electron
         try:
             result_e = solver.solve_lepton_self_consistent(
                 n_target=1, k_winding=1, max_iter_outer=30, verbose=False
             )
             A_e_squared = result_e.structure_norm ** 2
-            beta_derived = 0.511 / A_e_squared  # SFM units convention
+            beta_derived = 0.511 / A_e_squared
         except Exception:
             return 1e20
         
-        # Solve for proton and neutron using 4D solver
+        # STEP 2: Recreate solver WITH beta for baryons (consistent units)
+        solver_with_beta = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            beta=beta_derived,
+            g_internal=g_internal,
+            g1=g1,
+            g2=g2,
+            lambda_so=lambda_so,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # Solve for proton and neutron using 4D solver with beta
         try:
-            result_p = solver.solve_baryon_4D_self_consistent(
+            result_p = solver_with_beta.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, 5, -3),  # uud
@@ -1188,9 +1202,9 @@ class SFMParameterOptimizer:
                 max_iter_scf=10,
                 verbose=False,
             )
-            m_proton = beta_derived * result_p.structure_norm ** 2 * 1000  # Baryon formula
+            m_proton = beta_derived * result_p.structure_norm ** 2 * 1000  # MeV
             
-            result_n = solver.solve_baryon_4D_self_consistent(
+            result_n = solver_with_beta.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
@@ -1198,7 +1212,7 @@ class SFMParameterOptimizer:
                 max_iter_scf=10,
                 verbose=False,
             )
-            m_neutron = beta_derived * result_n.structure_norm ** 2 * 1000  # Baryon formula
+            m_neutron = beta_derived * result_n.structure_norm ** 2 * 1000  # MeV
         except Exception:
             return 1e20
         
@@ -1440,7 +1454,7 @@ class SFMParameterOptimizer:
         
         from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
         
-        # Create solver with current parameters
+        # STEP 1: Create solver WITHOUT beta to solve for electron and derive beta
         try:
             solver = NonSeparableWavefunctionSolver(
                 alpha=alpha,
@@ -1456,12 +1470,10 @@ class SFMParameterOptimizer:
         except Exception:
             return 1e20
         
-        # Compute A^2 for all calibration particles
+        # Solve for leptons to derive beta
         A_squared = {}
-        em_energies = {}
-        
-        for particle in self.calibration:
-            try:
+        try:
+            for particle in self.calibration:
                 if particle.particle_type == 'lepton':
                     n_target = particle.generation
                     result = solver.solve_lepton_self_consistent(
@@ -1472,16 +1484,39 @@ class SFMParameterOptimizer:
                         verbose=False,
                     )
                     A_squared[particle.name] = result.structure_norm ** 2
-                    
-                elif particle.particle_type == 'meson':
-                    result = solver.solve_meson_self_consistent(
-                        quark_wells=(1, 2),
-                        max_iter_outer=30,
-                        verbose=False,
-                    )
-                    A_squared[particle.name] = result.structure_norm ** 2
-                    
-                elif particle.particle_type == 'baryon':
+        except Exception:
+            return 1e20
+        
+        # Check we have electron
+        if 'electron' not in A_squared or A_squared['electron'] <= 0:
+            return 1e20
+        
+        # Derive beta from electron mass
+        m_e_exp = 0.511  # Electron mass in MeV
+        beta_derived = m_e_exp / A_squared['electron']
+        
+        # STEP 2: Recreate solver WITH beta for baryons (matches test script approach)
+        try:
+            solver_with_beta = NonSeparableWavefunctionSolver(
+                alpha=alpha,
+                beta=beta_derived,
+                g_internal=g_internal,
+                g1=g1,
+                g2=g2,
+                lambda_so=lambda_so,
+                V0=self.V0,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+            )
+        except Exception:
+            return 1e20
+        
+        # Solve for baryons with the solver that has beta
+        em_energies = {}
+        try:
+            for particle in self.calibration:
+                if particle.particle_type == 'baryon':
                     # Determine quark windings
                     if particle.baryon_type == 'proton':
                         quark_windings = (5, 5, -3)
@@ -1490,7 +1525,7 @@ class SFMParameterOptimizer:
                     else:
                         quark_windings = None
                     
-                    result = solver.solve_baryon_4D_self_consistent(
+                    result = solver_with_beta.solve_baryon_4D_self_consistent(
                         quark_wells=(1, 2, 3),
                         color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                         quark_windings=quark_windings,
@@ -1501,12 +1536,8 @@ class SFMParameterOptimizer:
                     A_squared[particle.name] = result.structure_norm ** 2
                     em_energies[particle.name] = result.em_energy
                     
-            except Exception:
-                return 1e20
-        
-        # Also solve neutron (from validation set) for mass splitting
-        try:
-            result_n = solver.solve_baryon_4D_self_consistent(
+            # Also solve neutron (from validation set) for mass splitting
+            result_n = solver_with_beta.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
@@ -1519,18 +1550,9 @@ class SFMParameterOptimizer:
         except Exception:
             return 1e20
         
-        # Check we have electron
-        if 'electron' not in A_squared or A_squared['electron'] <= 0:
-            return 1e20
-        
-        # Derive beta from electron mass
-        # beta = 0.511 / A_e^2
-        # For leptons: m = beta * A^2 (in MeV)
-        # For baryons: m = beta * A^2 * 1000 (convert GeV to MeV)
-        m_e_exp = 0.511  # Electron mass in MeV
-        beta_derived = m_e_exp / A_squared['electron']
-        
         # Compute predicted masses and errors
+        # Leptons: solved WITHOUT beta in solver → use beta * A^2 (already in MeV)
+        # Baryons: solved WITH beta in solver → use beta * A^2 * 1000 (convert to MeV)
         total_error = 0.0
         predictions = {}
         
@@ -1538,10 +1560,10 @@ class SFMParameterOptimizer:
             if particle.name not in A_squared:
                 continue
             
-            # Apply correct formula based on particle type
+            # Different formulas based on whether beta was in solver
             if particle.particle_type == 'lepton':
                 m_pred = beta_derived * A_squared[particle.name]  # Already in MeV
-            else:
+            else:  # baryon
                 m_pred = beta_derived * A_squared[particle.name] * 1000  # Convert to MeV
             
             m_exp = particle.mass_gev * 1000  # Convert GeV to MeV
@@ -1561,8 +1583,8 @@ class SFMParameterOptimizer:
         
         # Add proton-neutron mass splitting error (high weight)
         if 'proton' in A_squared and 'neutron' in A_squared:
-            m_proton = beta_derived * A_squared['proton'] * 1000  # Baryon formula: convert to MeV
-            m_neutron = beta_derived * A_squared['neutron'] * 1000  # Baryon formula: convert to MeV
+            m_proton = beta_derived * A_squared['proton'] * 1000  # MeV
+            m_neutron = beta_derived * A_squared['neutron'] * 1000  # MeV
             
             delta_m_exp = 1.293  # MeV (experimental neutron-proton mass difference)
             delta_m_pred = m_neutron - m_proton  # In MeV
