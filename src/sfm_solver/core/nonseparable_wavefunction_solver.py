@@ -2097,7 +2097,9 @@ class NonSeparableWavefunctionSolver:
         )
         chi_primary = envelope * np.exp(1j * color_phase) * np.exp(1j * k_winding * sigma)
         
-        # Normalize
+        # Normalize primary component
+        # With shared Δx_baryon, the composite amplitude from superposition
+        # determines the collective confinement scale
         norm_sq = np.sum(np.abs(chi_primary)**2) * dsigma
         chi_primary = chi_primary / np.sqrt(norm_sq)
         
@@ -2193,6 +2195,88 @@ class NonSeparableWavefunctionSolver:
                 print(f"    Max iterations reached: A={A_current:.6f}, Dx={Delta_x_current:.6f}")
         
         return chi_components, Delta_x_current
+    
+    def _build_4D_components_fixed_primary(
+        self,
+        chi_primary: NDArray,
+        well_index: int,
+        color_phase: float,
+        k_winding: int,
+        Delta_x: float,
+        V_mean_4D: Optional[Dict[Tuple[int, int, int], NDArray]] = None,
+        verbose: bool = False,
+    ) -> Dict[Tuple[int, int, int], NDArray]:
+        """
+        Build 4D chi_components with induced states around a FIXED primary component.
+        
+        This is used after SCF initialization to add spatial-subspace coupling
+        without modifying the carefully-computed SCF primary wavefunction.
+        
+        Args:
+            chi_primary: Primary wavefunction from SCF (already optimized)
+            well_index: Well index for this quark
+            color_phase: Color phase
+            k_winding: Winding number
+            Delta_x: Spatial scale
+            V_mean_4D: Optional mean field
+            verbose: Print debug info
+            
+        Returns:
+            chi_components: Dictionary with primary and induced components
+        """
+        sigma = self.basis.sigma
+        dsigma = self.basis.dsigma
+        n_eff = 1
+        target_key = (n_eff, 0, 0)
+        target_idx = self.basis.state_index(n_eff, 0, 0)
+        
+        # Compute spatial coupling at current scale
+        a_n = Delta_x / np.sqrt(2 * n_eff + 1)
+        a_n = max(a_n, 0.0001)
+        spatial_coupling = self.basis.compute_spatial_coupling_at_scale(a_n)
+        
+        # Start with fixed primary
+        chi_components = {target_key: chi_primary.copy()}
+        
+        # Energy of primary state
+        V_target = self._compute_potential_energy(chi_primary)
+        V_mean_target = 0.0
+        if V_mean_4D is not None and target_key in V_mean_4D:
+            V_mean_target = np.sum(V_mean_4D[target_key] * np.abs(chi_primary)**2) * dsigma
+        E_target_0 = 2 * n_eff + 0 + V_target + V_mean_target
+        
+        # Build induced components from spatial-subspace coupling
+        for i, state in enumerate(self.basis.spatial_states):
+            key = (state.n, state.l, state.m)
+            if key == target_key:
+                continue
+            
+            R_coupling = spatial_coupling[target_idx, i]
+            if abs(R_coupling) < 1e-10:
+                chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
+                continue
+            
+            # Use envelope structure from SCF primary
+            envelope = np.abs(chi_primary) / (np.abs(chi_primary).max() + 1e-30)
+            V_envelope = self._compute_potential_energy(envelope)
+            
+            V_mean_state = 0.0
+            if V_mean_4D is not None and key in V_mean_4D:
+                V_mean_state = np.sum(V_mean_4D[key] * np.abs(envelope)**2) * dsigma
+            
+            E_state = 2 * state.n + state.l + V_envelope + V_mean_state
+            E_denom = E_target_0 - E_state
+            
+            # Regularize
+            if abs(E_denom) < 0.5:
+                E_denom = 0.5 * np.sign(E_denom) if E_denom != 0 else 0.5
+            
+            # Induced component maintains phase structure from primary
+            induced = (-self.alpha * R_coupling * envelope * 
+                      np.exp(1j * color_phase) * np.exp(1j * k_winding * sigma) / E_denom)
+            chi_components[key] = induced
+        
+        return chi_components
     
     def compute_4D_baryon_amplitude(
         self,
@@ -2307,38 +2391,72 @@ class NonSeparableWavefunctionSolver:
             print(f"Wells: {quark_wells}, Phases: {color_phases}")
             print(f"Windings: {quark_windings} -> net k = {net_winding}")
         
-        # === INITIALIZE SPATIAL SCALES ===
-        # Each quark can have its own Δx (well-independent)
-        Delta_x1 = 1.0 / 3.0
-        Delta_x2 = 1.0 / 3.0
-        Delta_x3 = 1.0 / 3.0
-        A_current = 0.1
+        # === INITIALIZE WITH SCF SOLVER ===
+        # Use proper self-consistent field solver to get realistic initial quark wavefunctions
+        # This finds the true ground state in the three-well potential with mean field
+        if verbose:
+            print("\n=== STEP 1: SCF Initialization ===")
+        
+        chi1_scf, chi2_scf, chi3_scf, A_scf = self.solve_baryon_self_consistent_field(
+            color_phases=color_phases,
+            quark_windings=quark_windings,
+            max_iter=200,
+            tol=1e-4,
+            mixing=0.1,
+            verbose=verbose,
+        )
+        
+        if verbose:
+            A1 = np.sqrt(np.sum(np.abs(chi1_scf)**2) * self.basis.dsigma)
+            A2 = np.sqrt(np.sum(np.abs(chi2_scf)**2) * self.basis.dsigma)
+            A3 = np.sqrt(np.sum(np.abs(chi3_scf)**2) * self.basis.dsigma)
+            print(f"\nSCF initialization complete: A_scf = {A_scf:.6f}")
+            print(f"Individual quark amplitudes:")
+            print(f"  |chi1| = {A1:.6f}")
+            print(f"  |chi2| = {A2:.6f}")
+            print(f"  |chi3| = {A3:.6f}")
+        
+        # === INITIALIZE SPATIAL SCALE ===
+        # KEY FIX: All three quarks share a SINGLE Δx determined by composite amplitude
+        # Start with Δx from SCF amplitude
+        Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else 1.0/3.0
+        A_current = A_scf
+        
+        if verbose:
+            print(f"\n=== STEP 2: 4D Spatial-Subspace Coupling with Collective Confinement ===")
+            print(f"Initial Dx_baryon = {Delta_x_baryon:.6f} (from SCF amplitude)")
         
         history = {
-            'Delta_x1': [Delta_x1],
-            'Delta_x2': [Delta_x2],
-            'Delta_x3': [Delta_x3],
+            'Delta_x': [Delta_x_baryon],
             'A': [A_current],
         }
         
         final_iter = 0
         
-        # === OUTER LOOP: SELF-CONFINEMENT ===
+        # Convert SCF wavefunctions to chi_components format (primary state only)
+        n_eff = 1
+        target_key = (n_eff, 0, 0)
+        quark1_chi = {target_key: chi1_scf.copy()}
+        quark2_chi = {target_key: chi2_scf.copy()}
+        quark3_chi = {target_key: chi3_scf.copy()}
+        
+        # === OUTER LOOP: BARYON SELF-CONFINEMENT ===
         for iter_outer in range(max_iter_outer):
             if verbose:
                 print(f"\n{'='*70}")
                 print(f"OUTER ITERATION {iter_outer+1}/{max_iter_outer}")
                 print(f"{'='*70}")
-                print(f"Dx: ({Delta_x1:.6f}, {Delta_x2:.6f}, {Delta_x3:.6f}), A = {A_current:.6f}")
+                print(f"Dx_baryon = {Delta_x_baryon:.6f}, A_composite = {A_current:.6f}")
             
-            # === INNER LOOP: THREE-QUARK SCF ===
-            # Initialize without mean field
-            quark1_chi, Delta_x1 = self.solve_quark_4D(w1, phi1, k1, Delta_x1, None, 
-                                                        verbose=verbose and iter_outer==0)
-            quark2_chi, Delta_x2 = self.solve_quark_4D(w2, phi2, k2, Delta_x2, None,
-                                                        verbose=verbose and iter_outer==0)
-            quark3_chi, Delta_x3 = self.solve_quark_4D(w3, phi3, k3, Delta_x3, None,
-                                                        verbose=verbose and iter_outer==0)
+            # === BUILD INDUCED COMPONENTS FOR EACH QUARK ===
+            # Now that we have good primary components from SCF, add spatial-subspace coupling
+            # ALL THREE QUARKS USE THE SAME Δx (collective confinement)
+            quark1_chi = self._build_4D_components_fixed_primary(
+                chi1_scf, w1, phi1, k1, Delta_x_baryon, None, verbose=False)
+            quark2_chi = self._build_4D_components_fixed_primary(
+                chi2_scf, w2, phi2, k2, Delta_x_baryon, None, verbose=False)
+            quark3_chi = self._build_4D_components_fixed_primary(
+                chi3_scf, w3, phi3, k3, Delta_x_baryon, None, verbose=False)
             
             for iter_scf in range(max_iter_scf):
                 if verbose and iter_outer == 0:
@@ -2365,10 +2483,15 @@ class NonSeparableWavefunctionSolver:
                     # Mean field for this mode
                     V_mean_4D[key] = self.g1 * np.abs(chi_total)**2
                 
-                # === SOLVE EACH QUARK IN MEAN FIELD ===
-                quark1_chi, Delta_x1 = self.solve_quark_4D(w1, phi1, k1, Delta_x1, V_mean_4D, verbose=False)
-                quark2_chi, Delta_x2 = self.solve_quark_4D(w2, phi2, k2, Delta_x2, V_mean_4D, verbose=False)
-                quark3_chi, Delta_x3 = self.solve_quark_4D(w3, phi3, k3, Delta_x3, V_mean_4D, verbose=False)
+                # === REBUILD INDUCED COMPONENTS WITH UPDATED MEAN FIELD ===
+                # SCF primaries are fixed; only induced components update
+                # All three quarks use the SAME Delta_x_baryon (collective confinement)
+                quark1_chi = self._build_4D_components_fixed_primary(
+                    chi1_scf, w1, phi1, k1, Delta_x_baryon, V_mean_4D, verbose=False)
+                quark2_chi = self._build_4D_components_fixed_primary(
+                    chi2_scf, w2, phi2, k2, Delta_x_baryon, V_mean_4D, verbose=False)
+                quark3_chi = self._build_4D_components_fixed_primary(
+                    chi3_scf, w3, phi3, k3, Delta_x_baryon, V_mean_4D, verbose=False)
                 
                 # === CHECK SCF CONVERGENCE ===
                 change1 = sum(np.sum(np.abs(quark1_chi[k] - quark1_chi_old[k])**2) * self.basis.dsigma 
@@ -2388,36 +2511,44 @@ class NonSeparableWavefunctionSolver:
                         print(f"    SCF converged after {iter_scf+1} iterations")
                     break
             
-            # === COMPUTE 4D AMPLITUDE ===
+            # === COMPUTE 4D COMPOSITE AMPLITUDE ===
             A_new = self.compute_4D_baryon_amplitude(quark1_chi, quark2_chi, quark3_chi)
             
-            if verbose:
-                print(f"\n4D Amplitude: A = {A_new:.6f}")
+            # === UPDATE BARYON Δx FROM COMPOSITE AMPLITUDE ===
+            # KEY: Self-confinement uses COMPOSITE amplitude, not individual quark amplitudes!
+            # Δx_baryon = 1/(g_internal × A_composite^6)^(1/3)
+            A_sixth = A_new ** 6
+            if self.g_internal > 0 and A_sixth > 1e-30:
+                Delta_x_new = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)
+            else:
+                Delta_x_new = Delta_x_baryon
             
-            # NOTE: Each quark now self-consistently determines its own Δx internally
-            # The outer loop just checks if the overall system has converged
+            if verbose:
+                print(f"\n4D Composite Amplitude: A = {A_new:.6f}")
+                print(f"Baryon self-confinement: Dx_new = {Delta_x_new:.6f} (was {Delta_x_baryon:.6f})")
             
             # === CHECK OUTER CONVERGENCE ===
             delta_A = abs(A_new - A_current)
+            delta_Dx = abs(Delta_x_new - Delta_x_baryon)
             rel_delta_A = delta_A / max(A_current, 0.01)
+            rel_delta_Dx = delta_Dx / max(Delta_x_baryon, 0.001)
             
             if verbose:
-                print(f"Convergence: dA/A = {rel_delta_A:.2e}")
+                print(f"Convergence: dA/A = {rel_delta_A:.2e}, dDx/Dx = {rel_delta_Dx:.2e}")
             
-            if rel_delta_A < tol_outer:
+            if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                 if verbose:
                     print(f"\n[OUTER LOOP CONVERGED] after {iter_outer+1} iterations")
                 final_iter = iter_outer
                 break
             
-            # === UPDATE AMPLITUDE ===
+            # === UPDATE WITH MIXING ===
             mixing = 0.3
             A_current = (1 - mixing) * A_current + mixing * A_new
+            Delta_x_baryon = (1 - mixing) * Delta_x_baryon + mixing * Delta_x_new
             
             history['A'].append(A_current)
-            history['Delta_x1'].append(Delta_x1)  # Track final Δx from each quark
-            history['Delta_x2'].append(Delta_x2)
-            history['Delta_x3'].append(Delta_x3)
+            history['Delta_x'].append(Delta_x_baryon)
             final_iter = iter_outer
         
         # === BUILD FINAL COMPOSITE ===
@@ -2440,8 +2571,8 @@ class NonSeparableWavefunctionSolver:
         
         if verbose:
             print(f"\n=== Final 4D Baryon Structure ===")
-            print(f"  A = {A_current:.6f}")
-            print(f"  Dx = ({Delta_x1:.6f}, {Delta_x2:.6f}, {Delta_x3:.6f})")
+            print(f"  A_composite = {A_current:.6f}")
+            print(f"  Dx_baryon = {Delta_x_baryon:.6f} (shared by all three quarks)")
             print(f"  k_eff = {k_eff:.4f}, |J|^2 = {np.abs(circulation)**2:.4e}")
             print(f"  E_EM = {em_energy:.4e}")
             phase_sum = np.exp(1j*phi1) + np.exp(1j*phi2) + np.exp(1j*phi3)
@@ -2458,7 +2589,7 @@ class NonSeparableWavefunctionSolver:
             iterations=final_iter + 1,
             particle_type='baryon_4D',
             convergence_history=history,
-            delta_x_final=(Delta_x1 + Delta_x2 + Delta_x3) / 3,  # Average
+            delta_x_final=Delta_x_baryon,  # Shared baryon scale
             delta_sigma_final=None,
             em_energy=em_energy,
             circulation=circulation,
