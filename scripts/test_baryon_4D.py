@@ -21,9 +21,9 @@ solver = NonSeparableWavefunctionSolver(
 )
 
 e = solver.solve_lepton_self_consistent(n_target=1, max_iter_outer=30, max_iter_nl=0)
-beta = 0.000511 / (e.structure_norm ** 2)
+beta = 0.511 / (e.structure_norm ** 2)  # Electron mass = 0.511 MeV = 0.000511 GeV, but we work in GeV
 print(f"  Electron: A = {e.structure_norm:.6f}")
-print(f"  beta = {beta:.6f} GeV")
+print(f"  beta = {beta:.6e} GeV")
 print()
 
 # Recreate solver with correct beta

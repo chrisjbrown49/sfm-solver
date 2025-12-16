@@ -674,9 +674,9 @@ class SFMParameterOptimizer:
         lambda_so: float = LAMBDA_SO_INITIAL,
     ) -> Optional[Tuple[float, Optional[float]]]:
         """
-        Run the self-consistent baryon solver with injected parameters.
+        Run the self-consistent 4D baryon solver with injected parameters.
         
-        Uses NonSeparableWavefunctionSolver.solve_baryon_self_consistent().
+        Uses NonSeparableWavefunctionSolver.solve_baryon_4D_self_consistent().
         
         Returns:
             Tuple of (predicted mass in GeV, EM self-energy), or (None, None) if solver fails.
@@ -709,12 +709,14 @@ class SFMParameterOptimizer:
             else:
                 quark_windings = None  # Use default
             
-            # Run self-consistent baryon solver
+            # Run self-consistent 4D baryon solver (new solver with shared Delta_x)
             # quark_wells are well indices (1, 2, 3)
-            result = solver.solve_baryon_self_consistent(
+            result = solver.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=quark_windings,
                 max_iter_outer=30,
+                max_iter_scf=10,
                 verbose=False,
             )
             
@@ -756,53 +758,7 @@ class SFMParameterOptimizer:
             return None
         else:
             return None
-    
-    def _objective_beta_only(self, beta: float) -> float:
-        """
-        FIRST-PRINCIPLES objective function for beta-only optimization.
-        
-        All other parameters are DERIVED from beta using SFM relationships:
-            kappa = 8piGbeta/(hbarc^3)
-            g_1 = alpha_em * beta^2 / m_e
-            alpha_coupling = 1/beta
-        
-        Args:
-            beta: Mass coupling constant in GeV
-            
-        Returns:
-            Total weighted error.
-        """
-        if beta <= 0:
-            return 1e10
-        
-        # DERIVE all parameters from beta (first principles!)
-        params = derive_all_parameters_from_beta(beta)
-        alpha = params['alpha']
-        kappa = params['kappa']
-        g1 = params['g1']
-        
-        return self._compute_error(beta, alpha, kappa, g1)
-    
-    def _objective(self, params: np.ndarray) -> float:
-        """
-        Legacy objective function for 4-parameter optimization.
-        
-        DEPRECATED: Use _objective_beta_only for first-principles approach.
-        
-        Args:
-            params: [beta, alpha, kappa, g1]
-            
-        Returns:
-            Total weighted error.
-        """
-        beta, alpha, kappa, g1 = params
-        
-        # Enforce positivity
-        if any(p <= 0 for p in [beta, alpha, kappa, g1]):
-            return 1e10
-        
-        return self._compute_error(beta, alpha, kappa, g1)
-    
+           
     def _compute_error(self, beta: float, alpha: float, kappa: float, g1: float) -> float:
         """
         Compute total weighted error for a parameter set.
@@ -876,127 +832,7 @@ class SFMParameterOptimizer:
             print(f"  Eval {self._eval_count}: error = {total_error:.6f}")
         
         return total_error
-    
-    def optimize_beta_only(
-        self,
-        beta_bounds: Optional[Tuple[float, float]] = None,
-        maxiter: int = 100,
-        save_json: bool = True,
-    ) -> OptimizationResult:
-        """
-        FIRST-PRINCIPLES optimization: search ONLY over beta.
-        
-        All other parameters are DERIVED from beta using SFM relationships:
-            kappa = 8piGbeta/(hbarc^3)           - Enhanced 5D gravity
-            g_1 = alpha_em * beta^2 / m_e     - Nonlinear coupling (EM/gravity hierarchy)
-            alpha_coupling = 1/beta         - Spatial-subspace coupling
-        
-        Args:
-            beta_bounds: (min, max) bounds for beta in GeV. Default is (10.0, 500.0).
-            maxiter: Maximum iterations for optimization.
-            save_json: If True, saves optimized constants to constants.json.
-            
-        Returns:
-            OptimizationResult with optimal beta and derived parameters.
-            
-        Raises:
-            ValueError: If the initial beta value from constants.json is outside bounds.
-        """
-        # Use fixed default bounds
-        if beta_bounds is None:
-            beta_bounds = (10.0, 500.0)
-        
-        # Validate that loaded initial value is within bounds
-        if not (beta_bounds[0] <= BETA_INITIAL <= beta_bounds[1]):
-            raise ValueError(
-                f"Initial beta value from constants.json ({BETA_INITIAL}) is outside "
-                f"the optimization bounds [{beta_bounds[0]}, {beta_bounds[1]}]. "
-                f"Please update constants.json with a beta value within the valid range, "
-                f"or specify different bounds using the beta_bounds parameter."
-            )
-        
-        if self.verbose:
-            print("=" * 70)
-            print("SFM FIRST-PRINCIPLES BETA-ONLY OPTIMIZATION")
-            print("=" * 70)
-            print("\nDERIVATION FORMULAS (all from beta):")
-            print("  kappa = 1/beta^2         [enhanced 5D gravity]")
-            print("  g1 = alpha_em * beta / m_e   [EM/gravity hierarchy]")
-            print("  alpha = C * beta         [spatial-subspace coupling]")
-            print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
-            print(f"Validation particles: {[p.name for p in self.validation]}")
-            print(f"\nSearching beta in [{beta_bounds[0]}, {beta_bounds[1]}] GeV")
-            print("-" * 70)
-        
-        # Reset tracking
-        self._eval_count = 0
-        self._best_error = float('inf')
-        self._best_beta = None
-        
-        start_time = time.time()
-        
-        # Use scalar optimization (1D search over beta)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = minimize_scalar(
-                self._objective_beta_only,
-                bounds=beta_bounds,
-                method='bounded',
-                options={'maxiter': maxiter, 'xatol': 0.01}
-            )
-        
-        elapsed = time.time() - start_time
-        
-        # Extract optimal beta and derive all other parameters
-        beta_opt = result.x
-        params = derive_all_parameters_from_beta(beta_opt)
-        alpha_opt = params['alpha']
-        kappa_opt = params['kappa']
-        g1_opt = params['g1']
-        L0_opt = params['L0']
-        
-        if self.verbose:
-            print("-" * 70)
-            print(f"Optimization complete. Computing final predictions...")
-        
-        # Compute results for all particles
-        calibration_results = self._evaluate_particles(
-            self.calibration, beta_opt, alpha_opt, kappa_opt, g1_opt
-        )
-        validation_results = self._evaluate_particles(
-            self.validation, beta_opt, alpha_opt, kappa_opt, g1_opt
-        )
-        
-        # Create result object
-        opt_result = OptimizationResult(
-            beta=beta_opt,
-            alpha=alpha_opt,
-            kappa=kappa_opt,
-            g1=g1_opt,
-            L0_gev_inv=L0_opt,
-            total_error=result.fun,
-            converged=result.success if hasattr(result, 'success') else True,
-            calibration_results=calibration_results,
-            validation_results=validation_results,
-            iterations=result.nfev,
-            function_evaluations=result.nfev,
-            time_seconds=elapsed,
-            scipy_result=None,
-        )
-        
-        if self.verbose:
-            print("\n" + opt_result.summary())
-            print("\nDERIVED PARAMETER VERIFICATION:")
-            print(f"  From beta = {beta_opt:.4f} GeV:")
-            print(f"    kappa = 8piGbeta/(hbarc^3) = {kappa_opt:.6e} GeV^-^2")
-            print(f"    g_1 = alpha_em * beta^2 / m_e = {g1_opt:.2f}")
-            print(f"    alpha = 1/beta = {alpha_opt:.6f} GeV")
-        
-        # Save optimized constants to JSON file (if enabled)
-        opt_result.save_constants_to_json(save=save_json)
-        
-        return opt_result
-    
+       
     def _evaluate_particles(
         self,
         particles: List[ParticleSpec],
@@ -1026,208 +862,7 @@ class SFMParameterOptimizer:
                 'weight': particle.weight,
             }
         return results
-    
-    def optimize(
-        self,
-        bounds: Optional[List[Tuple[float, float]]] = None,
-        maxiter: int = 100,
-        seed: int = 42,
-        popsize: int = 10,
-        save_json: bool = True,
-    ) -> OptimizationResult:
-        """
-        DEPRECATED: Use optimize_beta_only() for first-principles approach.
         
-        This method searches over all 4 parameters independently, which
-        does not guarantee physical consistency.
-        
-        Args:
-            bounds: List of (min, max) bounds for [beta, alpha, kappa, g1].
-            maxiter: Maximum iterations.
-            seed: Random seed for reproducibility.
-            popsize: Population size for differential evolution.
-            save_json: If True, saves optimized constants to constants.json.
-            
-        Returns:
-            OptimizationResult with optimal parameters and predictions.
-        """
-        if bounds is None:
-            # Fixed default bounds for [beta, alpha, kappa, g1]
-            # Wide enough to cover both empirical and first-principles parameter regimes
-            bounds = [
-                (0.0001, 0.01),       # beta (GeV) - around 0.0005
-                (1.0, 50.0),          # alpha (GeV) - around 10.5
-                (0.000001, 0.001),    # kappa (GeV^-2) - around 0.00003
-                (1000.0, 10000.0),    # g1 (dimensionless) - around 5000
-            ]
-        
-        # Validate that loaded initial values are within bounds
-        initial_values = [
-            ('beta', BETA_INITIAL, bounds[0]),
-            ('alpha', ALPHA_INITIAL, bounds[1]),
-            ('kappa', KAPPA_INITIAL, bounds[2]),
-            ('g1', G1_INITIAL, bounds[3]),
-        ]
-        
-        errors = []
-        for name, value, (low, high) in initial_values:
-            if not (low <= value <= high):
-                errors.append(
-                    f"  {name}: {value} is outside bounds [{low}, {high}]"
-                )
-        
-        if errors:
-            error_msg = (
-                "Initial values from constants.json are outside optimization bounds:\n"
-                + "\n".join(errors)
-                + "\n\nPlease update constants.json with values within the valid ranges, "
-                "or specify different bounds using the bounds parameter."
-            )
-            raise ValueError(error_msg)
-        
-        if self.verbose:
-            print("=" * 60)
-            print("4-PARAMETER OPTIMIZATION")
-            print("Searching over {beta, alpha, kappa, g1} independently")
-            print("=" * 60)
-            print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
-            print(f"Validation particles: {[p.name for p in self.validation]}")
-            print(f"\nParameter bounds:")
-            print(f"  beta:  [{bounds[0][0]}, {bounds[0][1]}] GeV")
-            print(f"  alpha: [{bounds[1][0]}, {bounds[1][1]}] GeV")
-            print(f"  kappa: [{bounds[2][0]}, {bounds[2][1]}] GeV^-2")
-            print(f"  g1:    [{bounds[3][0]}, {bounds[3][1]}]")
-            print(f"\nStarting optimization (maxiter={maxiter}, popsize={popsize})...")
-            print("-" * 60)
-        
-        # Reset tracking
-        self._eval_count = 0
-        self._best_error = float('inf')
-        self._best_params = None
-        self._start_time = time.time()
-        
-        # Initialize log file
-        if self.log_file:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 70 + "\n")
-                f.write("SFM 4-PARAMETER OPTIMIZATION LOG\n")
-                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 70 + "\n")
-                f.write(f"Calibration particles: {[p.name for p in self.calibration]}\n")
-                f.write(f"Validation particles: {[p.name for p in self.validation]}\n")
-                f.write(f"Parameter bounds:\n")
-                f.write(f"  beta:  [{bounds[0][0]}, {bounds[0][1]}] GeV\n")
-                f.write(f"  alpha: [{bounds[1][0]}, {bounds[1][1]}] GeV\n")
-                f.write(f"  kappa: [{bounds[2][0]}, {bounds[2][1]}] GeV^-2\n")
-                f.write(f"  g1:    [{bounds[3][0]}, {bounds[3][1]}]\n")
-                f.write(f"maxiter={maxiter}, popsize={popsize}\n")
-                f.write(f"Initial seed (x0) from constants.json:\n")
-                f.write(f"  beta={BETA_INITIAL}, alpha={ALPHA_INITIAL}, kappa={KAPPA_INITIAL}, g1={G1_INITIAL}\n")
-                f.write("=" * 70 + "\n\n")
-        
-        start_time = time.time()
-        
-        # Seed initial population with known good values from constants.json
-        # This ensures the optimizer starts from a reasonable baseline
-        x0 = [BETA_INITIAL, ALPHA_INITIAL, KAPPA_INITIAL, G1_INITIAL]
-        
-        if self.verbose:
-            print(f"Seeding initial population with constants.json values:")
-            print(f"  x0 = [beta={x0[0]}, alpha={x0[1]}, kappa={x0[2]}, g1={x0[3]}]")
-        
-        # Run differential evolution
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = differential_evolution(
-                self._objective,
-                bounds=bounds,
-                x0=x0,  # Seed with known good values
-                maxiter=maxiter,
-                seed=seed,
-                workers=1,  # Serial for now (solvers may not be thread-safe)
-                disp=False,
-                polish=True,
-                tol=1e-6,
-                atol=1e-6,
-                popsize=popsize,
-                mutation=(0.5, 1.0),
-                recombination=0.7,
-            )
-        
-        elapsed = time.time() - start_time
-        
-        # Extract optimal parameters
-        beta_opt, alpha_opt, kappa_opt, g1_opt = result.x
-        
-        # Compute L_0 from Beautiful Equation
-        L0_opt = 1.0 / beta_opt
-        
-        if self.verbose:
-            print("-" * 60)
-            print(f"Optimization complete. Computing final predictions...")
-        
-        # Compute results for all particles
-        calibration_results = {}
-        for particle in self.calibration:
-            m_pred = self.predict_mass(particle, beta_opt, alpha_opt, kappa_opt, g1_opt)
-            m_exp = particle.mass_gev
-            
-            if m_pred is not None:
-                percent_error = abs(m_pred - m_exp) / m_exp * 100
-            else:
-                m_pred = 0
-                percent_error = 100
-            
-            calibration_results[particle.name] = {
-                'predicted_mass': m_pred,
-                'experimental_mass': m_exp,
-                'percent_error': percent_error,
-                'weight': particle.weight,
-            }
-        
-        validation_results = {}
-        for particle in self.validation:
-            m_pred = self.predict_mass(particle, beta_opt, alpha_opt, kappa_opt, g1_opt)
-            m_exp = particle.mass_gev
-            
-            if m_pred is not None:
-                percent_error = abs(m_pred - m_exp) / m_exp * 100
-            else:
-                m_pred = 0
-                percent_error = 100
-            
-            validation_results[particle.name] = {
-                'predicted_mass': m_pred,
-                'experimental_mass': m_exp,
-                'percent_error': percent_error,
-                'weight': particle.weight,
-            }
-        
-        # Create result object
-        opt_result = OptimizationResult(
-            beta=beta_opt,
-            alpha=alpha_opt,
-            kappa=kappa_opt,
-            g1=g1_opt,
-            L0_gev_inv=L0_opt,
-            total_error=result.fun,
-            converged=result.success,
-            calibration_results=calibration_results,
-            validation_results=validation_results,
-            iterations=result.nit,
-            function_evaluations=result.nfev,
-            time_seconds=elapsed,
-            scipy_result=result,
-        )
-        
-        if self.verbose:
-            print("\n" + opt_result.summary())
-        
-        # Save optimized constants to JSON file (if enabled)
-        opt_result.save_constants_to_json(save=save_json)
-        
-        return opt_result
-    
     def compare_with_current(self) -> Dict:
         """
         Compare optimal parameters with current calibrated values.
@@ -1245,344 +880,7 @@ class SFMParameterOptimizer:
         }
         
         return current
-    
-    def _objective_ratio(self, params: np.ndarray) -> float:
-        """
-        Objective function for ratio-based optimization.
         
-        Optimizes alpha and g_internal to match masses, with beta
-        computed analytically to fix the electron mass exactly.
-        
-        Includes leptons, mesons (pion), and baryons (proton) in calibration.
-        
-        Args:
-            params: Array of [alpha, g_internal]
-            
-        Returns:
-            Total weighted error in mass predictions.
-        """
-        alpha, g_internal = params
-        g1 = G1_INITIAL  # Keep g1 fixed
-        
-        self._eval_count += 1
-        start_time = time.time()
-        
-        # Compute A^2 for all calibration particles
-        A_squared = {}
-        
-        # The solver is now completely beta-independent!
-        # G_internal controls self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
-        # Beta is only used to convert amplitude to physical mass at the end.
-        
-        from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
-        
-        # Create solver once (parameters are the same for all particles)
-        solver = NonSeparableWavefunctionSolver(
-            alpha=alpha,
-            g_internal=g_internal,  # Fundamental parameter
-            g1=g1,
-            g2=0.004,
-            V0=self.V0,
-            n_max=5,
-            l_max=2,
-            N_sigma=64,
-        )
-        
-        for particle in self.calibration:
-            try:
-                if particle.particle_type == 'lepton':
-                    n_target = particle.generation
-                    result = solver.solve_lepton_self_consistent(
-                        n_target=n_target,
-                        k_winding=1,
-                        max_iter_outer=30,
-                        max_iter_nl=0,
-                        verbose=False,
-                    )
-                    A_squared[particle.name] = result.structure_norm ** 2
-                    
-                elif particle.particle_type == 'meson':
-                    # Use self-consistent meson solver
-                    # quark_wells are well indices (1, 2), not angles
-                    result = solver.solve_meson_self_consistent(
-                        quark_wells=(1, 2),
-                        max_iter_outer=30,
-                        verbose=False,
-                    )
-                    A_squared[particle.name] = result.structure_norm ** 2
-                    
-                elif particle.particle_type == 'baryon':
-                    # Use self-consistent baryon solver
-                    # quark_wells are well indices (1, 2, 3)
-                    result = solver.solve_baryon_self_consistent(
-                        quark_wells=(1, 2, 3),
-                        max_iter_outer=30,
-                        verbose=False,
-                    )
-                    A_squared[particle.name] = result.structure_norm ** 2
-                    
-            except Exception as e:
-                # Solver failed - return large error
-                return 1e20
-        
-        # Check we have electron
-        if 'electron' not in A_squared or A_squared['electron'] <= 0:
-            return 1e20
-        
-        # Derive beta from electron mass: beta = m_e / A_e^2
-        m_e_exp = 0.000511  # GeV
-        beta_derived = m_e_exp / A_squared['electron']
-        
-        # Now compute predicted masses and errors for all particles
-        total_error = 0.0
-        predictions = {}
-        
-        for particle in self.calibration:
-            if particle.name not in A_squared:
-                continue
-            
-            m_pred = beta_derived * A_squared[particle.name]
-            m_exp = particle.mass_gev
-            
-            # For electron, error should be ~0 by construction
-            percent_error = abs(m_pred - m_exp) / m_exp * 100
-            
-            predictions[particle.name] = {
-                'predicted': m_pred * 1000,  # MeV
-                'experimental': m_exp * 1000,  # MeV
-                'error': percent_error,
-            }
-            
-            # Weight the error (electron should be perfect by construction)
-            if particle.name == 'electron':
-                total_error += percent_error * 0.01  # Low weight
-            else:
-                total_error += percent_error * particle.weight
-        
-        elapsed = time.time() - start_time
-        
-        # Track best result
-        is_best = total_error < self._best_error
-        if is_best:
-            self._best_error = total_error
-            self._best_params = (alpha, g_internal, beta_derived, g1)
-        
-        # Log progress
-        if self.log_file:
-            with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write("\n" + "=" * 70 + "\n")
-                f.write(f"Eval {self._eval_count} | Time: {elapsed:.1f}s | ")
-                f.write("*** NEW BEST ***\n" if is_best else "\n")
-                f.write(f"Search params: alpha={alpha:.6f}, g_internal={g_internal:.8f}\n")
-                f.write(f"Derived beta: {beta_derived:.8f} GeV\n")
-                f.write(f"Total Error: {total_error:.6f} (best so far: {self._best_error:.6f})\n")
-                f.write(f"Particle predictions:\n")
-                for name, pred in predictions.items():
-                    f.write(f"  {name:12}: pred={pred['predicted']:.4f} MeV, ")
-                    f.write(f"exp={pred['experimental']:.2f} MeV, ")
-                    f.write(f"error={pred['error']:.2f}%\n")
-        
-        if self.verbose and (self._eval_count % 10 == 0 or is_best):
-            marker = " *** BEST ***" if is_best else ""
-            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, "
-                  f"beta={beta_derived:.6e}, error={total_error:.2f}%{marker}")
-        
-        return total_error
-    
-    def optimize_ratio(
-        self,
-        bounds: Optional[List[Tuple[float, float]]] = None,
-        maxiter: int = 100,
-        seed: int = 42,
-        popsize: int = 10,
-        save_json: bool = True,
-    ) -> OptimizationResult:
-        """
-        Ratio-based optimization: optimize alpha and kappa to match mass RATIOS.
-        
-        Beta is derived analytically at each step to fix electron mass exactly:
-            beta = m_e_experimental / A_electron^2
-        
-        This reduces the problem from 4 free parameters to 2, focusing on
-        what matters: the mass hierarchy between generations.
-        
-        Args:
-            bounds: List of (min, max) bounds for [alpha, kappa].
-            maxiter: Maximum iterations.
-            seed: Random seed for reproducibility.
-            popsize: Population size for differential evolution.
-            save_json: If True, saves optimized constants to constants.json.
-            
-        Returns:
-            OptimizationResult with optimal parameters and predictions.
-        """
-        if bounds is None:
-            # Bounds for [alpha, g_internal] only
-            # TIGHTENED around known good values: alpha=10.5, g_internal=0.003
-            # The solver is highly sensitive to g_internal, so keep bounds narrow
-            bounds = [
-                (8.0, 15.0),          # alpha: ±50% around 10.5
-                (0.001, 0.01),        # g_internal: ±3× around 0.003
-            ]
-        
-        if self.verbose:
-            print("=" * 70)
-            print("RATIO-BASED OPTIMIZATION")
-            print("Optimizing {alpha, g_internal} to match mass RATIOS")
-            print("Beta derived from electron: beta = m_e / A_e^2")
-            print("g_internal is FUNDAMENTAL (works with amplitude, not mass)")
-            print("Solver is completely beta-independent!")
-            print("=" * 70)
-            print(f"\nCalibration particles: {[p.name for p in self.calibration]}")
-            print(f"Validation particles: {[p.name for p in self.validation]}")
-            print(f"\nParameter bounds:")
-            print(f"  alpha: [{bounds[0][0]}, {bounds[0][1]}] GeV")
-            print(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]")
-            print(f"\nFixed parameters:")
-            print(f"  g1: {G1_INITIAL}")
-            print(f"\nStarting optimization (maxiter={maxiter}, popsize={popsize})...")
-            print("-" * 70)
-        
-        # Reset tracking
-        self._eval_count = 0
-        self._best_error = float('inf')
-        self._best_params = None
-        self._start_time = time.time()
-        
-        # Initialize log file
-        if self.log_file:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write("=" * 70 + "\n")
-                f.write("SFM RATIO-BASED OPTIMIZATION LOG\n")
-                f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 70 + "\n")
-                f.write("Strategy: Optimize alpha/g_internal for mass RATIOS\n")
-                f.write("Beta derived from electron: beta = m_e / A_e^2\n")
-                f.write("g_internal is FUNDAMENTAL (works with amplitude, not mass)\n")
-                f.write("Solver is completely beta-independent!\n")
-                f.write("=" * 70 + "\n")
-                f.write(f"Calibration particles: {[p.name for p in self.calibration]}\n")
-                f.write(f"Validation particles: {[p.name for p in self.validation]}\n")
-                f.write(f"Parameter bounds:\n")
-                f.write(f"  alpha: [{bounds[0][0]}, {bounds[0][1]}] GeV\n")
-                f.write(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]\n")
-                f.write(f"Fixed: g1={G1_INITIAL}\n")
-                f.write(f"maxiter={maxiter}, popsize={popsize}\n")
-                f.write("=" * 70 + "\n\n")
-        
-        start_time = time.time()
-        
-        # Seed initial population with known good values
-        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL]
-        
-        if self.verbose:
-            print(f"Starting from: alpha={x0[0]}, g_internal={x0[1]}")
-        
-        # Use LOCAL optimizer (Nelder-Mead) since we already have a good starting point
-        # This avoids the wild exploration that differential_evolution does
-        from scipy.optimize import minimize
-        
-        # maxfev = max function evaluations (more intuitive for user)
-        # Each user "iteration" = ~5 function evaluations for Nelder-Mead
-        max_func_evals = maxiter * 5
-        
-        if self.verbose:
-            print(f"Running Nelder-Mead local optimizer (max {max_func_evals} evaluations)...")
-        
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = minimize(
-                self._objective_ratio,
-                x0=x0,
-                method='Nelder-Mead',
-                options={
-                    'maxfev': max_func_evals,  # Limit function evaluations
-                    'xatol': 1e-4,
-                    'fatol': 0.1,  # Stop if error changes by < 0.1%
-                    'disp': False,
-                },
-            )
-        
-        elapsed = time.time() - start_time
-        
-        # Extract optimal parameters
-        alpha_opt, g_internal_opt = result.x
-        g1_opt = G1_INITIAL
-        
-        # Derive beta from electron mass using optimal parameters
-        try:
-            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
-            
-            solver = NonSeparableWavefunctionSolver(
-                alpha=alpha_opt,
-                g_internal=g_internal_opt,
-                g1=g1_opt,
-                g2=0.004,
-                V0=self.V0,
-                n_max=5,
-                l_max=2,
-                N_sigma=64,
-            )
-            
-            result_e = solver.solve_lepton_self_consistent(
-                n_target=1,  # electron
-                k_winding=1,
-                max_iter_outer=30,
-                max_iter_nl=0,
-                verbose=False,
-            )
-            
-            A_e_squared = result_e.structure_norm ** 2
-            beta_opt = 0.000511 / A_e_squared  # m_e in GeV
-            
-        except Exception as e:
-            print(f"Warning: Failed to derive beta: {e}")
-            beta_opt = BETA_INITIAL
-        
-        L0_opt = 1.0 / beta_opt
-        
-        # Derive kappa for backward compatibility: kappa = g_internal / beta
-        kappa_opt = g_internal_opt / beta_opt
-        
-        if self.verbose:
-            print("-" * 70)
-            print(f"Optimization complete. Computing final predictions...")
-            print(f"Optimal: alpha={alpha_opt:.6f}, g_internal={g_internal_opt:.8f}")
-            print(f"Derived: beta={beta_opt:.8f} GeV, kappa={kappa_opt:.8f}")
-        
-        # Compute results for all particles
-        calibration_results = self._evaluate_particles(
-            self.calibration, beta_opt, alpha_opt, kappa_opt, g1_opt
-        )
-        validation_results = self._evaluate_particles(
-            self.validation, beta_opt, alpha_opt, kappa_opt, g1_opt
-        )
-        
-        # Create result object
-        opt_result = OptimizationResult(
-            beta=beta_opt,
-            alpha=alpha_opt,
-            kappa=kappa_opt,  # Derived for backward compatibility
-            g1=g1_opt,
-            L0_gev_inv=L0_opt,
-            total_error=result.fun,
-            converged=result.success,
-            calibration_results=calibration_results,
-            validation_results=validation_results,
-            iterations=getattr(result, 'nit', 0),
-            function_evaluations=getattr(result, 'nfev', self._eval_count),
-            time_seconds=elapsed,
-            scipy_result=result,
-        )
-        
-        if self.verbose:
-            print("\n" + opt_result.summary())
-        
-        # Save optimized constants to JSON file (if enabled)
-        opt_result.save_constants_to_json(save=save_json)
-        
-        return opt_result
-
     def _objective_free(self, params: np.ndarray) -> float:
         """
         Objective function for free 3-parameter optimization.
@@ -1639,7 +937,9 @@ class SFMParameterOptimizer:
             return 1e20
         
         # Derive beta from electron mass
-        m_e_exp = 0.000511  # GeV
+        # beta = m_e / A_e^2 where m_e = 0.511 MeV
+        # Then m = beta * A^2 gives mass in MeV
+        m_e_exp = 0.511  # Electron mass in MeV
         beta_derived = m_e_exp / A_squared['electron']
         
         # Compute errors
@@ -1653,13 +953,13 @@ class SFMParameterOptimizer:
             if particle.name not in A_squared:
                 continue
             
-            m_pred = beta_derived * A_squared[particle.name]
-            m_exp = particle.mass_gev
+            m_pred = beta_derived * A_squared[particle.name]  # Mass in MeV
+            m_exp = particle.mass_gev * 1000  # Convert GeV to MeV
             percent_error = abs(m_pred - m_exp) / m_exp * 100
             
             predictions[particle.name] = {
-                'predicted': m_pred * 1000,
-                'experimental': m_exp * 1000,
+                'predicted': m_pred,  # In MeV
+                'experimental': m_exp,  # In MeV
                 'error': percent_error,
             }
             
@@ -1784,7 +1084,7 @@ class SFMParameterOptimizer:
             )
             
             A_e_squared = result_e.structure_norm ** 2
-            beta_opt = 0.000511 / A_e_squared
+            beta_opt = 0.511 / A_e_squared  # SFM units convention
             
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
@@ -1874,33 +1174,37 @@ class SFMParameterOptimizer:
                 n_target=1, k_winding=1, max_iter_outer=30, verbose=False
             )
             A_e_squared = result_e.structure_norm ** 2
-            beta_derived = 0.000511 / A_e_squared  # m_e in GeV
+            beta_derived = 0.511 / A_e_squared  # SFM units convention
         except Exception:
             return 1e20
         
-        # Solve for proton and neutron
+        # Solve for proton and neutron using 4D solver
         try:
-            result_p = solver.solve_baryon_self_consistent(
+            result_p = solver.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, 5, -3),  # uud
                 max_iter_outer=30,
+                max_iter_scf=10,
                 verbose=False,
             )
-            m_proton = beta_derived * result_p.structure_norm ** 2
+            m_proton = beta_derived * result_p.structure_norm ** 2 * 1000  # Baryon formula
             
-            result_n = solver.solve_baryon_self_consistent(
+            result_n = solver.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
                 max_iter_outer=30,
+                max_iter_scf=10,
                 verbose=False,
             )
-            m_neutron = beta_derived * result_n.structure_norm ** 2
+            m_neutron = beta_derived * result_n.structure_norm ** 2 * 1000  # Baryon formula
         except Exception:
             return 1e20
         
-        # Experimental values
-        m_p_exp = 0.938272  # GeV
-        m_n_exp = 0.939565  # GeV
+        # Experimental values (convert to MeV)
+        m_p_exp = 938.272  # MeV
+        m_n_exp = 939.565  # MeV
         delta_m_exp = m_n_exp - m_p_exp  # ~1.293 MeV
         
         # Predicted mass difference
@@ -2057,7 +1361,7 @@ class SFMParameterOptimizer:
                 n_target=1, k_winding=1, max_iter_outer=30, verbose=False
             )
             A_e_squared = result_e.structure_norm ** 2
-            beta_opt = 0.000511 / A_e_squared
+            beta_opt = 0.511 / A_e_squared  # SFM units convention
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
             beta_opt = BETA_INITIAL
@@ -2118,19 +1422,18 @@ class SFMParameterOptimizer:
 
     def _objective_full(self, params: np.ndarray) -> float:
         """
-        Objective function for full 4-parameter optimization.
+        Objective function for full 5-parameter optimization.
         
-        Optimizes alpha, g_internal, g2, and lambda_so simultaneously.
+        Optimizes alpha, g_internal, g1, g2, and lambda_so simultaneously.
         Beta is derived from electron mass.
         
         Args:
-            params: Array of [alpha, g_internal, g2, lambda_so]
+            params: Array of [alpha, g_internal, g1, g2, lambda_so]
             
         Returns:
             Total weighted error in mass predictions.
         """
-        alpha, g_internal, g2, lambda_so = params
-        g1 = G1_INITIAL  # Keep g1 fixed
+        alpha, g_internal, g1, g2, lambda_so = params
         
         self._eval_count += 1
         start_time = time.time()
@@ -2187,10 +1490,12 @@ class SFMParameterOptimizer:
                     else:
                         quark_windings = None
                     
-                    result = solver.solve_baryon_self_consistent(
+                    result = solver.solve_baryon_4D_self_consistent(
                         quark_wells=(1, 2, 3),
+                        color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                         quark_windings=quark_windings,
                         max_iter_outer=30,
+                        max_iter_scf=10,
                         verbose=False,
                     )
                     A_squared[particle.name] = result.structure_norm ** 2
@@ -2201,10 +1506,12 @@ class SFMParameterOptimizer:
         
         # Also solve neutron (from validation set) for mass splitting
         try:
-            result_n = solver.solve_baryon_self_consistent(
+            result_n = solver.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
                 max_iter_outer=30,
+                max_iter_scf=10,
                 verbose=False,
             )
             A_squared['neutron'] = result_n.structure_norm ** 2
@@ -2217,7 +1524,10 @@ class SFMParameterOptimizer:
             return 1e20
         
         # Derive beta from electron mass
-        m_e_exp = 0.000511  # GeV
+        # beta = 0.511 / A_e^2
+        # For leptons: m = beta * A^2 (in MeV)
+        # For baryons: m = beta * A^2 * 1000 (convert GeV to MeV)
+        m_e_exp = 0.511  # Electron mass in MeV
         beta_derived = m_e_exp / A_squared['electron']
         
         # Compute predicted masses and errors
@@ -2228,13 +1538,18 @@ class SFMParameterOptimizer:
             if particle.name not in A_squared:
                 continue
             
-            m_pred = beta_derived * A_squared[particle.name]
-            m_exp = particle.mass_gev
+            # Apply correct formula based on particle type
+            if particle.particle_type == 'lepton':
+                m_pred = beta_derived * A_squared[particle.name]  # Already in MeV
+            else:
+                m_pred = beta_derived * A_squared[particle.name] * 1000  # Convert to MeV
+            
+            m_exp = particle.mass_gev * 1000  # Convert GeV to MeV
             percent_error = abs(m_pred - m_exp) / m_exp * 100
             
             predictions[particle.name] = {
-                'predicted': m_pred * 1000,
-                'experimental': m_exp * 1000,
+                'predicted': m_pred,  # In MeV
+                'experimental': m_exp,  # In MeV
                 'error': percent_error,
             }
             
@@ -2246,11 +1561,11 @@ class SFMParameterOptimizer:
         
         # Add proton-neutron mass splitting error (high weight)
         if 'proton' in A_squared and 'neutron' in A_squared:
-            m_proton = beta_derived * A_squared['proton']
-            m_neutron = beta_derived * A_squared['neutron']
+            m_proton = beta_derived * A_squared['proton'] * 1000  # Baryon formula: convert to MeV
+            m_neutron = beta_derived * A_squared['neutron'] * 1000  # Baryon formula: convert to MeV
             
-            delta_m_exp = 0.001293  # 1.293 MeV in GeV
-            delta_m_pred = m_neutron - m_proton
+            delta_m_exp = 1.293  # MeV (experimental neutron-proton mass difference)
+            delta_m_pred = m_neutron - m_proton  # In MeV
             
             # Splitting error (10x weight - very important!)
             splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2 * 100
@@ -2262,8 +1577,8 @@ class SFMParameterOptimizer:
             total_error += 10.0 * splitting_error
             
             predictions['n-p_splitting'] = {
-                'predicted': delta_m_pred * 1000,
-                'experimental': delta_m_exp * 1000,
+                'predicted': delta_m_pred,  # Already in MeV
+                'experimental': delta_m_exp,  # Already in MeV
                 'error': abs(delta_m_pred - delta_m_exp) / delta_m_exp * 100,
             }
         
@@ -2272,12 +1587,12 @@ class SFMParameterOptimizer:
         is_best = total_error < self._best_error
         if is_best:
             self._best_error = total_error
-            self._best_params = (alpha, g_internal, g2, lambda_so, beta_derived)
+            self._best_params = (alpha, g_internal, g1, g2, lambda_so, beta_derived)
         
         if self.log_file:
             with open(self.log_file, 'a', encoding='utf-8') as f:
                 f.write(f"\nEval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, ")
-                f.write(f"g2={g2:.5f}, lambda_so={lambda_so:.3f}")
+                f.write(f"g1={g1:.2f}, g2={g2:.5f}, lambda_so={lambda_so:.3f}")
                 f.write(f" -> error={total_error:.2f}")
                 if is_best:
                     f.write(" *** BEST ***")
@@ -2288,7 +1603,7 @@ class SFMParameterOptimizer:
         if self.verbose and (self._eval_count % 5 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
             print(f"Eval {self._eval_count}: a={alpha:.3f}, g_int={g_internal:.5f}, "
-                  f"g2={g2:.4f}, lso={lambda_so:.2f} -> err={total_error:.1f}{marker}")
+                  f"g1={g1:.1f}, g2={g2:.4f}, lso={lambda_so:.2f} -> err={total_error:.1f}{marker}")
         
         return total_error
     
@@ -2301,13 +1616,13 @@ class SFMParameterOptimizer:
         save_json: bool = True,
     ) -> OptimizationResult:
         """
-        Full 4-parameter optimization: alpha, g_internal, g2, and lambda_so.
+        Full 5-parameter optimization: alpha, g_internal, g1, g2, and lambda_so.
         
         Beta is derived from electron mass.
         This mode optimizes for both absolute masses AND proton-neutron splitting.
         
         Args:
-            bounds: List of (min, max) bounds for [alpha, g_internal, g2, lambda_so].
+            bounds: List of (min, max) bounds for [alpha, g_internal, g1, g2, lambda_so].
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
@@ -2317,27 +1632,28 @@ class SFMParameterOptimizer:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
-            # Bounds for [alpha, g_internal, g2, lambda_so]
+            # Bounds for [alpha, g_internal, g1, g2, lambda_so]
             bounds = [
                 (5.0, 20.0),      # alpha
                 (0.001, 0.01),    # g_internal
-                (0.01, 0.1),      # g2
+                (10.0, 200.0),    # g1 (mean-field coupling)
+                (10.0, 150.0),    # g2 (EM self-energy coupling)
                 (0.05, 0.5),      # lambda_so
             ]
         
         if self.verbose:
             print("=" * 70)
-            print("FULL 4-PARAMETER OPTIMIZATION")
-            print("Optimizing {alpha, g_internal, g2, lambda_so}")
+            print("FULL 5-PARAMETER OPTIMIZATION")
+            print("Optimizing {alpha, g_internal, g1, g2, lambda_so}")
             print("Beta derived from electron mass")
             print("Targets: absolute masses + proton-neutron mass splitting")
             print("=" * 70)
             print(f"\nParameter bounds:")
             print(f"  alpha:      [{bounds[0][0]}, {bounds[0][1]}]")
             print(f"  g_internal: [{bounds[1][0]}, {bounds[1][1]}]")
-            print(f"  g2:         [{bounds[2][0]}, {bounds[2][1]}]")
-            print(f"  lambda_so:  [{bounds[3][0]}, {bounds[3][1]}]")
-            print(f"\nFixed: g1={G1_INITIAL}")
+            print(f"  g1:         [{bounds[2][0]}, {bounds[2][1]}]")
+            print(f"  g2:         [{bounds[3][0]}, {bounds[3][1]}]")
+            print(f"  lambda_so:  [{bounds[4][0]}, {bounds[4][1]}]")
             print("-" * 70)
         
         self._eval_count = 0
@@ -2348,22 +1664,22 @@ class SFMParameterOptimizer:
         if self.log_file:
             with open(self.log_file, 'w', encoding='utf-8') as f:
                 f.write("=" * 70 + "\n")
-                f.write("SFM FULL 4-PARAMETER OPTIMIZATION\n")
+                f.write("SFM FULL 5-PARAMETER OPTIMIZATION\n")
                 f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 70 + "\n")
-                f.write("Optimizing: alpha, g_internal, g2, lambda_so\n")
+                f.write("Optimizing: alpha, g_internal, g1, g2, lambda_so\n")
                 f.write("Targets: absolute masses + p-n mass splitting\n")
                 f.write(f"Bounds: alpha=[{bounds[0]}], g_internal=[{bounds[1]}]\n")
-                f.write(f"        g2=[{bounds[2]}], lambda_so=[{bounds[3]}]\n")
+                f.write(f"        g1=[{bounds[2]}], g2=[{bounds[3]}], lambda_so=[{bounds[4]}]\n")
                 f.write("=" * 70 + "\n")
         
         start_time = time.time()
         
         # Seed with current values
-        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
+        x0 = [ALPHA_INITIAL, G_INTERNAL_INITIAL, G1_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
         
         if self.verbose:
-            print(f"Starting from: alpha={x0[0]}, g_internal={x0[1]}, g2={x0[2]}, lambda_so={x0[3]}")
+            print(f"Starting from: alpha={x0[0]}, g_internal={x0[1]}, g1={x0[2]}, g2={x0[3]}, lambda_so={x0[4]}")
         
         # Use differential evolution for global search
         with warnings.catch_warnings():
@@ -2386,7 +1702,7 @@ class SFMParameterOptimizer:
         
         elapsed = time.time() - start_time
         
-        alpha_opt, g_internal_opt, g2_opt, lambda_so_opt = result.x
+        alpha_opt, g_internal_opt, g1_opt, g2_opt, lambda_so_opt = result.x
         
         # Derive beta from electron mass
         try:
@@ -2395,7 +1711,7 @@ class SFMParameterOptimizer:
             solver = NonSeparableWavefunctionSolver(
                 alpha=alpha_opt,
                 g_internal=g_internal_opt,
-                g1=G1_INITIAL,
+                g1=g1_opt,
                 g2=g2_opt,
                 lambda_so=lambda_so_opt,
             )
@@ -2404,7 +1720,7 @@ class SFMParameterOptimizer:
                 n_target=1, k_winding=1, max_iter_outer=30, verbose=False
             )
             A_e_squared = result_e.structure_norm ** 2
-            beta_opt = 0.000511 / A_e_squared
+            beta_opt = 0.511 / A_e_squared  # SFM units convention
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
             beta_opt = BETA_INITIAL
@@ -2416,22 +1732,22 @@ class SFMParameterOptimizer:
             print("-" * 70)
             print(f"Optimization complete.")
             print(f"Optimal: alpha={alpha_opt:.6f}, g_internal={g_internal_opt:.8f}")
-            print(f"         g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
+            print(f"         g1={g1_opt:.4f}, g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
             print(f"Derived: beta={beta_opt:.8f} GeV")
         
         # Compute results for all particles
         calibration_results = self._evaluate_particles(
-            self.calibration, beta_opt, alpha_opt, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+            self.calibration, beta_opt, alpha_opt, kappa_opt, g1_opt, g2_opt, lambda_so_opt
         )
         validation_results = self._evaluate_particles(
-            self.validation, beta_opt, alpha_opt, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+            self.validation, beta_opt, alpha_opt, kappa_opt, g1_opt, g2_opt, lambda_so_opt
         )
         
         opt_result = OptimizationResult(
             beta=beta_opt,
             alpha=alpha_opt,
             kappa=kappa_opt,
-            g1=G1_INITIAL,
+            g1=g1_opt,
             g2=g2_opt,
             lambda_so=lambda_so_opt,
             L0_gev_inv=L0_opt,
@@ -2470,7 +1786,7 @@ def run_optimization_full(
     save_json: bool = True,
 ) -> OptimizationResult:
     """
-    Run full 4-parameter optimization.
+    Run full 5-parameter optimization.
     
     Optimizes alpha, g_internal, g2, and lambda_so for both absolute masses
     and proton-neutron mass splitting.
@@ -2510,63 +1826,6 @@ def run_optimization_em(
     """
     optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
     return optimizer.optimize_em(maxiter=maxiter, save_json=save_json)
-
-
-def run_optimization_ratio(
-    verbose: bool = True,
-    maxiter: int = 100,
-    log_file: Optional[str] = None,
-    save_json: bool = True,
-) -> OptimizationResult:
-    """
-    Run ratio-based optimization over alpha and kappa.
-    
-    Beta is derived analytically to fix electron mass exactly.
-    This focuses optimization on matching mass RATIOS (m_mu/m_e, m_tau/m_e).
-    
-    Args:
-        verbose: Print progress information.
-        maxiter: Maximum iterations.
-        log_file: Path to log file for optimization progress (optional).
-        save_json: If True, saves optimized constants to constants.json.
-    
-    Returns:
-        OptimizationResult with optimal parameters.
-    """
-    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
-    return optimizer.optimize_ratio(maxiter=maxiter, save_json=save_json)
-
-
-def run_optimization_beta_only(
-    verbose: bool = True,
-    maxiter: int = 100,
-    beta_bounds: Tuple[float, float] = (10.0, 500.0),
-    log_file: Optional[str] = None,
-    save_json: bool = True,
-) -> OptimizationResult:
-    """
-    Run FIRST-PRINCIPLES beta-only optimization.
-    
-    All parameters derived from beta:
-        kappa = 8piGbeta/(hbarc^3)
-        g_1 = alpha_em * beta^2 / m_e
-        alpha = 1/beta
-    
-    Args:
-        verbose: Print progress information.
-        maxiter: Maximum iterations.
-        beta_bounds: Search range for beta in GeV. Default is (10.0, 500.0).
-        log_file: Path to log file for optimization progress (optional).
-        save_json: If True, saves optimized constants to constants.json.
-        
-    Returns:
-        OptimizationResult with optimal beta and derived parameters.
-        
-    Raises:
-        ValueError: If the initial beta from constants.json is outside bounds.
-    """
-    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
-    return optimizer.optimize_beta_only(beta_bounds=beta_bounds, maxiter=maxiter, save_json=save_json)
 
 
 def run_optimization_free(
@@ -2632,12 +1891,12 @@ Examples:
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["ratio", "free", "em", "full"],
-        default="ratio",
-        help="Optimization mode: 'ratio' (default) optimizes alpha/g_internal for mass ratios, "
+        choices=["free", "em", "full"],
+        default="full",
+        help="Optimization mode: "
              "'free' for 3-parameter (alpha, g_internal, g1), "
              "'em' for EM parameters (g2, lambda_so) for proton-neutron mass splitting, "
-             "'full' for all 4 parameters (alpha, g_internal, g2, lambda_so)"
+             "'full' for all 4 parameters (alpha, g_internal, g1, g2, lambda_so) [default]"
     )
     
     parser.add_argument(
@@ -2673,10 +1932,9 @@ Examples:
     
     # Map mode names for display
     mode_names = {
-        'ratio': 'ratio-based (alpha/g_internal)',
         'free': '3-parameter (alpha, g_internal, g1)',
         'em': 'EM parameters (g2, lambda_so) for p-n mass splitting',
-        'full': 'full 4-parameter (alpha, g_internal, g2, lambda_so)',
+        'full': 'full 5-parameter (alpha, g_internal, g1, g2, lambda_so)',
     }
     
     # Print startup information
@@ -2698,14 +1956,7 @@ Examples:
     print()
     
     # Run the appropriate optimization
-    if args.mode == "ratio":
-        result = run_optimization_ratio(
-            verbose=verbose,
-            maxiter=args.max_iter,
-            log_file=log_file,
-            save_json=save_json,
-        )
-    elif args.mode == "em":
+    if args.mode == "em":
         result = run_optimization_em(
             verbose=verbose,
             maxiter=args.max_iter,

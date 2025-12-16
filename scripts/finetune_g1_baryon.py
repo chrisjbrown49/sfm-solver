@@ -121,7 +121,7 @@ print("\n" + "="*80)
 print("SUMMARY")
 print("="*80)
 print(f"\n{'g1':>8s} {'A_p':>8s} {'A_n':>8s} {'m_p(MeV)':>10s} {'m_n(MeV)':>10s} "
-      f"{'err_p(%)':>10s} {'err_n(%)':>10s} {'avg_err':>10s} {'Δm(MeV)':>10s}")
+      f"{'err_p(%)':>10s} {'err_n(%)':>10s} {'avg_err':>10s} {'dm(MeV)':>10s}")
 print("-"*98)
 
 for r in results:
