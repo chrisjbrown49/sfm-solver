@@ -513,7 +513,11 @@ class SFMParameterOptimizer:
         N_grid: int = 64,
         V0: float = 1.0,
         verbose: bool = True,
-        log_file: Optional[str] = None
+        log_file: Optional[str] = None,
+        max_iter_lepton: int = 30,
+        max_iter_meson: int = 30,
+        max_iter_baryon: int = 30,
+        max_iter_scf: int = 10,
     ):
         """
         Initialize the optimizer.
@@ -527,6 +531,10 @@ class SFMParameterOptimizer:
             V0: Three-well potential depth (fixed at 1.0 GeV).
             verbose: Print progress information.
             log_file: Path to log file for dynamic updates (optional).
+            max_iter_lepton: Maximum outer iterations for lepton solver.
+            max_iter_meson: Maximum outer iterations for meson solver.
+            max_iter_baryon: Maximum outer iterations for baryon solver.
+            max_iter_scf: Maximum SCF iterations for baryon solver.
         """
         self.calibration = calibration_particles or CALIBRATION_PARTICLES
         self.validation = validation_particles or VALIDATION_PARTICLES
@@ -534,6 +542,10 @@ class SFMParameterOptimizer:
         self.V0 = V0
         self.verbose = verbose
         self.log_file = log_file
+        self.max_iter_lepton = max_iter_lepton
+        self.max_iter_meson = max_iter_meson
+        self.max_iter_baryon = max_iter_baryon
+        self.max_iter_scf = max_iter_scf
         
         # Tracking
         self._eval_count = 0
@@ -592,10 +604,43 @@ class SFMParameterOptimizer:
             result = solver.solve_lepton_self_consistent(
                 n_target=n_target,
                 k_winding=1,
-                max_iter_outer=30,
+                max_iter_outer=self.max_iter_lepton,
                 max_iter_nl=0,  # Step 1 only (no nonlinear iteration needed)
                 verbose=False,
             )
+            
+            # Check convergence with detailed diagnostics
+            if not result.converged:
+                # Extract convergence metrics from history
+                conv_status = "UNKNOWN"
+                final_change = None
+                if result.convergence_history and 'A' in result.convergence_history:
+                    A_hist = result.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT (nearly converged)"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE (slow convergence)"
+                        else:
+                            conv_status = "HARD (not converging)"
+                
+                warning_msg = (f"WARNING: Lepton solver - {particle.name} (n={n_target}): "
+                              f"iterations={result.iterations}/{self.max_iter_lepton}, "
+                              f"status={conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                    if final_change < 5e-4:
+                        warning_msg += " [LIKELY VALID]"
+                    elif final_change < 1e-3:
+                        warning_msg += " [CAUTION: verify results]"
+                    else:
+                        warning_msg += " [UNRELIABLE]"
+                
+                if self.verbose and self._eval_count % 100 == 0:
+                    print(f"    {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
             
             # Extract predicted mass: m = beta * A^2
             A = result.structure_norm
@@ -649,9 +694,42 @@ class SFMParameterOptimizer:
             # quark_wells are well indices (1, 2), not angles
             result = solver.solve_meson_self_consistent(
                 quark_wells=(1, 2),
-                max_iter_outer=30,
+                max_iter_outer=self.max_iter_meson,
                 verbose=False,
             )
+            
+            # Check convergence with detailed diagnostics
+            if not result.converged:
+                # Extract convergence metrics from history
+                conv_status = "UNKNOWN"
+                final_change = None
+                if result.convergence_history and 'A' in result.convergence_history:
+                    A_hist = result.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT (nearly converged)"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE (slow convergence)"
+                        else:
+                            conv_status = "HARD (not converging)"
+                
+                warning_msg = (f"WARNING: Meson solver - {particle.name}: "
+                              f"iterations={result.iterations}/{self.max_iter_meson}, "
+                              f"status={conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                    if final_change < 5e-4:
+                        warning_msg += " [LIKELY VALID]"
+                    elif final_change < 1e-3:
+                        warning_msg += " [CAUTION: verify results]"
+                    else:
+                        warning_msg += " [UNRELIABLE]"
+                
+                if self.verbose and self._eval_count % 100 == 0:
+                    print(f"    {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
             
             # Extract predicted mass: m = beta * A^2
             A = result.structure_norm
@@ -715,10 +793,62 @@ class SFMParameterOptimizer:
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=quark_windings,
-                max_iter_outer=30,
-                max_iter_scf=10,
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
                 verbose=False,
             )
+            
+            # Check convergence with detailed diagnostics
+            if not result.converged:
+                # Extract convergence metrics from history
+                conv_status = "UNKNOWN"
+                final_dA = None
+                final_dDx = None
+                
+                if result.convergence_history:
+                    hist = result.convergence_history
+                    if 'A' in hist and len(hist['A']) > 1:
+                        A_hist = hist['A']
+                        final_dA = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                    
+                    if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                        dx_hist = hist['Delta_x']
+                        final_dDx = abs(dx_hist[-1] - dx_hist[-2]) / max(dx_hist[-1], 0.001)
+                    
+                    # Assess convergence quality
+                    if final_dA is not None and final_dDx is not None:
+                        max_change = max(final_dA, final_dDx)
+                        if max_change < 5e-4:
+                            conv_status = "SOFT (nearly converged)"
+                        elif max_change < 1e-3:
+                            conv_status = "MODERATE (slow convergence)"
+                        else:
+                            conv_status = "HARD (not converging)"
+                
+                warning_msg = (f"WARNING: Baryon solver - {particle.name} "
+                              f"(windings={quark_windings}): "
+                              f"iterations={result.iterations}/{self.max_iter_baryon}, "
+                              f"status={conv_status}")
+                
+                if final_dA is not None:
+                    warning_msg += f", dA/A={final_dA:.2e}"
+                if final_dDx is not None:
+                    warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                
+                # Validity assessment
+                if final_dA is not None and final_dDx is not None:
+                    max_change = max(final_dA, final_dDx)
+                    if max_change < 5e-4:
+                        warning_msg += " [LIKELY VALID - use results]"
+                    elif max_change < 1e-3:
+                        warning_msg += " [CAUTION - verify physics]"
+                    else:
+                        warning_msg += " [UNRELIABLE - discard]"
+                
+                if self.verbose and self._eval_count % 100 == 0:
+                    print(f"    {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
             
             # Extract predicted mass: m = beta * A^2
             A = result.structure_norm
@@ -881,9 +1011,9 @@ class SFMParameterOptimizer:
         
         return current
         
-    def _objective_free(self, params: np.ndarray) -> float:
+    def _objective_lepton(self, params: np.ndarray) -> float:
         """
-        Objective function for free 3-parameter optimization.
+        Objective function for lepton 3-parameter optimization.
         
         Optimizes alpha, g_internal, and g1 with beta derived from electron mass.
         
@@ -923,10 +1053,40 @@ class SFMParameterOptimizer:
                 result = solver.solve_lepton_self_consistent(
                     n_target=n_target,
                     k_winding=1,
-                    max_iter_outer=30,
+                    max_iter_outer=self.max_iter_lepton,
                     max_iter_nl=0,
                     verbose=False,
                 )
+                
+                # Check convergence with diagnostics
+                if not result.converged:
+                    conv_status = "UNKNOWN"
+                    final_change = None
+                    validity = ""
+                    
+                    if result.convergence_history and 'A' in result.convergence_history:
+                        A_hist = result.convergence_history['A']
+                        if len(A_hist) > 1:
+                            final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                            if final_change < 5e-4:
+                                conv_status = "SOFT"
+                                validity = " [LIKELY VALID]"
+                            elif final_change < 1e-3:
+                                conv_status = "MODERATE"
+                                validity = " [CAUTION]"
+                            else:
+                                conv_status = "HARD"
+                                validity = " [UNRELIABLE]"
+                    
+                    warning_msg = (f"WARNING: Lepton - {particle.name} (n={n_target}): "
+                                  f"{result.iterations}/{self.max_iter_lepton} iters, {conv_status}")
+                    if final_change is not None:
+                        warning_msg += f", dA/A={final_change:.2e}"
+                    warning_msg += validity
+                    
+                    if self.log_file:
+                        with open(self.log_file, 'a', encoding='utf-8') as f:
+                            f.write(f"  {warning_msg}\n")
                 
                 A_squared[particle.name] = result.structure_norm ** 2
                 
@@ -990,7 +1150,7 @@ class SFMParameterOptimizer:
         
         return total_error
 
-    def optimize_free(
+    def optimize_lepton(
         self,
         bounds: Optional[List[Tuple[float, float]]] = None,
         maxiter: int = 100,
@@ -999,7 +1159,7 @@ class SFMParameterOptimizer:
         save_json: bool = True,
     ) -> OptimizationResult:
         """
-        Free 3-parameter optimization over alpha, g_internal, and g1.
+        Lepton 3-parameter optimization over alpha, g_internal, and g1.
         
         Beta is derived from electron mass after solving.
         
@@ -1022,7 +1182,7 @@ class SFMParameterOptimizer:
         
         if self.verbose:
             print("=" * 70)
-            print("FREE 3-PARAMETER OPTIMIZATION")
+            print("LEPTON 3-PARAMETER OPTIMIZATION")
             print("Optimizing {alpha, g_internal, g1}")
             print("Beta derived from electron: beta = m_e / A_e^2")
             print("=" * 70)
@@ -1040,7 +1200,7 @@ class SFMParameterOptimizer:
         if self.log_file:
             with open(self.log_file, 'w', encoding='utf-8') as f:
                 f.write("=" * 70 + "\n")
-                f.write("SFM FREE 3-PARAMETER OPTIMIZATION\n")
+                f.write("SFM LEPTON 3-PARAMETER OPTIMIZATION\n")
                 f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 70 + "\n")
         
@@ -1052,7 +1212,7 @@ class SFMParameterOptimizer:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = differential_evolution(
-                self._objective_free,
+                self._objective_lepton,
                 bounds=bounds,
                 x0=x0,
                 maxiter=maxiter,
@@ -1080,8 +1240,39 @@ class SFMParameterOptimizer:
             )
             
             result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
             )
+            
+            # Check convergence with diagnostics
+            if not result_e.converged:
+                conv_status = "UNKNOWN"
+                final_change = None
+                validity = ""
+                
+                if result_e.convergence_history and 'A' in result_e.convergence_history:
+                    A_hist = result_e.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Final electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
+                              f"{conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                warning_msg += validity
+                
+                if self.verbose:
+                    print(f"  {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
             
             A_e_squared = result_e.structure_norm ** 2
             beta_opt = 0.511 / A_e_squared  # SFM units convention
@@ -1130,25 +1321,24 @@ class SFMParameterOptimizer:
         return opt_result
 
 
-    def _objective_em(self, params: np.ndarray) -> float:
+    def _objective_baryon(self, params: np.ndarray) -> float:
         """
-        Objective function for EM parameter optimization.
+        Objective function for baryon parameter optimization.
         
-        Optimizes g2 and lambda_so to match proton-neutron mass splitting,
-        with alpha and g_internal fixed at current values.
+        Optimizes g1, g2, and lambda_so to match proton and neutron masses,
+        with alpha and g_internal fixed at current values (calibrated for leptons).
         
         Args:
-            params: Array of [g2, lambda_so]
+            params: Array of [g1, g2, lambda_so]
             
         Returns:
             Total weighted error in mass predictions, emphasizing mass splitting.
         """
-        g2, lambda_so = params
+        g1, g2, lambda_so = params
         
-        # Use fixed values from constants
+        # Use fixed values from constants (calibrated for leptons)
         alpha = ALPHA_INITIAL
         g_internal = G_INTERNAL_INITIAL
-        g1 = G1_INITIAL
         
         self._eval_count += 1
         start_time = time.time()
@@ -1171,8 +1361,39 @@ class SFMParameterOptimizer:
         # First, get electron amplitude to derive beta
         try:
             result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
             )
+            
+            # Check convergence with diagnostics
+            if not result_e.converged:
+                conv_status = "UNKNOWN"
+                final_change = None
+                validity = ""
+                
+                if result_e.convergence_history and 'A' in result_e.convergence_history:
+                    A_hist = result_e.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
+                              f"{conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
             A_e_squared = result_e.structure_norm ** 2
             beta_derived = 0.511 / A_e_squared  # SFM units convention
         except Exception:
@@ -1184,20 +1405,96 @@ class SFMParameterOptimizer:
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, 5, -3),  # uud
-                max_iter_outer=30,
-                max_iter_scf=10,
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
                 verbose=False,
             )
+            
+            # Check proton convergence with diagnostics
+            if not result_p.converged:
+                conv_status = "UNKNOWN"
+                final_dA, final_dDx = None, None
+                validity = ""
+                
+                if result_p.convergence_history:
+                    hist = result_p.convergence_history
+                    if 'A' in hist and len(hist['A']) > 1:
+                        final_dA = abs(hist['A'][-1] - hist['A'][-2]) / max(hist['A'][-1], 0.01)
+                    if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                        final_dDx = abs(hist['Delta_x'][-1] - hist['Delta_x'][-2]) / max(hist['Delta_x'][-1], 0.001)
+                    
+                    if final_dA is not None and final_dDx is not None:
+                        max_change = max(final_dA, final_dDx)
+                        if max_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif max_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Proton: {result_p.iterations}/{self.max_iter_baryon} iters, "
+                              f"{conv_status}")
+                if final_dA is not None:
+                    warning_msg += f", dA/A={final_dA:.2e}"
+                if final_dDx is not None:
+                    warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
             m_proton = beta_derived * result_p.structure_norm ** 2 * 1000  # Baryon formula
             
             result_n = solver.solve_baryon_4D_self_consistent(
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
-                max_iter_outer=30,
-                max_iter_scf=10,
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
                 verbose=False,
             )
+            
+            # Check neutron convergence with diagnostics
+            if not result_n.converged:
+                conv_status = "UNKNOWN"
+                final_dA, final_dDx = None, None
+                validity = ""
+                
+                if result_n.convergence_history:
+                    hist = result_n.convergence_history
+                    if 'A' in hist and len(hist['A']) > 1:
+                        final_dA = abs(hist['A'][-1] - hist['A'][-2]) / max(hist['A'][-1], 0.01)
+                    if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                        final_dDx = abs(hist['Delta_x'][-1] - hist['Delta_x'][-2]) / max(hist['Delta_x'][-1], 0.001)
+                    
+                    if final_dA is not None and final_dDx is not None:
+                        max_change = max(final_dA, final_dDx)
+                        if max_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif max_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Neutron: {result_n.iterations}/{self.max_iter_baryon} iters, "
+                              f"{conv_status}")
+                if final_dA is not None:
+                    warning_msg += f", dA/A={final_dA:.2e}"
+                if final_dDx is not None:
+                    warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
             m_neutron = beta_derived * result_n.structure_norm ** 2 * 1000  # Baryon formula
         except Exception:
             return 1e20
@@ -1234,7 +1531,7 @@ class SFMParameterOptimizer:
         
         if self.log_file:
             with open(self.log_file, 'a', encoding='utf-8') as f:
-                f.write(f"\nEval {self._eval_count}: g2={g2:.6f}, lambda_so={lambda_so:.4f}")
+                f.write(f"\nEval {self._eval_count}: g1={g1:.2f}, g2={g2:.6f}, lambda_so={lambda_so:.4f}")
                 f.write(f" -> m_p={m_proton*1000:.2f} MeV, m_n={m_neutron*1000:.2f} MeV")
                 f.write(f", delta_m={delta_m_pred*1000:.3f} MeV")
                 f.write(f", error={total_error:.4f}")
@@ -1244,12 +1541,12 @@ class SFMParameterOptimizer:
         
         if self.verbose and (self._eval_count % 5 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
-            print(f"Eval {self._eval_count}: g2={g2:.5f}, lambda_so={lambda_so:.3f} "
+            print(f"Eval {self._eval_count}: g1={g1:.2f}, g2={g2:.5f}, lambda_so={lambda_so:.3f} "
                   f"-> delta_m={delta_m_pred*1000:.3f} MeV (exp: {delta_m_exp*1000:.3f}){marker}")
         
         return total_error
     
-    def optimize_em(
+    def optimize_baryon(
         self,
         bounds: Optional[List[Tuple[float, float]]] = None,
         maxiter: int = 50,
@@ -1258,16 +1555,16 @@ class SFMParameterOptimizer:
         save_json: bool = True,
     ) -> OptimizationResult:
         """
-        EM parameter optimization: optimize g2 and lambda_so for proton-neutron mass splitting.
+        Baryon parameter optimization: optimize g1, g2, and lambda_so for proton and neutron masses.
         
-        Alpha and g_internal are fixed at current constants.json values.
+        Alpha and g_internal are fixed at current constants.json values (calibrated for leptons).
         Beta is derived from electron mass.
         
-        This mode specifically targets the ~1.3 MeV proton-neutron mass difference,
+        This mode targets both absolute baryon masses AND the ~1.3 MeV proton-neutron mass difference,
         which arises from EM self-energy contributions.
         
         Args:
-            bounds: List of (min, max) bounds for [g2, lambda_so].
+            bounds: List of (min, max) bounds for [g1, g2, lambda_so].
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
@@ -1277,26 +1574,28 @@ class SFMParameterOptimizer:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
-            # Bounds for [g2, lambda_so]
+            # Bounds for [g1, g2, lambda_so]
             bounds = [
-                (0.01, 0.1),    # g2: circulation coupling
-                (0.05, 0.5),    # lambda_so: spin-orbit coupling
+                (49.9, 51.1),  # g1: mean-field coupling
+                (69.9, 71.1),  # g2: circulation coupling
+                (0.195, 0.205),    # lambda_so: spin-orbit coupling
             ]
         
         if self.verbose:
             print("=" * 70)
-            print("EM PARAMETER OPTIMIZATION")
-            print("Optimizing {g2, lambda_so} for proton-neutron mass splitting")
-            print("Alpha and g_internal fixed at current values")
+            print("BARYON PARAMETER OPTIMIZATION")
+            print("Optimizing {g1, g2, lambda_so} for proton and neutron masses")
+            print("Alpha and g_internal fixed at current values (calibrated for leptons)")
             print("=" * 70)
             print(f"\nFixed parameters:")
             print(f"  alpha      = {ALPHA_INITIAL}")
             print(f"  g_internal = {G_INTERNAL_INITIAL}")
-            print(f"  g1         = {G1_INITIAL}")
             print(f"\nParameter bounds:")
-            print(f"  g2:        [{bounds[0][0]}, {bounds[0][1]}]")
-            print(f"  lambda_so: [{bounds[1][0]}, {bounds[1][1]}]")
-            print(f"\nTarget: proton-neutron mass difference = 1.293 MeV")
+            print(f"  g1:        [{bounds[0][0]}, {bounds[0][1]}]")
+            print(f"  g2:        [{bounds[1][0]}, {bounds[1][1]}]")
+            print(f"  lambda_so: [{bounds[2][0]}, {bounds[2][1]}]")
+            print(f"\nTargets: proton mass = 938.27 MeV, neutron mass = 939.57 MeV")
+            print(f"         mass difference = 1.293 MeV")
             print("-" * 70)
         
         self._eval_count = 0
@@ -1307,43 +1606,45 @@ class SFMParameterOptimizer:
         if self.log_file:
             with open(self.log_file, 'w', encoding='utf-8') as f:
                 f.write("=" * 70 + "\n")
-                f.write("SFM EM PARAMETER OPTIMIZATION\n")
+                f.write("SFM BARYON PARAMETER OPTIMIZATION\n")
                 f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 70 + "\n")
-                f.write("Target: proton-neutron mass difference = 1.293 MeV\n")
+                f.write("Targets: proton mass = 938.27 MeV, neutron mass = 939.57 MeV\n")
+                f.write("         mass difference = 1.293 MeV\n")
                 f.write(f"Fixed: alpha={ALPHA_INITIAL}, g_internal={G_INTERNAL_INITIAL}\n")
-                f.write(f"Bounds: g2=[{bounds[0][0]}, {bounds[0][1]}], "
-                        f"lambda_so=[{bounds[1][0]}, {bounds[1][1]}]\n")
+                f.write(f"Bounds: g1=[{bounds[0][0]}, {bounds[0][1]}], "
+                        f"g2=[{bounds[1][0]}, {bounds[1][1]}], "
+                        f"lambda_so=[{bounds[2][0]}, {bounds[2][1]}]\n")
                 f.write("=" * 70 + "\n")
         
         start_time = time.time()
         
         # Seed with current values
-        x0 = [G2_INITIAL, LAMBDA_SO_INITIAL]
+        x0 = [G1_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
         
         if self.verbose:
-            print(f"Starting from: g2={x0[0]}, lambda_so={x0[1]}")
+            print(f"Starting from: g1={x0[0]}, g2={x0[1]}, lambda_so={x0[2]}")
         
-        # Use Nelder-Mead for local optimization from good starting point
-        from scipy.optimize import minimize
-        
+        # Use differential evolution for global optimization over 3 parameters
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = minimize(
-                self._objective_em,
+            result = differential_evolution(
+                self._objective_baryon,
+                bounds=bounds,
                 x0=x0,
-                method='Nelder-Mead',
-                options={
-                    'maxfev': maxiter * 5,
-                    'xatol': 1e-5,
-                    'fatol': 0.01,
-                    'disp': False,
-                },
+                maxiter=maxiter,
+                seed=seed,
+                workers=1,
+                disp=False,
+                polish=True,
+                tol=1e-4,
+                atol=0.1,
+                popsize=popsize,
             )
         
         elapsed = time.time() - start_time
         
-        g2_opt, lambda_so_opt = result.x
+        g1_opt, g2_opt, lambda_so_opt = result.x
         
         # Derive beta from electron mass
         try:
@@ -1352,14 +1653,46 @@ class SFMParameterOptimizer:
             solver = NonSeparableWavefunctionSolver(
                 alpha=ALPHA_INITIAL,
                 g_internal=G_INTERNAL_INITIAL,
-                g1=G1_INITIAL,
+                g1=g1_opt,
                 g2=g2_opt,
                 lambda_so=lambda_so_opt,
             )
             
             result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
             )
+            
+            # Check convergence with diagnostics
+            if not result_e.converged:
+                conv_status = "UNKNOWN"
+                final_change = None
+                validity = ""
+                
+                if result_e.convergence_history and 'A' in result_e.convergence_history:
+                    A_hist = result_e.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Final electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
+                              f"{conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                warning_msg += validity
+                
+                if self.verbose:
+                    print(f"  {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
+            
             A_e_squared = result_e.structure_norm ** 2
             beta_opt = 0.511 / A_e_squared  # SFM units convention
         except Exception as e:
@@ -1373,22 +1706,22 @@ class SFMParameterOptimizer:
         if self.verbose:
             print("-" * 70)
             print(f"Optimization complete.")
-            print(f"Optimal: g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
+            print(f"Optimal: g1={g1_opt:.2f}, g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
             print(f"Derived: beta={beta_opt:.8f} GeV")
         
-        # Compute results for all particles with optimized EM parameters
+        # Compute results for all particles with optimized baryon parameters
         calibration_results = self._evaluate_particles(
-            self.calibration, beta_opt, ALPHA_INITIAL, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+            self.calibration, beta_opt, ALPHA_INITIAL, kappa_opt, g1_opt, g2_opt, lambda_so_opt
         )
         validation_results = self._evaluate_particles(
-            self.validation, beta_opt, ALPHA_INITIAL, kappa_opt, G1_INITIAL, g2_opt, lambda_so_opt
+            self.validation, beta_opt, ALPHA_INITIAL, kappa_opt, g1_opt, g2_opt, lambda_so_opt
         )
         
         opt_result = OptimizationResult(
             beta=beta_opt,
             alpha=ALPHA_INITIAL,
             kappa=kappa_opt,
-            g1=G1_INITIAL,
+            g1=g1_opt,
             g2=g2_opt,
             lambda_so=lambda_so_opt,
             L0_gev_inv=L0_opt,
@@ -1471,6 +1804,15 @@ class SFMParameterOptimizer:
                         max_iter_nl=0,
                         verbose=False,
                     )
+                    
+                    # Check convergence
+                    if not result.converged:
+                        warning_msg = (f"WARNING: Lepton solver did not converge for {particle.name} "
+                                      f"(n={n_target}) after {result.iterations} iterations")
+                        if self.log_file:
+                            with open(self.log_file, 'a', encoding='utf-8') as f:
+                                f.write(f"  {warning_msg}\n")
+                    
                     A_squared[particle.name] = result.structure_norm ** 2
                     
                 elif particle.particle_type == 'meson':
@@ -1479,6 +1821,37 @@ class SFMParameterOptimizer:
                         max_iter_outer=30,
                         verbose=False,
                     )
+                    
+                    # Check convergence with diagnostics
+                    if not result.converged:
+                        conv_status = "UNKNOWN"
+                        final_change = None
+                        validity = ""
+                        
+                        if result.convergence_history and 'A' in result.convergence_history:
+                            A_hist = result.convergence_history['A']
+                            if len(A_hist) > 1:
+                                final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                                if final_change < 5e-4:
+                                    conv_status = "SOFT"
+                                    validity = " [LIKELY VALID]"
+                                elif final_change < 1e-3:
+                                    conv_status = "MODERATE"
+                                    validity = " [CAUTION]"
+                                else:
+                                    conv_status = "HARD"
+                                    validity = " [UNRELIABLE]"
+                        
+                        warning_msg = (f"WARNING: Meson - {particle.name}: "
+                                      f"{result.iterations}/{self.max_iter_meson} iters, {conv_status}")
+                        if final_change is not None:
+                            warning_msg += f", dA/A={final_change:.2e}"
+                        warning_msg += validity
+                        
+                        if self.log_file:
+                            with open(self.log_file, 'a', encoding='utf-8') as f:
+                                f.write(f"  {warning_msg}\n")
+                    
                     A_squared[particle.name] = result.structure_norm ** 2
                     
                 elif particle.particle_type == 'baryon':
@@ -1494,10 +1867,48 @@ class SFMParameterOptimizer:
                         quark_wells=(1, 2, 3),
                         color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                         quark_windings=quark_windings,
-                        max_iter_outer=30,
-                        max_iter_scf=10,
+                        max_iter_outer=self.max_iter_baryon,
+                        max_iter_scf=self.max_iter_scf,
                         verbose=False,
                     )
+                    
+                    # Check convergence with diagnostics
+                    if not result.converged:
+                        conv_status = "UNKNOWN"
+                        final_dA, final_dDx = None, None
+                        validity = ""
+                        
+                        if result.convergence_history:
+                            hist = result.convergence_history
+                            if 'A' in hist and len(hist['A']) > 1:
+                                final_dA = abs(hist['A'][-1] - hist['A'][-2]) / max(hist['A'][-1], 0.01)
+                            if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                                final_dDx = abs(hist['Delta_x'][-1] - hist['Delta_x'][-2]) / max(hist['Delta_x'][-1], 0.001)
+                            
+                            if final_dA is not None and final_dDx is not None:
+                                max_change = max(final_dA, final_dDx)
+                                if max_change < 5e-4:
+                                    conv_status = "SOFT"
+                                    validity = " [LIKELY VALID]"
+                                elif max_change < 1e-3:
+                                    conv_status = "MODERATE"
+                                    validity = " [CAUTION]"
+                                else:
+                                    conv_status = "HARD"
+                                    validity = " [UNRELIABLE]"
+                        
+                        warning_msg = (f"WARNING: Baryon - {particle.name} (k={quark_windings}): "
+                                      f"{result.iterations}/{self.max_iter_baryon} iters, {conv_status}")
+                        if final_dA is not None:
+                            warning_msg += f", dA/A={final_dA:.2e}"
+                        if final_dDx is not None:
+                            warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                        warning_msg += validity
+                        
+                        if self.log_file:
+                            with open(self.log_file, 'a', encoding='utf-8') as f:
+                                f.write(f"  {warning_msg}\n")
+                    
                     A_squared[particle.name] = result.structure_norm ** 2
                     em_energies[particle.name] = result.em_energy
                     
@@ -1510,10 +1921,19 @@ class SFMParameterOptimizer:
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=(5, -3, -3),  # udd
-                max_iter_outer=30,
-                max_iter_scf=10,
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
                 verbose=False,
             )
+            
+            # Check convergence
+            if not result_n.converged:
+                warning_msg = (f"WARNING: Neutron solver did not converge "
+                              f"after {result_n.iterations} iterations")
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
             A_squared['neutron'] = result_n.structure_norm ** 2
             em_energies['neutron'] = result_n.em_energy
         except Exception:
@@ -1717,8 +2137,40 @@ class SFMParameterOptimizer:
             )
             
             result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=30, verbose=False
+                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
             )
+            
+            # Check convergence with diagnostics
+            if not result_e.converged:
+                conv_status = "UNKNOWN"
+                final_change = None
+                validity = ""
+                
+                if result_e.convergence_history and 'A' in result_e.convergence_history:
+                    A_hist = result_e.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Final electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
+                              f"{conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                warning_msg += validity
+                
+                if self.verbose:
+                    print(f"  {warning_msg}")
+                if self.log_file:
+                    self._log(f"  {warning_msg}")
+            
             A_e_squared = result_e.structure_norm ** 2
             beta_opt = 0.511 / A_e_squared  # SFM units convention
         except Exception as e:
@@ -1784,6 +2236,10 @@ def run_optimization_full(
     maxiter: int = 100,
     log_file: Optional[str] = None,
     save_json: bool = True,
+    max_iter_lepton: int = 30,
+    max_iter_meson: int = 30,
+    max_iter_baryon: int = 30,
+    max_iter_scf: int = 10,
 ) -> OptimizationResult:
     """
     Run full 5-parameter optimization.
@@ -1796,46 +2252,70 @@ def run_optimization_full(
         maxiter: Maximum iterations.
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
+        max_iter_lepton: Maximum outer iterations for lepton solver.
+        max_iter_meson: Maximum outer iterations for meson solver.
+        max_iter_baryon: Maximum outer iterations for baryon solver.
+        max_iter_scf: Maximum SCF iterations for baryon solver.
     
     Returns:
         OptimizationResult with optimal parameters.
     """
-    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
+    optimizer = SFMParameterOptimizer(
+        verbose=verbose, 
+        log_file=log_file,
+        max_iter_lepton=max_iter_lepton,
+        max_iter_meson=max_iter_meson,
+        max_iter_baryon=max_iter_baryon,
+        max_iter_scf=max_iter_scf,
+    )
     return optimizer.optimize_full(maxiter=maxiter, save_json=save_json)
 
 
-def run_optimization_em(
+def run_optimization_baryon(
     verbose: bool = True,
     maxiter: int = 50,
     log_file: Optional[str] = None,
     save_json: bool = True,
+    max_iter_lepton: int = 30,
+    max_iter_baryon: int = 30,
+    max_iter_scf: int = 10,
 ) -> OptimizationResult:
     """
-    Run EM parameter optimization for proton-neutron mass splitting.
+    Run baryon parameter optimization for proton and neutron masses.
     
-    Optimizes g2 and lambda_so while keeping alpha/g_internal fixed.
+    Optimizes g1, g2, and lambda_so while keeping alpha/g_internal fixed (calibrated for leptons).
     
     Args:
         verbose: Print progress information.
         maxiter: Maximum iterations.
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
+        max_iter_lepton: Maximum outer iterations for lepton solver (for beta derivation).
+        max_iter_baryon: Maximum outer iterations for baryon solver.
+        max_iter_scf: Maximum SCF iterations for baryon solver.
     
     Returns:
         OptimizationResult with optimal parameters.
     """
-    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
-    return optimizer.optimize_em(maxiter=maxiter, save_json=save_json)
+    optimizer = SFMParameterOptimizer(
+        verbose=verbose, 
+        log_file=log_file,
+        max_iter_lepton=max_iter_lepton,
+        max_iter_baryon=max_iter_baryon,
+        max_iter_scf=max_iter_scf,
+    )
+    return optimizer.optimize_baryon(maxiter=maxiter, save_json=save_json)
 
 
-def run_optimization_free(
+def run_optimization_lepton(
     verbose: bool = True,
     maxiter: int = 100,
     log_file: Optional[str] = None,
     save_json: bool = True,
+    max_iter_lepton: int = 30,
 ) -> OptimizationResult:
     """
-    Run 3-parameter optimization over alpha, g_internal, and g1.
+    Run lepton 3-parameter optimization over alpha, g_internal, and g1.
     
     Beta is derived from the electron mass after solving.
     
@@ -1844,12 +2324,17 @@ def run_optimization_free(
         maxiter: Maximum iterations.
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
+        max_iter_lepton: Maximum outer iterations for lepton solver.
     
     Returns:
         OptimizationResult with optimal parameters.
     """
-    optimizer = SFMParameterOptimizer(verbose=verbose, log_file=log_file)
-    return optimizer.optimize_free(maxiter=maxiter, save_json=save_json)
+    optimizer = SFMParameterOptimizer(
+        verbose=verbose, 
+        log_file=log_file,
+        max_iter_lepton=max_iter_lepton,
+    )
+    return optimizer.optimize_lepton(maxiter=maxiter, save_json=save_json)
 
 
 def create_log_file_path() -> str:
@@ -1878,25 +2363,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python parameter_optimizer.py                     # ratio mode (default), save to JSON
-  python parameter_optimizer.py --mode ratio        # ratio mode - optimize alpha/g_internal for mass ratios
-  python parameter_optimizer.py --mode free         # free mode - optimize alpha, g_internal, g1
-  python parameter_optimizer.py --mode em           # em mode - optimize g2/lambda_so for p-n mass splitting
-  python parameter_optimizer.py --mode full         # full mode - optimize all 4 params (alpha, g_internal, g2, lambda_so)
+  python parameter_optimizer.py                     # full mode (default), save to JSON
+  python parameter_optimizer.py --mode lepton       # lepton mode - optimize alpha, g_internal, g1
+  python parameter_optimizer.py --mode baryon       # baryon mode - optimize g1, g2, lambda_so for p-n masses
+  python parameter_optimizer.py --mode full         # full mode - optimize all 5 params (alpha, g_internal, g1, g2, lambda_so)
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
-  python parameter_optimizer.py --max-iter 200      # Run 200 iterations
+  python parameter_optimizer.py --max-iter 200      # Run 200 full iterations
+  python parameter_optimizer.py --max-iter-baryon 50 --max-iter-baryoscf 20  # Increase baryon solver iterations
         """
     )
     
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["free", "em", "full"],
+        choices=["lepton", "baryon", "full"],
         default="full",
         help="Optimization mode: "
-             "'free' for 3-parameter (alpha, g_internal, g1), "
-             "'em' for EM parameters (g2, lambda_so) for proton-neutron mass splitting, "
-             "'full' for all 4 parameters (alpha, g_internal, g1, g2, lambda_so) [default]"
+             "'lepton' for 3-parameter (alpha, g_internal, g1) lepton calibration, "
+             "'baryon' for baryon parameters (g1, g2, lambda_so) for proton and neutron masses, "
+             "'full' for all 5 parameters (alpha, g_internal, g1, g2, lambda_so) [default]"
     )
     
     parser.add_argument(
@@ -1921,6 +2406,38 @@ Examples:
         help="Reduce output verbosity"
     )
     
+    parser.add_argument(
+        "--max-iter-lepton",
+        type=int,
+        default=30,
+        dest="max_iter_lepton",
+        help="Maximum outer iterations for lepton solver (default: 30)"
+    )
+    
+    parser.add_argument(
+        "--max-iter-meson",
+        type=int,
+        default=30,
+        dest="max_iter_meson",
+        help="Maximum outer iterations for meson solver (default: 30)"
+    )
+    
+    parser.add_argument(
+        "--max-iter-baryon",
+        type=int,
+        default=30,
+        dest="max_iter_baryon",
+        help="Maximum outer iterations for baryon solver (default: 30)"
+    )
+    
+    parser.add_argument(
+        "--max-iter-scf",
+        type=int,
+        default=10,
+        dest="max_iter_scf",
+        help="Maximum SCF iterations for solver initialization (default: 10)"
+    )
+    
     args = parser.parse_args()
     
     # Determine save_json setting
@@ -1932,8 +2449,8 @@ Examples:
     
     # Map mode names for display
     mode_names = {
-        'free': '3-parameter (alpha, g_internal, g1)',
-        'em': 'EM parameters (g2, lambda_so) for p-n mass splitting',
+        'lepton': '3-parameter (alpha, g_internal, g1) lepton calibration',
+        'baryon': 'baryon parameters (g1, g2, lambda_so) for proton and neutron masses',
         'full': 'full 5-parameter (alpha, g_internal, g1, g2, lambda_so)',
     }
     
@@ -1956,12 +2473,15 @@ Examples:
     print()
     
     # Run the appropriate optimization
-    if args.mode == "em":
-        result = run_optimization_em(
+    if args.mode == "baryon":
+        result = run_optimization_baryon(
             verbose=verbose,
             maxiter=args.max_iter,
             log_file=log_file,
             save_json=save_json,
+            max_iter_lepton=args.max_iter_lepton,
+            max_iter_baryon=args.max_iter_baryon,
+            max_iter_scf=args.max_iter_scf,
         )
     elif args.mode == "full":
         result = run_optimization_full(
@@ -1969,13 +2489,18 @@ Examples:
             maxiter=args.max_iter,
             log_file=log_file,
             save_json=save_json,
+            max_iter_lepton=args.max_iter_lepton,
+            max_iter_meson=args.max_iter_meson,
+            max_iter_baryon=args.max_iter_baryon,
+            max_iter_scf=args.max_iter_scf,
         )
-    else:  # free
-        result = run_optimization_free(
+    else:  # lepton
+        result = run_optimization_lepton(
             verbose=verbose,
             maxiter=args.max_iter,
             log_file=log_file,
             save_json=save_json,
+            max_iter_lepton=args.max_iter_lepton,
         )
     
     # Print final summary

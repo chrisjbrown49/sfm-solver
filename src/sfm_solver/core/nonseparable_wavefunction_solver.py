@@ -142,7 +142,7 @@ class NonSeparableWavefunctionSolver:
     def __init__(
         self,
         alpha: float,
-        beta: float = 0.000511,  # Mass scaling: m = beta * A^2 (calibrated to electron)
+        beta: float = None,  # Mass scaling: m = beta * A^2 (calibrated to electron)
         g_internal: float = None,
         g1: float = None,  # Nonlinear self-interaction (loads from constants if None)
         g2: float = None,  # Circulation/EM coupling (loads from constants if None)
@@ -153,8 +153,6 @@ class NonSeparableWavefunctionSolver:
         l_max: int = 2,
         N_sigma: int = 64,
         a0: float = 1.0,
-        g_eff: float = None,  # DEPRECATED: use g_internal instead
-        kappa: float = None,  # DEPRECATED: use g_internal instead
     ):
         """
         Initialize the solver with SFM parameters.
@@ -177,23 +175,13 @@ class NonSeparableWavefunctionSolver:
             l_max: Maximum angular momentum
             N_sigma: Subspace grid points
             a0: Characteristic length scale
-            g_eff: DEPRECATED - use g_internal instead
-            kappa: DEPRECATED - use g_internal instead
         """
         self.alpha = alpha
         self.beta = beta if beta is not None else 100.0  # Only for backward compat
         
-        # Handle g_internal (preferred) vs deprecated g_eff/kappa
+        # Load g_internal from constants if not provided
         if g_internal is not None:
             self.g_internal = g_internal
-        elif g_eff is not None:
-            # DEPRECATED: convert g_eff to g_internal
-            # g_internal = g_eff × β³
-            self.g_internal = g_eff * (self.beta ** 3)
-        elif kappa is not None:
-            # DEPRECATED: convert kappa to g_internal
-            # kappa = g_eff × β², so g_eff = kappa/β², g_internal = g_eff × β³ = kappa × β
-            self.g_internal = kappa * self.beta
         else:
             # Default from constants
             from sfm_solver.core.constants import G_INTERNAL
@@ -2828,11 +2816,10 @@ def test_wavefunction_solver():
     print("=" * 60)
     
     solver = NonSeparableWavefunctionSolver(
-        alpha=20.0,
+        alpha=10.5,
         beta=100.0,
-        kappa=0.0001,
-        g1=5000.0,
-        g2=0.004,
+        g1=50.0,
+        g2=70.0,
         V0=1.0,
         n_max=5,
         l_max=2,
