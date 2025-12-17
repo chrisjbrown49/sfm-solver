@@ -857,6 +857,11 @@ class NonSeparableWavefunctionSolver:
         Delta_x_current = max(Delta_x_current, MIN_SCALE)
         delta_sigma_current = max(delta_sigma_current, 0.1)
         
+        # Adaptive mixing state
+        mixing_current = 0.3  # Start with moderate mixing
+        dA_prev = 0.0
+        dDx_prev = 0.0
+        
         # Target state
         target_key = (n_eff, 0, 0)
         target_idx = self.basis.state_index(n_eff, 0, 0)
@@ -943,11 +948,34 @@ class NonSeparableWavefunctionSolver:
                 final_iter = iter_outer
                 break
             
-            # === STEP 8: Update with mixing for stability ===
-            mixing = 0.3
-            A_current = (1 - mixing) * A_current + mixing * A_new
-            Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
-            delta_sigma_current = (1 - mixing) * delta_sigma_current + mixing * delta_sigma_new
+            # === STEP 8: Adaptive mixing with oscillation detection ===
+            
+            # Detect oscillations by checking if updates reverse direction
+            if iter_outer > 0:
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_current
+                
+                # Check for sign reversals (oscillations)
+                oscillating_A = (dA_current * dA_prev) < 0 if iter_outer > 0 else False
+                oscillating_Dx = (dDx_current * dDx_prev) < 0 if iter_outer > 0 else False
+                
+                if oscillating_A or oscillating_Dx:
+                    # Reduce mixing when oscillating
+                    mixing_current = max(0.05, mixing_current * 0.5)
+                    if verbose:
+                        print(f"    [OSCILLATION DETECTED] Reducing mixing to {mixing_current:.3f}")
+                elif iter_outer > 5:
+                    # Increase mixing if stable for multiple iterations
+                    mixing_current = min(0.5, mixing_current * 1.1)
+                
+                # Store for next iteration
+                dA_prev = dA_current
+                dDx_prev = dDx_current
+            
+            # Apply mixing
+            A_current = (1 - mixing_current) * A_current + mixing_current * A_new
+            Delta_x_current = (1 - mixing_current) * Delta_x_current + mixing_current * Delta_x_new
+            delta_sigma_current = (1 - mixing_current) * delta_sigma_current + mixing_current * delta_sigma_new
             Delta_x_current = max(Delta_x_current, MIN_SCALE)
             
             history['A'].append(A_current)
@@ -1766,12 +1794,86 @@ class NonSeparableWavefunctionSolver:
         chi2 = self._initialize_quark_wavefunction(well_index=2, phase=phi2, winding_k=k2)
         chi3 = self._initialize_quark_wavefunction(well_index=3, phase=phi3, winding_k=k3)
         
+        # Adaptive mixing state
+        mixing_current = mixing  # Start with provided mixing parameter
+        delta_chi_prev = [0.0, 0.0, 0.0]
+        
         # Build kinetic operator (periodic boundary conditions)
         T_op = self._build_kinetic_operator()
         
         # Three-well potential
         V_well = self.V_sigma  # Already defined in __init__
         V_well_matrix = np.diag(V_well)
+        
+        # === Helper function for Phase 3: Energy-aware eigenstate selection ===
+        def find_best_eigenstate(chi_old, k_winding, phi_color, n_check=5):
+            """
+            Find lowest energy eigenstate with reasonable overlap.
+            
+            Strategy:
+            1. Check first n_check eigenstates (sorted by energy from eigh)
+            2. Compute overlap with current state (envelope only)
+            3. Choose highest overlap state among low-energy candidates
+            4. Warn if overlap is poor (< 0.1)
+            
+            Returns:
+                chi_new: Selected eigenstate with phases applied
+                energy: Eigenvalue of selected state
+                overlap: Overlap coefficient
+                state_idx: Index of selected eigenstate
+            """
+            # Remove phases to get envelope for overlap calculation
+            chi_envelope = chi_old / (np.exp(1j * phi_color) * np.exp(1j * k_winding * sigma) + 1e-30)
+            
+            # Compute overlaps with low-energy eigenstates
+            n_states = min(n_check, N)
+            overlaps = []
+            for i in range(n_states):
+                overlap = np.abs(np.sum(np.conj(chi_envelope) * eigenvectors[:, i]) * dsigma)
+                overlaps.append((overlap, eigenvalues[i], i))
+            
+            # === ENERGY-FIRST SELECTION STRATEGY ===
+            # Priority: Lowest energy among states with reasonable overlap
+            # This ensures we select ground states, not excited states
+            
+            # Define overlap threshold for "reasonable" overlap
+            overlap_threshold = 0.05  # 5% overlap minimum
+            
+            # Filter for states with acceptable overlap
+            reasonable_states = [s for s in overlaps if s[0] > overlap_threshold]
+            
+            if reasonable_states:
+                # Strategy A: Good overlaps available
+                # Choose LOWEST ENERGY among reasonable overlaps
+                reasonable_states.sort(key=lambda x: x[1])  # Sort by energy (ascending)
+                best_overlap, best_energy, best_idx = reasonable_states[0]
+                
+                if verbose:
+                    # Report that we're using energy-based selection
+                    print(f"    [ENERGY SELECT] Chose state {best_idx} with E={best_energy:.3f}, overlap={best_overlap:.3f}")
+            else:
+                # Strategy B: All overlaps are poor (< threshold)
+                # Fall back to highest overlap to maintain stability
+                overlaps.sort(reverse=True, key=lambda x: x[0])
+                best_overlap, best_energy, best_idx = overlaps[0]
+                
+                if verbose:
+                    print(f"    [OVERLAP FALLBACK] All overlaps < {overlap_threshold}, chose state {best_idx}")
+            
+            # Sanity check: warn if overlap is very small
+            if best_overlap < 0.1 and verbose:
+                print(f"    [WARNING] Low overlap {best_overlap:.3f} at k={k_winding} - SCF may be diverging")
+            
+            # Get eigenstate and apply winding + color phases
+            chi_new = eigenvectors[:, best_idx].astype(complex)
+            chi_new *= np.exp(1j * phi_color) * np.exp(1j * k_winding * sigma)
+            
+            # Normalize
+            norm = np.sqrt(np.sum(np.abs(chi_new)**2) * dsigma)
+            if norm > 1e-20:
+                chi_new /= norm
+            
+            return chi_new, best_energy, best_overlap, best_idx
         
         # === STEP 2: Self-Consistent Iteration ===
         for iteration in range(max_iter):
@@ -1795,48 +1897,23 @@ class NonSeparableWavefunctionSolver:
             H = T_op + V_well_matrix + V_mean_matrix
             eigenvalues, eigenvectors = np.linalg.eigh(H)
             
-            # For each quark, find the eigenstate with maximum overlap with its current state
-            # This preserves well localization throughout SCF iteration
+            # === PHASE 3: Energy-aware eigenstate selection ===
+            # Use helper function to find best eigenstates for each quark
+            chi1_new, E1, overlap1, idx1 = find_best_eigenstate(chi1, k1, phi1, n_check=5)
+            chi2_new, E2, overlap2, idx2 = find_best_eigenstate(chi2, k2, phi2, n_check=5)
+            chi3_new, E3, overlap3, idx3 = find_best_eigenstate(chi3, k3, phi3, n_check=5)
             
-            # Remove phases from current states to get envelopes
-            chi1_envelope = chi1 / (np.exp(1j * phi1) * np.exp(1j * k1 * sigma) + 1e-30)
-            chi2_envelope = chi2 / (np.exp(1j * phi2) * np.exp(1j * k2 * sigma) + 1e-30)
-            chi3_envelope = chi3 / (np.exp(1j * phi3) * np.exp(1j * k3 * sigma) + 1e-30)
-            
-            # Find best eigenstate for quark 1 (maximum overlap with well 1)
-            overlaps1 = np.abs([np.sum(np.conj(chi1_envelope) * eigenvectors[:, i]) * dsigma 
-                                for i in range(min(3, N))])  # Check first 3 eigenstates
-            best_idx1 = np.argmax(overlaps1)
-            chi1_new = eigenvectors[:, best_idx1].astype(complex)
-            chi1_new *= np.exp(1j * phi1) * np.exp(1j * k1 * sigma)
-            norm1 = np.sqrt(np.sum(np.abs(chi1_new)**2) * dsigma)
-            if norm1 > 1e-20:
-                chi1_new /= norm1
-            
-            # Find best eigenstate for quark 2 (maximum overlap with well 2)
-            overlaps2 = np.abs([np.sum(np.conj(chi2_envelope) * eigenvectors[:, i]) * dsigma 
-                                for i in range(min(3, N))])
-            best_idx2 = np.argmax(overlaps2)
-            chi2_new = eigenvectors[:, best_idx2].astype(complex)
-            chi2_new *= np.exp(1j * phi2) * np.exp(1j * k2 * sigma)
-            norm2 = np.sqrt(np.sum(np.abs(chi2_new)**2) * dsigma)
-            if norm2 > 1e-20:
-                chi2_new /= norm2
-            
-            # Find best eigenstate for quark 3 (maximum overlap with well 3)
-            overlaps3 = np.abs([np.sum(np.conj(chi3_envelope) * eigenvectors[:, i]) * dsigma 
-                                for i in range(min(3, N))])
-            best_idx3 = np.argmax(overlaps3)
-            chi3_new = eigenvectors[:, best_idx3].astype(complex)
-            chi3_new *= np.exp(1j * phi3) * np.exp(1j * k3 * sigma)
-            norm3 = np.sqrt(np.sum(np.abs(chi3_new)**2) * dsigma)
-            if norm3 > 1e-20:
-                chi3_new /= norm3
+            # Diagnostic output for eigenstate selection
+            if verbose and iteration % 10 == 0:
+                print(f"    Selected eigenstates: [{idx1}, {idx2}, {idx3}]")
+                print(f"    Eigenvalues: E1={E1:.3f}, E2={E2:.3f}, E3={E3:.3f}")
+                print(f"    Overlaps: {overlap1:.3f}, {overlap2:.3f}, {overlap3:.3f}")
             
             # === Energy Monitoring (Phase 1 diagnostic) ===
             # Compute mean-field energy for tracking convergence behavior
+            # PHASE 3: Use actual selected eigenvalues (not just first 3)
             chi_total = chi1_new + chi2_new + chi3_new
-            E_kinetic = np.sum(eigenvalues[:3])  # Sum of three lowest eigenvalues
+            E_kinetic = E1 + E2 + E3  # CORRECT: sum of selected eigenvalues
             E_nonlinear = self.g1 * np.sum(np.abs(chi_total)**4) * dsigma
             E_total = E_kinetic + E_nonlinear
             
@@ -1869,10 +1946,35 @@ class NonSeparableWavefunctionSolver:
                     print(f"\n[CONVERGED] after {iteration+1} iterations")
                 break
             
-            # === Update with mixing for stability ===
-            chi1 = (1 - mixing) * chi1_old + mixing * chi1_new
-            chi2 = (1 - mixing) * chi2_old + mixing * chi2_new
-            chi3 = (1 - mixing) * chi3_old + mixing * chi3_new
+            # === Adaptive mixing with oscillation detection ===
+            
+            # Compute delta_chi for current iteration
+            delta_chi_current = [delta1, delta2, delta3]
+            
+            # Detect oscillations by checking if convergence reverses
+            if iteration > 0:
+                # Check if delta increased (sign of oscillation)
+                oscillating = any(
+                    (dc_curr > dc_prev) and (dc_prev < tol * 10)
+                    for dc_curr, dc_prev in zip(delta_chi_current, delta_chi_prev)
+                )
+                
+                if oscillating:
+                    # Reduce mixing when oscillating near convergence
+                    mixing_current = max(0.01, mixing_current * 0.5)
+                    if verbose:
+                        print(f"    [OSCILLATION] Reducing mixing to {mixing_current:.3f}")
+                elif iteration > 20:
+                    # Increase mixing if stable for many iterations
+                    mixing_current = min(0.3, mixing_current * 1.05)
+            
+            # Store for next iteration
+            delta_chi_prev = delta_chi_current
+            
+            # Apply adaptive mixing
+            chi1 = (1 - mixing_current) * chi1_old + mixing_current * chi1_new
+            chi2 = (1 - mixing_current) * chi2_old + mixing_current * chi2_new
+            chi3 = (1 - mixing_current) * chi3_old + mixing_current * chi3_new
             
             # Re-normalize after mixing
             chi1 /= np.sqrt(np.sum(np.abs(chi1)**2) * dsigma + 1e-30)
@@ -1989,6 +2091,11 @@ class NonSeparableWavefunctionSolver:
         # Ensure minimum scale
         MIN_SCALE = 0.01
         Delta_x_current = max(Delta_x_current, MIN_SCALE)
+        
+        # Adaptive mixing state for outer loop
+        mixing_outer = 0.3  # Start with moderate mixing
+        dA_prev = 0.0
+        dDx_prev = 0.0
         
         history = {'Delta_x': [Delta_x_current], 'A': [A_current]}
         final_iter = 0
@@ -2111,8 +2218,29 @@ class NonSeparableWavefunctionSolver:
                 final_iter = iter_outer
                 break
             
-            # Update with mixing for stability
-            mixing_outer = 0.3
+            # === Adaptive mixing with oscillation detection ===
+            if iter_outer > 0:
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_current
+                
+                # Check for sign reversals (oscillations)
+                oscillating_A = (dA_current * dA_prev) < 0
+                oscillating_Dx = (dDx_current * dDx_prev) < 0
+                
+                if oscillating_A or oscillating_Dx:
+                    # Reduce mixing when oscillating
+                    mixing_outer = max(0.05, mixing_outer * 0.5)
+                    if verbose:
+                        print(f"    [OUTER OSCILLATION] Reducing mixing to {mixing_outer:.3f}")
+                elif iter_outer > 3:
+                    # Increase mixing if stable
+                    mixing_outer = min(0.5, mixing_outer * 1.1)
+                
+                # Store for next iteration
+                dA_prev = dA_current
+                dDx_prev = dDx_current
+            
+            # Apply adaptive mixing
             A_current = (1 - mixing_outer) * A_current + mixing_outer * A_new
             Delta_x_current = (1 - mixing_outer) * Delta_x_current + mixing_outer * Delta_x_new
             
