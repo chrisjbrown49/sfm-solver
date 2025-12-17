@@ -1631,7 +1631,7 @@ class SFMParameterOptimizer:
                 (5.0, 20.0),      # alpha
                 (0.001, 0.01),    # g_internal
                 (10.0, 200.0),    # g1 (mean-field coupling)
-                (10.0, 150.0),    # g2 (EM self-energy coupling)
+                (10.0, 200.0),    # g2 (EM self-energy coupling)
                 (0.05, 0.5),      # lambda_so
             ]
         
