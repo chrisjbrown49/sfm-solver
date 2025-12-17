@@ -578,6 +578,108 @@ class NonSeparableWavefunctionSolver:
         
         return np.exp(-(sigma - shifted_center)**2 / delta_sigma)
     
+    def _estimate_initial_amplitude(
+        self, 
+        particle_type: str, 
+        n_radial: int = 1
+    ) -> float:
+        """
+        Estimate initial amplitude based on particle type and physics.
+        
+        Uses empirical mass ratios to provide initial guess close to
+        final converged value. This prevents solver from starting in
+        wrong energy basin.
+        
+        Args:
+            particle_type: 'lepton', 'baryon', or 'meson'
+            n_radial: Radial quantum number (1=ground state, 2=first excited, etc.)
+            
+        Returns:
+            Estimated initial amplitude A
+        """
+        if particle_type == 'lepton':
+            # Lepton mass ratios from experiment:
+            # m_e ≈ 0.511 MeV (reference)
+            # m_μ ≈ 105.7 MeV → ratio ≈ 207
+            # m_τ ≈ 1777 MeV → ratio ≈ 3477
+            
+            # Since m = β A², we have A ∝ sqrt(m)
+            if n_radial == 1:
+                # Electron: A² ≈ 1 by calibration
+                # Start slightly below to be conservative
+                A_guess = 0.9
+            elif n_radial == 2:
+                # Muon: A² ≈ 207 → A ≈ 14.4
+                # Start at ~85% of expected
+                A_guess = 12.0
+            elif n_radial == 3:
+                # Tau: A² ≈ 3477 → A ≈ 59
+                # Start at ~85% of expected
+                A_guess = 50.0
+            else:
+                # Higher states: scale roughly linearly with n
+                A_guess = 5.0 * n_radial
+                
+        elif particle_type == 'baryon':
+            # Baryon masses (ground state):
+            # m_p ≈ 938.3 MeV
+            # m_n ≈ 939.6 MeV
+            # Ratio to electron: 938/0.511 ≈ 1836
+            # Therefore A² ≈ 1836 → A ≈ 42.8
+            
+            if n_radial == 1:
+                # Proton/neutron: start at ~80% of expected
+                A_guess = 35.0
+            else:
+                # Excited baryons scale roughly with sqrt(n)
+                A_guess = 35.0 * np.sqrt(n_radial)
+                
+        elif particle_type == 'meson':
+            # Meson masses (examples):
+            # m_π ≈ 140 MeV → ratio ≈ 274 → A ≈ 16.5
+            # m_K ≈ 495 MeV → ratio ≈ 969 → A ≈ 31
+            
+            if n_radial == 1:
+                # Pion (lightest meson): start conservative
+                A_guess = 13.0
+            else:
+                # Heavier mesons
+                A_guess = 13.0 * np.sqrt(n_radial)
+                
+        else:
+            # Unknown type: use reasonable default
+            A_guess = 1.0
+        
+        return A_guess
+    
+    def _estimate_initial_delta_x(self, A_initial: float) -> float:
+        """
+        Estimate initial spatial extent consistent with amplitude.
+        
+        Uses gravitational self-confinement formula:
+            Δx = 1/(g_internal × A⁶)^(1/3)
+        
+        Args:
+            A_initial: Initial amplitude estimate
+            
+        Returns:
+            Consistent spatial extent Δx
+        """
+        if self.g_internal > 0 and A_initial > 0.01:
+            # Gravitational self-confinement
+            A_sixth = A_initial ** 6
+            Delta_x_est = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)
+            
+            # Apply reasonable physical bounds
+            MIN_DELTA_X = 0.01   # Minimum localization
+            MAX_DELTA_X = 100.0  # Maximum spread
+            Delta_x_est = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_est))
+            
+            return Delta_x_est
+        else:
+            # Fallback for edge cases
+            return 1.0
+    
     def _compute_optimal_delta_sigma(self, A: float) -> float:
         """
         Compute optimal subspace width from energy balance.
@@ -726,11 +828,34 @@ class NonSeparableWavefunctionSolver:
         sigma = self.basis.sigma
         dsigma = self.basis.dsigma
         
-        # Initial conditions
-        Delta_x_current = 1.0 / n_eff
-        A_current = 0.1
-        delta_sigma_current = delta_sigma_init
+        # === INITIAL CONDITIONS (PHYSICS-BASED) ===
+        # Estimate amplitude based on particle type
+        if hasattr(self, '_particle_type_hint'):
+            A_current = self._estimate_initial_amplitude(
+                self._particle_type_hint, 
+                n_eff
+            )
+        else:
+            # Default: assume lepton and scale with quantum number
+            if n_eff == 1:
+                A_current = 0.9
+            elif n_eff == 2:
+                A_current = 12.0
+            elif n_eff == 3:
+                A_current = 50.0
+            else:
+                A_current = max(1.0, 5.0 * n_eff)
+        
+        # Make spatial extent consistent with amplitude
+        Delta_x_current = self._estimate_initial_delta_x(A_current)
+        
+        # Make subspace width consistent with amplitude
+        delta_sigma_current = self._compute_optimal_delta_sigma(A_current)
+        
+        # Safety bounds
         MIN_SCALE = 0.0001
+        Delta_x_current = max(Delta_x_current, MIN_SCALE)
+        delta_sigma_current = max(delta_sigma_current, 0.1)
         
         # Target state
         target_key = (n_eff, 0, 0)
@@ -1297,6 +1422,9 @@ class NonSeparableWavefunctionSolver:
         Returns:
             WavefunctionStructure with self-consistently determined scale
         """
+        # Set particle type hint for initialization
+        self._particle_type_hint = 'lepton'
+        
         if verbose:
             print(f"\n=== Self-Consistent Lepton Solver (n={n_target}, k={k_winding}) ===")
         
@@ -1836,6 +1964,9 @@ class NonSeparableWavefunctionSolver:
         k1, k2, k3 = quark_windings
         net_winding = k1 + k2 + k3
         
+        # Set particle type hint for initialization
+        self._particle_type_hint = 'baryon'
+        
         if verbose:
             print(f"\n=== Self-Consistent Baryon Solver (4D Framework) ===")
             print(f"Quark wells: {quark_wells}, Color phases: {color_phases}")
@@ -1848,9 +1979,16 @@ class NonSeparableWavefunctionSolver:
         # Use coupled eigenvalue solver for three-quark system
         # This solves: [-∂²/∂σ² + V(σ) + g₁|χ₁+χ₂+χ₃|²]χᵢ = Eᵢχᵢ
         
-        # Initial conditions for outer loop (gravitational self-confinement)
-        Delta_x_current = 1.0 / 3.0  # Initial spatial scale
-        A_current = 0.1
+        # === INITIAL CONDITIONS (PHYSICS-BASED) ===
+        # Estimate amplitude for baryon
+        A_current = self._estimate_initial_amplitude('baryon', n_radial=n_radial)
+        
+        # Make spatial extent consistent with amplitude using gravitational self-confinement
+        Delta_x_current = self._estimate_initial_delta_x(A_current)
+        
+        # Ensure minimum scale
+        MIN_SCALE = 0.01
+        Delta_x_current = max(Delta_x_current, MIN_SCALE)
         
         history = {'Delta_x': [Delta_x_current], 'A': [A_current]}
         final_iter = 0
@@ -2409,9 +2547,9 @@ class NonSeparableWavefunctionSolver:
         chi1_scf, chi2_scf, chi3_scf, A_scf = self.solve_baryon_self_consistent_field(
             color_phases=color_phases,
             quark_windings=quark_windings,
-            max_iter=200,
+            max_iter=500,
             tol=1e-4,
-            mixing=0.1,
+            mixing=0.05,
             verbose=verbose,
         )
         
