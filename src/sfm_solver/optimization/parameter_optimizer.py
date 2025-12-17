@@ -1157,6 +1157,7 @@ class SFMParameterOptimizer:
         seed: int = 42,
         popsize: int = 10,
         save_json: bool = True,
+        bounds_tol: float = 0.01,
     ) -> OptimizationResult:
         """
         Lepton 3-parameter optimization over alpha, g_internal, and g1.
@@ -1165,19 +1166,22 @@ class SFMParameterOptimizer:
         
         Args:
             bounds: List of (min, max) bounds for [alpha, g_internal, g1].
+                   If None, calculated as initial_value * (1 +/- bounds_tol).
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size.
             save_json: If True, saves optimized constants.
+            bounds_tol: Fractional tolerance for auto-calculated bounds (default: 0.01 = 1%).
             
         Returns:
             OptimizationResult with optimal parameters.
         """
         if bounds is None:
+            # Calculate bounds as +/- bounds_tol around initial values
             bounds = [
-                (5.0, 30.0),          # alpha
-                (0.0001, 0.1),        # g_internal
-                (100.0, 20000.0),     # g1
+                (ALPHA_INITIAL * (1 - bounds_tol), ALPHA_INITIAL * (1 + bounds_tol)),
+                (G_INTERNAL_INITIAL * (1 - bounds_tol), G_INTERNAL_INITIAL * (1 + bounds_tol)),
+                (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
             ]
         
         if self.verbose:
@@ -1553,6 +1557,7 @@ class SFMParameterOptimizer:
         seed: int = 42,
         popsize: int = 10,
         save_json: bool = True,
+        bounds_tol: float = 0.01,
     ) -> OptimizationResult:
         """
         Baryon parameter optimization: optimize g1, g2, and lambda_so for proton and neutron masses.
@@ -1565,20 +1570,22 @@ class SFMParameterOptimizer:
         
         Args:
             bounds: List of (min, max) bounds for [g1, g2, lambda_so].
+                   If None, calculated as initial_value * (1 +/- bounds_tol).
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
             save_json: If True, saves optimized constants to constants.json.
+            bounds_tol: Fractional tolerance for auto-calculated bounds (default: 0.01 = 1%).
             
         Returns:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
-            # Bounds for [g1, g2, lambda_so]
+            # Calculate bounds as +/- bounds_tol around initial values
             bounds = [
-                (49.9, 51.1),  # g1: mean-field coupling
-                (69.9, 71.1),  # g2: circulation coupling
-                (0.195, 0.205),    # lambda_so: spin-orbit coupling
+                (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
+                (G2_INITIAL * (1 - bounds_tol), G2_INITIAL * (1 + bounds_tol)),
+                (LAMBDA_SO_INITIAL * (1 - bounds_tol), LAMBDA_SO_INITIAL * (1 + bounds_tol)),
             ]
         
         if self.verbose:
@@ -2034,6 +2041,7 @@ class SFMParameterOptimizer:
         seed: int = 42,
         popsize: int = 15,
         save_json: bool = True,
+        bounds_tol: float = 0.01,
     ) -> OptimizationResult:
         """
         Full 5-parameter optimization: alpha, g_internal, g1, g2, and lambda_so.
@@ -2043,22 +2051,24 @@ class SFMParameterOptimizer:
         
         Args:
             bounds: List of (min, max) bounds for [alpha, g_internal, g1, g2, lambda_so].
+                   If None, calculated as initial_value * (1 +/- bounds_tol).
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
             save_json: If True, saves optimized constants to constants.json.
+            bounds_tol: Fractional tolerance for auto-calculated bounds (default: 0.01 = 1%).
             
         Returns:
             OptimizationResult with optimal parameters and predictions.
         """
         if bounds is None:
-            # Bounds for [alpha, g_internal, g1, g2, lambda_so]
+            # Calculate bounds as +/- bounds_tol around initial values
             bounds = [
-                (5.0, 20.0),      # alpha
-                (0.001, 0.01),    # g_internal
-                (10.0, 200.0),    # g1 (mean-field coupling)
-                (10.0, 150.0),    # g2 (EM self-energy coupling)
-                (0.05, 0.5),      # lambda_so
+                (ALPHA_INITIAL * (1 - bounds_tol), ALPHA_INITIAL * (1 + bounds_tol)),
+                (G_INTERNAL_INITIAL * (1 - bounds_tol), G_INTERNAL_INITIAL * (1 + bounds_tol)),
+                (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
+                (G2_INITIAL * (1 - bounds_tol), G2_INITIAL * (1 + bounds_tol)),
+                (LAMBDA_SO_INITIAL * (1 - bounds_tol), LAMBDA_SO_INITIAL * (1 + bounds_tol)),
             ]
         
         if self.verbose:
@@ -2240,6 +2250,7 @@ def run_optimization_full(
     max_iter_meson: int = 30,
     max_iter_baryon: int = 30,
     max_iter_scf: int = 10,
+    bounds_tol: float = 0.01,
 ) -> OptimizationResult:
     """
     Run full 5-parameter optimization.
@@ -2256,6 +2267,7 @@ def run_optimization_full(
         max_iter_meson: Maximum outer iterations for meson solver.
         max_iter_baryon: Maximum outer iterations for baryon solver.
         max_iter_scf: Maximum SCF iterations for baryon solver.
+        bounds_tol: Fractional tolerance for parameter bounds (default: 0.01 = 1%).
     
     Returns:
         OptimizationResult with optimal parameters.
@@ -2268,7 +2280,7 @@ def run_optimization_full(
         max_iter_baryon=max_iter_baryon,
         max_iter_scf=max_iter_scf,
     )
-    return optimizer.optimize_full(maxiter=maxiter, save_json=save_json)
+    return optimizer.optimize_full(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
 
 
 def run_optimization_baryon(
@@ -2279,6 +2291,7 @@ def run_optimization_baryon(
     max_iter_lepton: int = 30,
     max_iter_baryon: int = 30,
     max_iter_scf: int = 10,
+    bounds_tol: float = 0.01,
 ) -> OptimizationResult:
     """
     Run baryon parameter optimization for proton and neutron masses.
@@ -2293,6 +2306,7 @@ def run_optimization_baryon(
         max_iter_lepton: Maximum outer iterations for lepton solver (for beta derivation).
         max_iter_baryon: Maximum outer iterations for baryon solver.
         max_iter_scf: Maximum SCF iterations for baryon solver.
+        bounds_tol: Fractional tolerance for parameter bounds (default: 0.01 = 1%).
     
     Returns:
         OptimizationResult with optimal parameters.
@@ -2304,7 +2318,7 @@ def run_optimization_baryon(
         max_iter_baryon=max_iter_baryon,
         max_iter_scf=max_iter_scf,
     )
-    return optimizer.optimize_baryon(maxiter=maxiter, save_json=save_json)
+    return optimizer.optimize_baryon(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
 
 
 def run_optimization_lepton(
@@ -2313,6 +2327,7 @@ def run_optimization_lepton(
     log_file: Optional[str] = None,
     save_json: bool = True,
     max_iter_lepton: int = 30,
+    bounds_tol: float = 0.01,
 ) -> OptimizationResult:
     """
     Run lepton 3-parameter optimization over alpha, g_internal, and g1.
@@ -2325,6 +2340,7 @@ def run_optimization_lepton(
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
         max_iter_lepton: Maximum outer iterations for lepton solver.
+        bounds_tol: Fractional tolerance for parameter bounds (default: 0.01 = 1%).
     
     Returns:
         OptimizationResult with optimal parameters.
@@ -2334,7 +2350,7 @@ def run_optimization_lepton(
         log_file=log_file,
         max_iter_lepton=max_iter_lepton,
     )
-    return optimizer.optimize_lepton(maxiter=maxiter, save_json=save_json)
+    return optimizer.optimize_lepton(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
 
 
 def create_log_file_path() -> str:
@@ -2369,7 +2385,9 @@ Examples:
   python parameter_optimizer.py --mode full         # full mode - optimize all 5 params (alpha, g_internal, g1, g2, lambda_so)
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
   python parameter_optimizer.py --max-iter 200      # Run 200 full iterations
-  python parameter_optimizer.py --max-iter-baryon 50 --max-iter-baryoscf 20  # Increase baryon solver iterations
+  python parameter_optimizer.py --max-iter-baryon 50 --max-iter-scf 20  # Increase baryon solver iterations
+  python parameter_optimizer.py --bounds-tol 0.05   # Set parameter bounds to +/- 5% of initial values
+  python parameter_optimizer.py --mode baryon --bounds-tol 0.001  # Tight 0.1% bounds for baryon fine-tuning
         """
     )
     
@@ -2438,6 +2456,14 @@ Examples:
         help="Maximum SCF iterations for solver initialization (default: 10)"
     )
     
+    parser.add_argument(
+        "--bounds-tol",
+        type=float,
+        default=0.01,
+        dest="bounds_tol",
+        help="Fractional tolerance for parameter bounds as +/- fraction of initial value (default: 0.01 = 1%%)"
+    )
+    
     args = parser.parse_args()
     
     # Determine save_json setting
@@ -2460,6 +2486,7 @@ Examples:
     print("=" * 70)
     print(f"Mode: {mode_names.get(args.mode, args.mode)}")
     print(f"Max iterations: {args.max_iter}")
+    print(f"Bounds tolerance: {args.bounds_tol * 100:.1f}% (+/- around initial values)")
     print(f"Save to constants.json: {'Yes' if save_json else 'No'}")
     print(f"Log file: {log_file}")
     print()
@@ -2482,6 +2509,7 @@ Examples:
             max_iter_lepton=args.max_iter_lepton,
             max_iter_baryon=args.max_iter_baryon,
             max_iter_scf=args.max_iter_scf,
+            bounds_tol=args.bounds_tol,
         )
     elif args.mode == "full":
         result = run_optimization_full(
@@ -2493,6 +2521,7 @@ Examples:
             max_iter_meson=args.max_iter_meson,
             max_iter_baryon=args.max_iter_baryon,
             max_iter_scf=args.max_iter_scf,
+            bounds_tol=args.bounds_tol,
         )
     else:  # lepton
         result = run_optimization_lepton(
@@ -2501,6 +2530,7 @@ Examples:
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
+            bounds_tol=args.bounds_tol,
         )
     
     # Print final summary

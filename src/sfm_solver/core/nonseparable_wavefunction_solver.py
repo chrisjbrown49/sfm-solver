@@ -1593,9 +1593,9 @@ class NonSeparableWavefunctionSolver:
         self,
         color_phases: tuple = (0, 2*np.pi/3, 4*np.pi/3),
         quark_windings: tuple = (5, 5, -3),  # Default: proton (uud)
-        max_iter: int = 100,
+        max_iter: int = 300,
         tol: float = 1e-6,
-        mixing: float = 0.5,
+        mixing: float = 0.1,
         verbose: bool = False,
     ) -> tuple:
         """
@@ -1705,6 +1705,27 @@ class NonSeparableWavefunctionSolver:
             if norm3 > 1e-20:
                 chi3_new /= norm3
             
+            # === Energy Monitoring (Phase 1 diagnostic) ===
+            # Compute mean-field energy for tracking convergence behavior
+            chi_total = chi1_new + chi2_new + chi3_new
+            E_kinetic = np.sum(eigenvalues[:3])  # Sum of three lowest eigenvalues
+            E_nonlinear = self.g1 * np.sum(np.abs(chi_total)**4) * dsigma
+            E_total = E_kinetic + E_nonlinear
+            
+            # Track energy history
+            if iteration == 0:
+                self._scf_energy_history = []
+            self._scf_energy_history.append(E_total)
+            
+            # Print energy diagnostics in verbose mode
+            if verbose and iteration % 10 == 0:
+                print(f"    Energy: E={E_total:.6f}")
+                if len(self._scf_energy_history) > 1:
+                    dE = E_total - self._scf_energy_history[-2]
+                    print(f"    dE/E: {dE/abs(E_total):.2e}")
+                    if dE > 0:
+                        print(f"    [WARNING] Energy increasing")
+            
             # === Check convergence ===
             delta1 = np.sum(np.abs(chi1_new - chi1_old)**2) * dsigma
             delta2 = np.sum(np.abs(chi2_new - chi2_old)**2) * dsigma
@@ -1713,7 +1734,7 @@ class NonSeparableWavefunctionSolver:
             max_delta = max(delta1, delta2, delta3)
             
             if verbose and iteration % 10 == 0:
-                print(f"  Convergence: delta_chi = {max_delta:.2e}")
+                print(f"    Convergence: delta_chi = {max_delta:.2e}")
             
             if max_delta < tol:
                 if verbose:
@@ -1847,9 +1868,9 @@ class NonSeparableWavefunctionSolver:
             chi1, chi2, chi3, A_scf = self.solve_baryon_self_consistent_field(
                 color_phases=color_phases,
                 quark_windings=quark_windings,
-                max_iter=200,
+                max_iter=500,
                 tol=1e-4,
-                mixing=0.1,
+                mixing=0.05,
                 verbose=(verbose and iter_outer == 0),
             )
             
