@@ -1536,8 +1536,8 @@ class SFMParameterOptimizer:
         if self.log_file:
             with open(self.log_file, 'a', encoding='utf-8') as f:
                 f.write(f"\nEval {self._eval_count}: g1={g1:.2f}, g2={g2:.6f}, lambda_so={lambda_so:.4f}")
-                f.write(f" -> m_p={m_proton*1000:.2f} MeV, m_n={m_neutron*1000:.2f} MeV")
-                f.write(f", delta_m={delta_m_pred*1000:.3f} MeV")
+                f.write(f" -> m_p={m_proton:.2f} MeV, m_n={m_neutron:.2f} MeV")
+                f.write(f", delta_m={delta_m_pred:.3f} MeV")
                 f.write(f", error={total_error:.4f}")
                 if is_best:
                     f.write(" *** BEST ***")
@@ -1546,7 +1546,7 @@ class SFMParameterOptimizer:
         if self.verbose and (self._eval_count % 5 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
             print(f"Eval {self._eval_count}: g1={g1:.2f}, g2={g2:.5f}, lambda_so={lambda_so:.3f} "
-                  f"-> delta_m={delta_m_pred*1000:.3f} MeV (exp: {delta_m_exp*1000:.3f}){marker}")
+                  f"-> delta_m={delta_m_pred:.3f} MeV (exp: {delta_m_exp:.3f}){marker}")
         
         return total_error
     
