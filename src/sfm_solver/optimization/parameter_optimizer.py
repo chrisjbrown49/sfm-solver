@@ -1543,8 +1543,10 @@ class SFMParameterOptimizer:
         p_error = ((m_proton - m_p_exp) / m_p_exp) ** 2
         n_error = ((m_neutron - m_n_exp) / m_n_exp) ** 2
         
-        # 2. Mass splitting error (SECONDARY - lower weight, for fine-tuning)
-        splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2
+        # 2. Mass splitting error (SECONDARY - normalized by average mass for proper scale)
+        # Use average mass as denominator so splitting error is comparable to absolute errors
+        m_avg = (m_p_exp + m_n_exp) / 2  # ~938.9 MeV
+        splitting_error = ((delta_m_pred - delta_m_exp) / m_avg) ** 2
         
         # 3. Ordering penalty: neutron MUST be heavier than proton
         ordering_penalty = 0.0 if delta_m_pred > 0 else 100.0
@@ -2023,11 +2025,15 @@ class SFMParameterOptimizer:
             m_proton = beta_derived * A_squared['proton'] * 1000  # Baryon formula: convert to MeV
             m_neutron = beta_derived * A_squared['neutron'] * 1000  # Baryon formula: convert to MeV
             
+            m_p_exp = 938.272  # MeV
+            m_n_exp = 939.565  # MeV
             delta_m_exp = 1.293  # MeV (experimental neutron-proton mass difference)
             delta_m_pred = m_neutron - m_proton  # In MeV
             
             # Splitting error (0.5x weight - secondary to absolute masses)
-            splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2 * 100
+            # Normalize by average mass so splitting error is comparable to absolute errors
+            m_avg = (m_p_exp + m_n_exp) / 2  # ~938.9 MeV
+            splitting_error = ((delta_m_pred - delta_m_exp) / m_avg) ** 2 * 100
             
             # Ordering penalty: neutron MUST be heavier
             if delta_m_pred <= 0:
@@ -2038,7 +2044,7 @@ class SFMParameterOptimizer:
             predictions['n-p_splitting'] = {
                 'predicted': delta_m_pred,  # Already in MeV
                 'experimental': delta_m_exp,  # Already in MeV
-                'error': abs(delta_m_pred - delta_m_exp) / delta_m_exp * 100,
+                'error': abs(delta_m_pred - delta_m_exp) / m_avg * 100,  # Normalized by average mass
             }
         
         elapsed = time.time() - start_time

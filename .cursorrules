@@ -1,0 +1,91 @@
+# SFM Solver Project Rules
+
+## Project Overview
+This project implements the Single-Field Model (SFM) theoretical framework for particle physics. The SFM is a first-principles approach that derives particle properties from a 5D Hamiltonian without phenomenological parameters.
+
+## ⚠️ CRITICAL PRINCIPLE: FIRST-PRINCIPLES ONLY ⚠️
+
+**ALL SOLVER IMPLEMENTATIONS MUST EMERGE FROM THE FIRST PRINCIPLES OF THE SINGLE-FIELD MODEL THEORETICAL FRAMEWORK.**
+
+### Absolute Requirements:
+- **NO phenomenological parameters** - all quantities must derive from the 5D Hamiltonian
+- **NO empirical fitting** - mechanisms must emerge from energy balance, not be tuned to data
+- **NO ad-hoc factors** - every enhancement, scaling, or coupling must have physical justification from the field equations
+- **YES to self-consistent iteration** - solutions emerge from simultaneous energy minimization
+- **YES to emergent hierarchy** - mass ratios arise naturally from quantum field dynamics, not imposed
+
+**Any proposed modification that violates these principles contradicts the fundamental philosophy of the SFM framework and must be rejected, regardless of how well it might fit experimental data.**
+
+## Implementation Guidelines
+
+### Theoretical Consistency
+- All implementations must maintain strict consistency with the Single-Field Model theoretical framework
+- Do not introduce new phenomenological parameters without explicit user consent
+- All physical quantities must be derivable from the fundamental 5D Hamiltonian
+- Energy balance and self-consistent iteration are the primary solution methods
+
+### Code Organization
+- **Debugging scripts**: Add to `<project root>/sfm-solver/scripts/` folder
+- **Unit tests**: Use pytest format, add to `<project root>/sfm-solver/tests/` folder
+- **Documentation**: Add markdown files to `<project root>/docs/` folder
+- **Source code**: Core implementation in `<project root>/sfm-solver/src/sfm_solver/`
+
+### Development Environment
+- **Operating System**: Windows
+- **Default Shell**: PowerShell (commands must use PowerShell syntax)
+- **Python Environment**: Virtual environment located at `<project root>/sfm-solver/.venv`
+  - **IMPORTANT**: Always activate the virtual environment before running Python code via terminal commands
+  - Activation command: `.\.venv\Scripts\Activate.ps1` (from sfm-solver directory)
+
+### Python Code Standards
+- Use ASCII characters only when printing to the terminal
+- Follow PEP 8 style guidelines
+- Include comprehensive docstrings for all functions and classes
+- Use type hints where appropriate
+
+### Testing and Validation
+- Write unit tests using pytest framework
+- Tests should validate physical correctness, not just code correctness
+- Verify that results are consistent with SFM theoretical predictions
+- Include tests for energy conservation and self-consistency
+
+### Documentation
+- Document all physical assumptions and derivations
+- Explain how each implementation relates to the 5D Hamiltonian
+- Provide clear justification for any computational approximations
+- Maintain markdown documentation in the docs folder
+
+## AI Assistant Guidelines
+
+### When Working on This Project:
+1. **Always verify** that proposed changes align with SFM first principles
+2. **Never suggest** phenomenological parameters or empirical fitting approaches
+3. **Always use PowerShell syntax** for terminal commands
+4. **Remember to activate** the virtual environment for Python operations
+5. **Question modifications** that seem to introduce ad-hoc factors
+6. **Prioritize** self-consistent solutions and emergent properties
+7. **Document thoroughly** the physical reasoning behind implementations
+
+### Before Suggesting Code Changes:
+- Confirm the change derives from the 5D Hamiltonian or SFM framework
+- Verify no phenomenological parameters are being introduced
+- Check that energy balance and physical consistency are maintained
+- Ensure proper file organization per project structure
+
+### Common Tasks:
+- **Running tests**: Activate venv, then `pytest tests/`
+- **Running scripts**: Activate venv, then `python scripts/<script_name>.py`
+- **Creating new modules**: Consider where they fit in the theoretical framework
+- **Debugging**: Use scripts folder for temporary debugging code
+
+## Physical Framework Reference
+
+The Single-Field Model is built on:
+- A 5-dimensional Hamiltonian with compactified extra dimension
+- Quantum field dynamics in curved spacetime
+- Self-consistent energy minimization
+- Emergent particle properties from field configurations
+- No free parameters beyond fundamental constants
+
+All implementations must respect this framework and derive from these principles.
+
