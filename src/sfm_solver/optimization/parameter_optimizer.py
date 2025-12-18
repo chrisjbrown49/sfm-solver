@@ -1512,19 +1512,20 @@ class SFMParameterOptimizer:
         delta_m_pred = m_neutron - m_proton
         
         # Compute errors
-        # 1. Mass splitting error (high weight - this is what we want to optimize)
-        splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2
-        
-        # 2. Absolute mass errors (lower weight - we want reasonable absolute masses)
+        # 1. Absolute mass errors (PRIMARY - high weight, these are what we want to optimize)
         p_error = ((m_proton - m_p_exp) / m_p_exp) ** 2
         n_error = ((m_neutron - m_n_exp) / m_n_exp) ** 2
+        
+        # 2. Mass splitting error (SECONDARY - lower weight, for fine-tuning)
+        splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2
         
         # 3. Ordering penalty: neutron MUST be heavier than proton
         ordering_penalty = 0.0 if delta_m_pred > 0 else 100.0
         
         # Combine errors with weights
-        # Mass splitting is most important (10x weight)
-        total_error = 10.0 * splitting_error + p_error + n_error + ordering_penalty
+        # Absolute masses are most important (10x weight each)
+        # Mass splitting is secondary (0.5x weight)
+        total_error = 10.0 * p_error + 10.0 * n_error + 0.5 * splitting_error + ordering_penalty
         
         elapsed = time.time() - start_time
         
@@ -1533,10 +1534,14 @@ class SFMParameterOptimizer:
             self._best_error = total_error
             self._best_params = (g2, lambda_so, beta_derived)
         
+        # Calculate percent errors (with sign: negative = below target, positive = above target)
+        p_err_pct = (m_proton - m_p_exp) / m_p_exp * 100
+        n_err_pct = (m_neutron - m_n_exp) / m_n_exp * 100
+        
         if self.log_file:
             with open(self.log_file, 'a', encoding='utf-8') as f:
                 f.write(f"\nEval {self._eval_count}: g1={g1:.2f}, g2={g2:.6f}, lambda_so={lambda_so:.4f}")
-                f.write(f" -> m_p={m_proton:.2f} MeV, m_n={m_neutron:.2f} MeV")
+                f.write(f" -> m_p={m_proton:.2f} MeV ({p_err_pct:+.1f}%), m_n={m_neutron:.2f} MeV ({n_err_pct:+.1f}%)")
                 f.write(f", delta_m={delta_m_pred:.3f} MeV")
                 f.write(f", error={total_error:.4f}")
                 if is_best:
@@ -1546,7 +1551,7 @@ class SFMParameterOptimizer:
         if self.verbose and (self._eval_count % 5 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
             print(f"Eval {self._eval_count}: g1={g1:.2f}, g2={g2:.5f}, lambda_so={lambda_so:.3f} "
-                  f"-> delta_m={delta_m_pred:.3f} MeV (exp: {delta_m_exp:.3f}){marker}")
+                  f"-> m_p={m_proton:.1f} MeV ({p_err_pct:+.1f}%), m_n={m_neutron:.1f} MeV ({n_err_pct:+.1f}%){marker}")
         
         return total_error
     
@@ -1565,8 +1570,8 @@ class SFMParameterOptimizer:
         Alpha and g_internal are fixed at current constants.json values (calibrated for leptons).
         Beta is derived from electron mass.
         
-        This mode targets both absolute baryon masses AND the ~1.3 MeV proton-neutron mass difference,
-        which arises from EM self-energy contributions.
+        This mode prioritizes absolute proton and neutron mass accuracy (PRIMARY objective),
+        with the ~1.3 MeV mass difference as a secondary consideration for fine-tuning.
         
         Args:
             bounds: List of (min, max) bounds for [g1, g2, lambda_so].
@@ -1986,7 +1991,7 @@ class SFMParameterOptimizer:
             else:
                 total_error += percent_error * particle.weight
         
-        # Add proton-neutron mass splitting error (high weight)
+        # Add proton-neutron mass splitting error (SECONDARY - lower weight for fine-tuning)
         if 'proton' in A_squared and 'neutron' in A_squared:
             m_proton = beta_derived * A_squared['proton'] * 1000  # Baryon formula: convert to MeV
             m_neutron = beta_derived * A_squared['neutron'] * 1000  # Baryon formula: convert to MeV
@@ -1994,14 +1999,14 @@ class SFMParameterOptimizer:
             delta_m_exp = 1.293  # MeV (experimental neutron-proton mass difference)
             delta_m_pred = m_neutron - m_proton  # In MeV
             
-            # Splitting error (10x weight - very important!)
+            # Splitting error (0.5x weight - secondary to absolute masses)
             splitting_error = ((delta_m_pred - delta_m_exp) / delta_m_exp) ** 2 * 100
             
             # Ordering penalty: neutron MUST be heavier
             if delta_m_pred <= 0:
                 splitting_error += 1000.0
             
-            total_error += 10.0 * splitting_error
+            total_error += 0.5 * splitting_error
             
             predictions['n-p_splitting'] = {
                 'predicted': delta_m_pred,  # Already in MeV
@@ -2047,7 +2052,8 @@ class SFMParameterOptimizer:
         Full 5-parameter optimization: alpha, g_internal, g1, g2, and lambda_so.
         
         Beta is derived from electron mass.
-        This mode optimizes for both absolute masses AND proton-neutron splitting.
+        This mode prioritizes absolute mass accuracy (PRIMARY), with proton-neutron
+        splitting as a secondary consideration for fine-tuning.
         
         Args:
             bounds: List of (min, max) bounds for [alpha, g_internal, g1, g2, lambda_so].
