@@ -1614,6 +1614,19 @@ class SFMParameterOptimizer:
         Returns:
             OptimizationResult with optimal parameters and predictions.
         """
+        # PHYSICAL RELATIONSHIPS FROM OPTIMIZATION ANALYSIS:
+        # 
+        # Based on analysis of optimizer_log_20251218_115242.txt:
+        # - g1 ≈ 48-50: Sets baryon mass scale through confinement strength
+        # - g2/g1 ≈ 1.35-1.40: Optimal ratio for stable three-quark configuration
+        # - lambda_so ≈ 0.19-0.20: Controls p-n electromagnetic mass splitting
+        #
+        # These parameters are NOT independent but emerge from three-well potential
+        # geometry and spin-orbit coupling mechanism. Deviations from these
+        # relationships cause SCF convergence failures (HARD warnings).
+        #
+        # Recommended bounds should respect these physical constraints.
+        
         if bounds is None:
             # Calculate bounds as +/- bounds_tol around initial values
             bounds = [

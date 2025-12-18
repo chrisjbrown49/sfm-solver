@@ -357,6 +357,64 @@ class NonSeparableWavefunctionSolver:
         
         return True
     
+    def _initialize_baryon_from_parameters(
+        self,
+        g1: float,
+        g2: float,
+        lambda_so: float
+    ) -> Tuple[float, float, float]:
+        """
+        Initialize baryon solver state based on parameter regime.
+        
+        Physical basis from optimization analysis:
+        - g1 sets confinement → affects amplitude A (empirical: A ∝ g1)
+        - g2/g1 ratio indicates well structure stability (optimal ≈ 1.35)
+        - lambda_so affects spatial distribution
+        
+        Args:
+            g1: Nonlinear self-interaction coupling
+            g2: Circulation/EM coupling
+            lambda_so: Spin-orbit coupling strength
+            
+        Returns:
+            (A_init, Delta_x_init, delta_sigma_init)
+        """
+        # Reference values from optimization (Eval 4, 11, 17 averages)
+        g1_ref = 49.0
+        g2_ref = 67.0
+        ratio_ref = g2_ref / g1_ref  # ≈ 1.37
+        
+        # Amplitude scales with confinement strength
+        # From analysis: higher g1 → stronger confinement → larger A
+        A_base = 15.0
+        A_scale = 1.0 + 0.02 * (g1 - g1_ref)  # ±2% per unit g1
+        A_init = A_base * A_scale
+        
+        # Spatial scale inversely proportional to g1
+        # Stronger confinement → smaller spatial extent
+        Delta_x_base = 0.30
+        Delta_x_init = Delta_x_base * (g1_ref / g1) ** 0.5
+        
+        # Subspace width influenced by g2/g1 ratio
+        # Deviation from optimal ratio → adjust for stability
+        delta_sigma_base = 0.80
+        ratio = g2 / g1
+        ratio_deviation = abs(ratio - ratio_ref) / ratio_ref
+        if ratio_deviation < 0.1:
+            # Near optimal ratio: use base value
+            ratio_correction = 1.0
+        else:
+            # Far from optimal: reduce for stability
+            ratio_correction = 0.9
+        delta_sigma_init = delta_sigma_base * ratio_correction
+        
+        # Ensure physical bounds
+        A_init = np.clip(A_init, 10.0, 25.0)
+        Delta_x_init = np.clip(Delta_x_init, 0.15, 0.50)
+        delta_sigma_init = np.clip(delta_sigma_init, 0.60, 1.00)
+        
+        return A_init, Delta_x_init, delta_sigma_init
+    
     def _build_subspace_derivative_matrix(self) -> NDArray:
         """Build the first derivative operator d/dσ."""
         N = self.basis.N_sigma
@@ -2771,13 +2829,26 @@ class NonSeparableWavefunctionSolver:
         
         # === INITIALIZE SPATIAL SCALE ===
         # KEY FIX: All three quarks share a SINGLE Δx determined by composite amplitude
-        # Start with Δx from SCF amplitude
-        Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else 1.0/3.0
-        A_current = A_scf
+        # Use parameter-aware initialization for better convergence
+        A_init_param, Delta_x_init_param, delta_sigma_init_param = \
+            self._initialize_baryon_from_parameters(self.g1, self.g2, self.lambda_so)
+        
+        # Start with parameter-aware values, but use SCF amplitude if significantly different
+        # This provides better initial guess while respecting SCF results
+        if abs(A_scf - A_init_param) / A_init_param < 0.5:
+            # SCF and parameter-based estimates are consistent - use SCF
+            A_current = A_scf
+            Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else Delta_x_init_param
+        else:
+            # SCF result differs significantly - use parameter-based initialization
+            A_current = A_init_param
+            Delta_x_baryon = Delta_x_init_param
         
         if verbose:
             print(f"\n=== STEP 2: 4D Spatial-Subspace Coupling with Collective Confinement ===")
-            print(f"Initial Dx_baryon = {Delta_x_baryon:.6f} (from SCF amplitude)")
+            print(f"Parameter-aware initialization: A={A_init_param:.2f}, Dx={Delta_x_init_param:.3f}, Ds={delta_sigma_init_param:.3f}")
+            print(f"SCF initialization: A={A_scf:.2f}")
+            print(f"Using: A={A_current:.2f}, Dx={Delta_x_baryon:.6f}")
         
         history = {
             'Delta_x': [Delta_x_baryon],
@@ -2889,14 +2960,82 @@ class NonSeparableWavefunctionSolver:
             if verbose:
                 print(f"Convergence: dA/A = {rel_delta_A:.2e}, dDx/Dx = {rel_delta_Dx:.2e}")
             
+            # Early termination if poor convergence indicates incompatible parameters
+            if iter_outer == 15:
+                if rel_delta_A > 0.05 or rel_delta_Dx > 0.05:
+                    if verbose:
+                        print(f"\n[EARLY TERMINATION] Poor convergence after 15 iterations")
+                        print(f"  Parameters likely incompatible: g1={self.g1:.2f}, "
+                              f"g2={self.g2:.2f} (ratio={self.g2/self.g1:.2f}), "
+                              f"lambda_so={self.lambda_so:.4f}")
+                        print(f"  Current errors: dA/A={rel_delta_A:.3e}, dDx/Dx={rel_delta_Dx:.3e}")
+                    
+                    # Build final composite with current state
+                    chi_components_final = {}
+                    all_keys = set(quark1_chi.keys()) | set(quark2_chi.keys()) | set(quark3_chi.keys())
+                    for key in all_keys:
+                        chi1 = quark1_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                        chi2 = quark2_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                        chi3 = quark3_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
+                        chi_components_final[key] = chi1 + chi2 + chi3
+                    
+                    l_composition = self._compute_l_composition(chi_components_final)
+                    k_eff = self._compute_k_eff(chi_components_final)
+                    circulation = self._compute_circulation(chi_components_final)
+                    em_energy = self._compute_em_self_energy(chi_components_final)
+                    
+                    # Return unconverged result immediately
+                    return WavefunctionStructure(
+                        chi_components=chi_components_final,
+                        n_target=1,
+                        k_winding=net_winding,
+                        l_composition=l_composition,
+                        k_eff=k_eff,
+                        structure_norm=A_current,
+                        converged=False,
+                        iterations=iter_outer + 1,
+                        particle_type='baryon_4D',
+                        convergence_history=history,
+                        delta_x_final=Delta_x_baryon,
+                        delta_sigma_final=None,
+                        em_energy=em_energy,
+                        circulation=circulation,
+                    )
+            
             if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                 if verbose:
                     print(f"\n[OUTER LOOP CONVERGED] after {iter_outer+1} iterations")
                 final_iter = iter_outer
                 break
             
-            # === UPDATE WITH MIXING ===
-            mixing = 0.3
+            # === UPDATE WITH ADAPTIVE MIXING ===
+            # Adaptive mixing based on convergence state
+            if iter_outer < 3:
+                # Initial iterations: very conservative to establish stable trajectory
+                mixing = 0.10
+            elif rel_delta_A > 0.02 or rel_delta_Dx > 0.02:
+                # Large changes: conservative to avoid overshooting
+                mixing = 0.15
+            elif rel_delta_A < 0.001 and rel_delta_Dx < 0.001:
+                # Near convergence: aggressive to accelerate final approach
+                mixing = 0.50
+            else:
+                # Normal convergence: moderate mixing
+                mixing = 0.30
+            
+            # Add oscillation detection and damping
+            if iter_outer > 5 and 'A' in history:
+                recent_As = history['A'][-5:]
+                if len(recent_As) == 5:
+                    variation = np.std(recent_As) / np.mean(recent_As)
+                    if variation > 0.03:  # Oscillating
+                        mixing = min(mixing, 0.15)
+                        if verbose:
+                            print(f"  [Oscillation detected, reducing mixing to {mixing:.2f}]")
+            
+            if verbose and iter_outer % 5 == 0:
+                print(f"  Adaptive mixing: {mixing:.2f}")
+            
             A_current = (1 - mixing) * A_current + mixing * A_new
             Delta_x_baryon = (1 - mixing) * Delta_x_baryon + mixing * Delta_x_new
             
