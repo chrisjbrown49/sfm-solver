@@ -69,6 +69,12 @@ from sfm_solver.core.constants import (
     G2 as G2_INITIAL,
     LAMBDA_SO as LAMBDA_SO_INITIAL,
 )
+from sfm_solver.core.particle_configurations import (
+    PROTON, NEUTRON, LAMBDA,
+    SIGMA_PLUS, SIGMA_ZERO, SIGMA_MINUS,
+    XI_ZERO, XI_MINUS, OMEGA_MINUS,
+    ALL_BARYONS,
+)
 
 # For backward compatibility with legacy "four" mode (deprecated)
 # Compute KAPPA from G_INTERNAL: kappa = g_internal / beta
@@ -779,13 +785,32 @@ class SFMParameterOptimizer:
                 N_sigma=64,
             )
             
-            # Determine quark windings based on baryon type
-            if particle.baryon_type == 'proton':
-                quark_windings = (5, 5, -3)  # uud: +2/3, +2/3, -1/3
-            elif particle.baryon_type == 'neutron':
-                quark_windings = (5, -3, -3)  # udd: +2/3, -1/3, -1/3
+            # Determine quark configuration from particle database
+            particle_config = None
+            for baryon in ALL_BARYONS:
+                if baryon.name.lower() == particle.baryon_type.lower():
+                    particle_config = baryon
+                    break
+            
+            # Fall back to legacy hardcoded values if not in database
+            if particle_config:
+                quark_windings = particle_config.windings
+                quark_spins = particle_config.spins
+                quark_generations = particle_config.generations
             else:
-                quark_windings = None  # Use default
+                # Legacy fallback
+                if particle.baryon_type == 'proton':
+                    quark_windings = (5, 5, -3)  # uud: +2/3, +2/3, -1/3
+                    quark_spins = (+1, -1, +1)
+                    quark_generations = (1, 1, 1)
+                elif particle.baryon_type == 'neutron':
+                    quark_windings = (5, -3, -3)  # udd: +2/3, -1/3, -1/3
+                    quark_spins = (+1, +1, -1)
+                    quark_generations = (1, 1, 1)
+                else:
+                    quark_windings = None  # Use default
+                    quark_spins = (+1, -1, +1)
+                    quark_generations = (1, 1, 1)
             
             # Run self-consistent 4D baryon solver (new solver with shared Delta_x)
             # quark_wells are well indices (1, 2, 3)
@@ -793,6 +818,8 @@ class SFMParameterOptimizer:
                 quark_wells=(1, 2, 3),
                 color_phases=(0, 2*np.pi/3, 4*np.pi/3),
                 quark_windings=quark_windings,
+                quark_spins=quark_spins,
+                quark_generations=quark_generations,
                 max_iter_outer=self.max_iter_baryon,
                 max_iter_scf=self.max_iter_scf,
                 verbose=False,

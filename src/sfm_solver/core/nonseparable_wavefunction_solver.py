@@ -268,17 +268,21 @@ class NonSeparableWavefunctionSolver:
         well_index: int,
         phase: float,
         winding_k: int = 0,
+        spin: int = +1,      # NEW: ±1 for spin up/down
+        generation: int = 1,  # NEW: n=1,2,3 for generation
     ) -> NDArray:
         """
         Initialize quark wavefunction as Gaussian in specified well.
         
         Args:
             well_index: 1, 2, or 3 (which well)
-            phase: Color phase φᵢ
-            winding_k: Winding number for EM charge
+            phase: Color phase φᵢ for color neutrality
+            winding_k: Winding number for EM charge (flavor type: +5=up-type, -3=down-type)
+            spin: Spin quantum number (+1 for ↑, -1 for ↓)
+            generation: Generation number (1=u/d, 2=c/s, 3=t/b)
             
         Returns:
-            Normalized wavefunction χᵢ(σ)
+            Normalized wavefunction χᵢ(σ) with spin-dependent positioning
         """
         sigma = self.basis.sigma
         dsigma = self.basis.dsigma
@@ -287,15 +291,16 @@ class NonSeparableWavefunctionSolver:
         well_centers = [np.pi/3, np.pi, 5*np.pi/3]
         center = well_centers[well_index - 1]
         
-        # Apply spin-orbit shift if lambda_so > 0
+        # Spin-orbit shift includes spin
         if hasattr(self, 'lambda_so') and self.lambda_so > 0:
-            delta_sigma_so = self.lambda_so * winding_k
+            delta_sigma_so = self.lambda_so * winding_k * spin
             center = center + delta_sigma_so
         
-        # Gaussian width: make tighter to ensure quarks stay localized
-        # in their designated wells during SCF iteration
-        # Narrow width = strong localization
-        width = 0.25  # Tighter than 0.5 to maintain well separation
+        # Generation affects Gaussian width
+        # Higher generation → larger spatial extent → broader envelope
+        base_width = 0.25
+        generation_scaling = 1.0 + 0.2 * (generation - 1)  # n=1→1.0, n=2→1.2, n=3→1.4
+        width = base_width * generation_scaling
         
         # Build wavefunction with color phase and winding
         envelope = np.exp(-(sigma - center)**2 / width)
@@ -307,6 +312,50 @@ class NonSeparableWavefunctionSolver:
             chi /= norm
         
         return chi
+    
+    def _check_pauli_exclusion(
+        self,
+        quark_windings: tuple,
+        quark_spins: tuple,
+        quark_generations: tuple,
+    ) -> bool:
+        """
+        Check if quark configuration satisfies Pauli exclusion.
+        
+        Two quarks with same winding (k) AND same generation (n) MUST have opposite spins.
+        
+        Args:
+            quark_windings: Winding numbers (k₁, k₂, k₃)
+            quark_spins: Spin quantum numbers (s₁, s₂, s₃) = ±1
+            quark_generations: Generation numbers (n₁, n₂, n₃) = 1,2,3
+            
+        Returns:
+            True if Pauli exclusion is satisfied, False otherwise
+        """
+        k1, k2, k3 = quark_windings
+        s1, s2, s3 = quark_spins
+        n1, n2, n3 = quark_generations
+        
+        # Check all pairs
+        violations = []
+        
+        # Pair 1-2: violation if same k AND same n AND same spin
+        if k1 == k2 and n1 == n2 and s1 == s2:
+            violations.append((1, 2))
+        
+        # Pair 1-3
+        if k1 == k3 and n1 == n3 and s1 == s3:
+            violations.append((1, 3))
+        
+        # Pair 2-3
+        if k2 == k3 and n2 == n3 and s2 == s3:
+            violations.append((2, 3))
+        
+        if violations:
+            print(f"WARNING: Pauli exclusion violated for quark pairs: {violations}")
+            return False
+        
+        return True
     
     def _build_subspace_derivative_matrix(self) -> NDArray:
         """Build the first derivative operator d/dσ."""
@@ -1749,6 +1798,8 @@ class NonSeparableWavefunctionSolver:
         self,
         color_phases: tuple = (0, 2*np.pi/3, 4*np.pi/3),
         quark_windings: tuple = (5, 5, -3),  # Default: proton (uud)
+        quark_spins: tuple = (+1, -1, +1),      # NEW: Spin quantum numbers
+        quark_generations: tuple = (1, 1, 1),    # NEW: Generation numbers
         max_iter: int = 300,
         tol: float = 1e-6,
         mixing: float = 0.1,
@@ -1767,6 +1818,8 @@ class NonSeparableWavefunctionSolver:
         Args:
             color_phases: Color phases (φ₁, φ₂, φ₃) for color neutrality
             quark_windings: Winding numbers (k₁, k₂, k₃) for EM charge
+            quark_spins: Spin quantum numbers (s₁, s₂, s₃) = ±1
+            quark_generations: Generation numbers (n₁, n₂, n₃) = 1,2,3
             max_iter: Maximum SCF iterations
             tol: Convergence tolerance
             mixing: Mixing parameter for stability (0.5 = 50% new)
@@ -1781,18 +1834,33 @@ class NonSeparableWavefunctionSolver:
         N = len(sigma)
         phi1, phi2, phi3 = color_phases
         k1, k2, k3 = quark_windings
+        s1, s2, s3 = quark_spins
+        n1, n2, n3 = quark_generations
         
         if verbose:
             print("\n=== Self-Consistent Field Baryon Solver ===")
             print(f"Color phases: {color_phases}")
             print(f"Quark windings (k): {quark_windings}")
+            print(f"Quark spins (s): {quark_spins}")
+            print(f"Quark generations (n): {quark_generations}")
             print(f"Max iterations: {max_iter}, Tolerance: {tol}")
         
-        # === STEP 1: Initialize ===
-        # Start with Gaussians localized in each well with appropriate windings
-        chi1 = self._initialize_quark_wavefunction(well_index=1, phase=phi1, winding_k=k1)
-        chi2 = self._initialize_quark_wavefunction(well_index=2, phase=phi2, winding_k=k2)
-        chi3 = self._initialize_quark_wavefunction(well_index=3, phase=phi3, winding_k=k3)
+        # === Pauli Exclusion Check ===
+        if not self._check_pauli_exclusion(quark_windings, quark_spins, quark_generations):
+            if verbose:
+                print("WARNING: Configuration violates Pauli exclusion principle!")
+        
+        # === STEP 1: Initialize with SPIN and GENERATION ===
+        # Start with Gaussians localized in each well with appropriate windings, spins, and generations
+        chi1 = self._initialize_quark_wavefunction(
+            well_index=1, phase=phi1, winding_k=k1, spin=s1, generation=n1
+        )
+        chi2 = self._initialize_quark_wavefunction(
+            well_index=2, phase=phi2, winding_k=k2, spin=s2, generation=n2
+        )
+        chi3 = self._initialize_quark_wavefunction(
+            well_index=3, phase=phi3, winding_k=k3, spin=s3, generation=n3
+        )
         
         # Adaptive mixing state
         mixing_current = mixing  # Start with provided mixing parameter
@@ -2613,6 +2681,8 @@ class NonSeparableWavefunctionSolver:
         quark_wells: tuple = (1, 2, 3),
         color_phases: tuple = (0, 2*np.pi/3, 4*np.pi/3),
         quark_windings: tuple = None,
+        quark_spins: tuple = (+1, -1, +1),      # NEW: Spin quantum numbers
+        quark_generations: tuple = (1, 1, 1),    # NEW: Generation numbers
         max_iter_outer: int = 30,
         max_iter_scf: int = 10,
         tol_outer: float = 1e-4,
@@ -2644,6 +2714,8 @@ class NonSeparableWavefunctionSolver:
             color_phases: Color phases (φ₁, φ₂, φ₃)
             quark_windings: Winding numbers (k₁, k₂, k₃)
                            Default: proton (uud) = (+5, +5, -3)
+            quark_spins: Spin quantum numbers (s₁, s₂, s₃) = ±1
+            quark_generations: Generation numbers (n₁, n₂, n₃) = 1,2,3
             max_iter_outer: Max iterations for Δx self-confinement
             max_iter_scf: Max iterations for quark-quark SCF
             tol_outer: Convergence tolerance for outer loop
@@ -2659,12 +2731,16 @@ class NonSeparableWavefunctionSolver:
         w1, w2, w3 = quark_wells
         phi1, phi2, phi3 = color_phases
         k1, k2, k3 = quark_windings
+        s1, s2, s3 = quark_spins
+        n1, n2, n3 = quark_generations
         net_winding = k1 + k2 + k3
         
         if verbose:
             print(f"\n=== 4D Three-Quark Baryon Solver ===")
             print(f"Wells: {quark_wells}, Phases: {color_phases}")
             print(f"Windings: {quark_windings} -> net k = {net_winding}")
+            print(f"Spins: {quark_spins}")
+            print(f"Generations: {quark_generations}")
         
         # === INITIALIZE WITH SCF SOLVER ===
         # Use proper self-consistent field solver to get realistic initial quark wavefunctions
@@ -2675,6 +2751,8 @@ class NonSeparableWavefunctionSolver:
         chi1_scf, chi2_scf, chi3_scf, A_scf = self.solve_baryon_self_consistent_field(
             color_phases=color_phases,
             quark_windings=quark_windings,
+            quark_spins=quark_spins,
+            quark_generations=quark_generations,
             max_iter=500,
             tol=1e-4,
             mixing=0.05,
