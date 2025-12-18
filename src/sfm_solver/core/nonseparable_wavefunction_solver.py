@@ -2829,26 +2829,13 @@ class NonSeparableWavefunctionSolver:
         
         # === INITIALIZE SPATIAL SCALE ===
         # KEY FIX: All three quarks share a SINGLE Δx determined by composite amplitude
-        # Use parameter-aware initialization for better convergence
-        A_init_param, Delta_x_init_param, delta_sigma_init_param = \
-            self._initialize_baryon_from_parameters(self.g1, self.g2, self.lambda_so)
-        
-        # Start with parameter-aware values, but use SCF amplitude if significantly different
-        # This provides better initial guess while respecting SCF results
-        if abs(A_scf - A_init_param) / A_init_param < 0.5:
-            # SCF and parameter-based estimates are consistent - use SCF
-            A_current = A_scf
-            Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else Delta_x_init_param
-        else:
-            # SCF result differs significantly - use parameter-based initialization
-            A_current = A_init_param
-            Delta_x_baryon = Delta_x_init_param
+        # ALWAYS use SCF amplitude - it solves the actual physics equations
+        A_current = A_scf
+        Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else 1.0/3.0
         
         if verbose:
             print(f"\n=== STEP 2: 4D Spatial-Subspace Coupling with Collective Confinement ===")
-            print(f"Parameter-aware initialization: A={A_init_param:.2f}, Dx={Delta_x_init_param:.3f}, Ds={delta_sigma_init_param:.3f}")
-            print(f"SCF initialization: A={A_scf:.2f}")
-            print(f"Using: A={A_current:.2f}, Dx={Delta_x_baryon:.6f}")
+            print(f"SCF initialization: A={A_scf:.2f}, Dx={Delta_x_baryon:.6f}")
         
         history = {
             'Delta_x': [Delta_x_baryon],
@@ -2960,47 +2947,8 @@ class NonSeparableWavefunctionSolver:
             if verbose:
                 print(f"Convergence: dA/A = {rel_delta_A:.2e}, dDx/Dx = {rel_delta_Dx:.2e}")
             
-            # Early termination if poor convergence indicates incompatible parameters
-            if iter_outer == 15:
-                if rel_delta_A > 0.05 or rel_delta_Dx > 0.05:
-                    if verbose:
-                        print(f"\n[EARLY TERMINATION] Poor convergence after 15 iterations")
-                        print(f"  Parameters likely incompatible: g1={self.g1:.2f}, "
-                              f"g2={self.g2:.2f} (ratio={self.g2/self.g1:.2f}), "
-                              f"lambda_so={self.lambda_so:.4f}")
-                        print(f"  Current errors: dA/A={rel_delta_A:.3e}, dDx/Dx={rel_delta_Dx:.3e}")
-                    
-                    # Build final composite with current state
-                    chi_components_final = {}
-                    all_keys = set(quark1_chi.keys()) | set(quark2_chi.keys()) | set(quark3_chi.keys())
-                    for key in all_keys:
-                        chi1 = quark1_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                        chi2 = quark2_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                        chi3 = quark3_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                        chi_components_final[key] = chi1 + chi2 + chi3
-                    
-                    l_composition = self._compute_l_composition(chi_components_final)
-                    k_eff = self._compute_k_eff(chi_components_final)
-                    circulation = self._compute_circulation(chi_components_final)
-                    em_energy = self._compute_em_self_energy(chi_components_final)
-                    
-                    # Return unconverged result immediately
-                    return WavefunctionStructure(
-                        chi_components=chi_components_final,
-                        n_target=1,
-                        k_winding=net_winding,
-                        l_composition=l_composition,
-                        k_eff=k_eff,
-                        structure_norm=A_current,
-                        converged=False,
-                        iterations=iter_outer + 1,
-                        particle_type='baryon_4D',
-                        convergence_history=history,
-                        delta_x_final=Delta_x_baryon,
-                        delta_sigma_final=None,
-                        em_energy=em_energy,
-                        circulation=circulation,
-                    )
+            # NOTE: Early termination disabled - baryon solver naturally has large oscillations
+            # The old solver also had 50%+ changes per iteration but still found correct solutions
             
             if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                 if verbose:
