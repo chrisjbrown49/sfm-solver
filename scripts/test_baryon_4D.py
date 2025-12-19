@@ -59,7 +59,7 @@ proton = solver.solve_baryon_4D_self_consistent(
     quark_spins=PROTON.spins,
     quark_generations=PROTON.generations,
     max_iter_outer=30,
-    max_iter_scf=10,
+    max_iter_scf=30,
     verbose=True,
 )
 

@@ -2893,7 +2893,7 @@ Examples:
     if args.mode == "baryon":
         result = run_optimization_baryon(
             verbose=verbose,
-            maxiter=args.max_eval,
+            maxeval=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2905,7 +2905,7 @@ Examples:
     elif args.mode == "full":
         result = run_optimization_full(
             verbose=verbose,
-            maxiter=args.max_eval,
+            maxeval=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2917,7 +2917,7 @@ Examples:
     else:  # lepton
         result = run_optimization_lepton(
             verbose=verbose,
-            maxiter=args.max_eval,
+            maxeval=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
