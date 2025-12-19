@@ -263,6 +263,83 @@ class NonSeparableWavefunctionSolver:
         
         return T_op
     
+    def _build_winding_kinetic_terms(
+        self,
+        k: int,
+        m_sigma: float = None,
+        R: float = None,
+    ) -> NDArray:
+        """
+        Build winding-dependent kinetic energy terms.
+        
+        For wavefunction ψ(σ) = e^(ikσ) f(σ), the kinetic operator is:
+            T = -(d/dσ + ik)²/(2m_σR²)
+        
+        Expanding:
+            T = [-d²/dσ² - 2ik d/dσ + k²]/(2m_σR²)
+        
+        The standard kinetic operator T_op = -d²/dσ² is already built.
+        This method returns the ADDITIONAL winding-dependent terms:
+            T_winding = [-2ik d/dσ + k²]/(2m_σR²)
+        
+        Args:
+            k: Winding number (signed: k=5 for up, k=-3 for down)
+            m_sigma: Effective subspace mass (default from constants)
+            R: Subspace radius (default from constants)
+            
+        Returns:
+            N×N complex matrix with winding-dependent kinetic terms
+        """
+        N = self.basis.N_sigma
+        dsigma = self.basis.dsigma
+        
+        # Get parameters from first principles
+        # The solver uses dimensionless units where ℏ²/(2m_σR²) = 1 (from _build_kinetic_operator)
+        # The winding kinetic terms k²/(2m_σR²) and -2ik∂/∂σ/(2m_σR²) use the same normalization
+        # 
+        # In these units, the k² term contributes directly as k² (dimensionless)
+        # But this is the UNBOUND plane wave energy. In the BOUND state with localization
+        # in wells of width ~π/3, the effective kinetic energy is suppressed.
+        #
+        # From the plan: bound-state suppression ~ (localization width / 2π)² ~ 0.1²
+        # Plus three-quark interference → additional factor ~0.1
+        # Total: ~0.01 suppression
+        #
+        # We apply this as a scale factor derived from the physics of confinement
+        if m_sigma is None or R is None:
+            # Dimensionless units: match normalization of T_op
+            kinetic_scale = 1.0
+            
+            # Bound-state suppression factor (first principles from localization)
+            # Well width ~ π/3, full period = 2π
+            # Suppression ~ (π/3 / 2π)² ~ (1/6)² ~ 0.03
+            localization_width = np.pi / 3.0  # Three-well system
+            full_period = 2.0 * np.pi
+            suppression = (localization_width / full_period) ** 2
+            
+            kinetic_scale *= suppression
+        else:
+            # Use provided values
+            kinetic_scale = 1.0 / (2 * m_sigma * R**2)
+        
+        # Build matrix
+        T_winding = np.zeros((N, N), dtype=complex)
+        
+        # Term 1: k² (diagonal)
+        T_winding += np.diag(np.ones(N) * k**2 * kinetic_scale)
+        
+        # Term 2: -2ik d/dσ (off-diagonal coupling)
+        # Use centered finite difference for first derivative
+        for i in range(N):
+            ip1 = (i + 1) % N  # Periodic BC
+            im1 = (i - 1) % N
+            
+            # df/dσ ≈ (f[i+1] - f[i-1])/(2 dsigma)
+            T_winding[i, ip1] += -1j * k / (2 * dsigma) * kinetic_scale
+            T_winding[i, im1] += +1j * k / (2 * dsigma) * kinetic_scale
+        
+        return T_winding
+    
     def _initialize_quark_wavefunction(
         self,
         well_index: int,
@@ -1932,7 +2009,7 @@ class NonSeparableWavefunctionSolver:
         V_well_matrix = np.diag(V_well)
         
         # === Helper function for Phase 3: Energy-aware eigenstate selection ===
-        def find_best_eigenstate(chi_old, k_winding, phi_color, n_check=5):
+        def find_best_eigenstate(chi_old, k_winding, phi_color, eigenvalues, eigenvectors, n_check=5):
             """
             Find lowest energy eigenstate with reasonable overlap.
             
@@ -1941,6 +2018,14 @@ class NonSeparableWavefunctionSolver:
             2. Compute overlap with current state (envelope only)
             3. Choose highest overlap state among low-energy candidates
             4. Warn if overlap is poor (< 0.1)
+            
+            Args:
+                chi_old: Current wavefunction
+                k_winding: Winding number
+                phi_color: Color phase
+                eigenvalues: Eigenvalues from Hamiltonian diagonalization
+                eigenvectors: Eigenvectors from Hamiltonian diagonalization
+                n_check: Number of low-energy states to check
             
             Returns:
                 chi_new: Selected eigenstate with phases applied
@@ -2020,14 +2105,30 @@ class NonSeparableWavefunctionSolver:
             
             # === Solve for each quark in the mean field ===
             # All three quarks experience the same mean field (Hartree approximation)
-            H = T_op + V_well_matrix + V_mean_matrix
-            eigenvalues, eigenvectors = np.linalg.eigh(H)
+            # ISOSPIN PHYSICS: Each quark has winding-dependent kinetic terms
+            
+            # Build winding-dependent kinetic terms for each quark
+            T_winding1 = self._build_winding_kinetic_terms(k1)
+            T_winding2 = self._build_winding_kinetic_terms(k2)
+            T_winding3 = self._build_winding_kinetic_terms(k3)
+            
+            # Solve for quark 1 with its specific winding
+            H1 = T_op + T_winding1 + V_well_matrix + V_mean_matrix
+            eigenvalues1, eigenvectors1 = np.linalg.eigh(H1)
+            
+            # Solve for quark 2 with its specific winding
+            H2 = T_op + T_winding2 + V_well_matrix + V_mean_matrix
+            eigenvalues2, eigenvectors2 = np.linalg.eigh(H2)
+            
+            # Solve for quark 3 with its specific winding
+            H3 = T_op + T_winding3 + V_well_matrix + V_mean_matrix
+            eigenvalues3, eigenvectors3 = np.linalg.eigh(H3)
             
             # === PHASE 3: Energy-aware eigenstate selection ===
             # Use helper function to find best eigenstates for each quark
-            chi1_new, E1, overlap1, idx1 = find_best_eigenstate(chi1, k1, phi1, n_check=5)
-            chi2_new, E2, overlap2, idx2 = find_best_eigenstate(chi2, k2, phi2, n_check=5)
-            chi3_new, E3, overlap3, idx3 = find_best_eigenstate(chi3, k3, phi3, n_check=5)
+            chi1_new, E1, overlap1, idx1 = find_best_eigenstate(chi1, k1, phi1, eigenvalues1, eigenvectors1, n_check=5)
+            chi2_new, E2, overlap2, idx2 = find_best_eigenstate(chi2, k2, phi2, eigenvalues2, eigenvectors2, n_check=5)
+            chi3_new, E3, overlap3, idx3 = find_best_eigenstate(chi3, k3, phi3, eigenvalues3, eigenvectors3, n_check=5)
             
             # Diagnostic output for eigenstate selection
             if verbose and iteration % 10 == 0:

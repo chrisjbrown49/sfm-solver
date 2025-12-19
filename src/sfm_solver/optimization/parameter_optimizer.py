@@ -1180,7 +1180,7 @@ class SFMParameterOptimizer:
     def optimize_lepton(
         self,
         bounds: Optional[List[Tuple[float, float]]] = None,
-        maxiter: int = 100,
+        maxeval: int = 100,
         seed: int = 42,
         popsize: int = 10,
         save_json: bool = True,
@@ -1194,7 +1194,7 @@ class SFMParameterOptimizer:
         Args:
             bounds: List of (min, max) bounds for [alpha, g_internal, g1].
                    If None, calculated as initial_value * (1 +/- bounds_tol).
-            maxiter: Maximum iterations.
+            maxeval: Maximum optimizer evaluations (generations in differential_evolution).
             seed: Random seed for reproducibility.
             popsize: Population size.
             save_json: If True, saves optimized constants.
@@ -1246,7 +1246,7 @@ class SFMParameterOptimizer:
                 self._objective_lepton,
                 bounds=bounds,
                 x0=x0,
-                maxiter=maxiter,
+                maxiter=maxeval,  # maxiter in scipy = max generations (evaluations)
                 seed=seed,
                 workers=1,
                 disp=False,
@@ -1855,7 +1855,7 @@ class SFMParameterOptimizer:
     def optimize_baryon(
         self,
         bounds: Optional[List[Tuple[float, float]]] = None,
-        maxiter: int = 50,
+        maxeval: int = 50,
         seed: int = 42,
         popsize: int = 10,
         save_json: bool = True,
@@ -1876,7 +1876,7 @@ class SFMParameterOptimizer:
                    If use_ratio_search=False: [g1, g2, lambda_so]
                    If use_ratio_search=True: [g1, lambda_so, g2_ratio]
                    If None, calculated as initial_value * (1 +/- bounds_tol).
-            maxiter: Maximum iterations.
+            maxeval: Maximum optimizer evaluations (generations in differential_evolution).
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
             save_json: If True, saves optimized constants to constants.json.
@@ -1998,7 +1998,7 @@ class SFMParameterOptimizer:
                 objective_func,
                 bounds=bounds,
                 x0=x0,
-                maxiter=maxiter,
+                maxiter=maxeval,  # maxiter in scipy = max generations (evaluations)
                 seed=seed,
                 workers=1,
                 disp=False,
@@ -2408,7 +2408,7 @@ class SFMParameterOptimizer:
     def optimize_full(
         self,
         bounds: Optional[List[Tuple[float, float]]] = None,
-        maxiter: int = 100,
+        maxeval: int = 100,
         seed: int = 42,
         popsize: int = 15,
         save_json: bool = True,
@@ -2424,7 +2424,7 @@ class SFMParameterOptimizer:
         Args:
             bounds: List of (min, max) bounds for [alpha, g_internal, g1, g2, lambda_so].
                    If None, calculated as initial_value * (1 +/- bounds_tol).
-            maxiter: Maximum iterations.
+            maxeval: Maximum optimizer evaluations (generations in differential_evolution).
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
             save_json: If True, saves optimized constants to constants.json.
@@ -2490,7 +2490,7 @@ class SFMParameterOptimizer:
                 self._objective_full,
                 bounds=bounds,
                 x0=x0,
-                maxiter=maxiter,
+                maxiter=maxeval,  # maxiter in scipy = max generations (evaluations)
                 seed=seed,
                 workers=1,
                 disp=False,
@@ -2615,7 +2615,7 @@ class SFMParameterOptimizer:
 
 def run_optimization_full(
     verbose: bool = True,
-    maxiter: int = 100,
+    maxeval: int = 100,
     log_file: Optional[str] = None,
     save_json: bool = True,
     max_iter_lepton: int = 30,
@@ -2632,7 +2632,7 @@ def run_optimization_full(
     
     Args:
         verbose: Print progress information.
-        maxiter: Maximum iterations.
+        maxeval: Maximum optimizer evaluations (reported as 'Eval' in log).
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
         max_iter_lepton: Maximum outer iterations for lepton solver.
@@ -2652,12 +2652,12 @@ def run_optimization_full(
         max_iter_baryon=max_iter_baryon,
         max_iter_scf=max_iter_scf,
     )
-    return optimizer.optimize_full(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
+    return optimizer.optimize_full(maxeval=maxeval, save_json=save_json, bounds_tol=bounds_tol)
 
 
 def run_optimization_baryon(
     verbose: bool = True,
-    maxiter: int = 50,
+    maxeval: int = 50,
     log_file: Optional[str] = None,
     save_json: bool = True,
     max_iter_lepton: int = 30,
@@ -2674,7 +2674,7 @@ def run_optimization_baryon(
     
     Args:
         verbose: Print progress information.
-        maxiter: Maximum iterations.
+        maxeval: Maximum optimizer evaluations (reported as 'Eval' in log).
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
         max_iter_lepton: Maximum outer iterations for lepton solver (for beta derivation).
@@ -2694,7 +2694,7 @@ def run_optimization_baryon(
         max_iter_scf=max_iter_scf,
     )
     return optimizer.optimize_baryon(
-        maxiter=maxiter, 
+        maxeval=maxeval, 
         save_json=save_json, 
         bounds_tol=bounds_tol,
         use_ratio_search=use_ratio_search,
@@ -2703,7 +2703,7 @@ def run_optimization_baryon(
 
 def run_optimization_lepton(
     verbose: bool = True,
-    maxiter: int = 100,
+    maxeval: int = 100,
     log_file: Optional[str] = None,
     save_json: bool = True,
     max_iter_lepton: int = 30,
@@ -2716,7 +2716,7 @@ def run_optimization_lepton(
     
     Args:
         verbose: Print progress information.
-        maxiter: Maximum iterations.
+        maxeval: Maximum optimizer evaluations (reported as 'Eval' in log).
         log_file: Path to log file for optimization progress (optional).
         save_json: If True, saves optimized constants to constants.json.
         max_iter_lepton: Maximum outer iterations for lepton solver.
@@ -2730,7 +2730,7 @@ def run_optimization_lepton(
         log_file=log_file,
         max_iter_lepton=max_iter_lepton,
     )
-    return optimizer.optimize_lepton(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
+    return optimizer.optimize_lepton(maxeval=maxeval, save_json=save_json, bounds_tol=bounds_tol)
 
 
 def create_log_file_path() -> str:
@@ -2765,7 +2765,7 @@ Examples:
   python parameter_optimizer.py --mode baryon --use-ratio-search  # baryon mode with ratio search (g2 = g2_ratio * g1)
   python parameter_optimizer.py --mode full         # full mode - optimize all 5 params (alpha, g_internal, g1, g2, lambda_so)
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
-  python parameter_optimizer.py --max-iter 200      # Run 200 full iterations
+  python parameter_optimizer.py --max-eval 200      # Run 200 optimizer evaluations
   python parameter_optimizer.py --max-iter-baryon 50 --max-iter-scf 20  # Increase baryon solver iterations
   python parameter_optimizer.py --bounds-tol 0.05   # Set parameter bounds to +/- 5% of initial values
   python parameter_optimizer.py --mode baryon --bounds-tol 0.001  # Tight 0.1% bounds for baryon fine-tuning
@@ -2792,11 +2792,11 @@ Examples:
     )
     
     parser.add_argument(
-        "--max-iter",
+        "--max-eval",
         type=int,
         default=100,
-        dest="max_iter",
-        help="Maximum number of iterations (default: 100)"
+        dest="max_eval",
+        help="Maximum number of optimizer evaluations (reported as 'Eval' in log, default: 100)"
     )
     
     parser.add_argument(
@@ -2875,7 +2875,7 @@ Examples:
     print(f"Mode: {mode_names.get(args.mode, args.mode)}")
     if args.mode == "baryon" and args.use_ratio_search:
         print(f"Ratio search: ENABLED (g2 = g2_ratio * g1)")
-    print(f"Max iterations: {args.max_iter}")
+    print(f"Max evaluations: {args.max_eval}")
     print(f"Bounds tolerance: {args.bounds_tol * 100:.1f}% (+/- around initial values)")
     print(f"Save to constants.json: {'Yes' if save_json else 'No'}")
     print(f"Log file: {log_file}")
@@ -2893,7 +2893,7 @@ Examples:
     if args.mode == "baryon":
         result = run_optimization_baryon(
             verbose=verbose,
-            maxiter=args.max_iter,
+            maxiter=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2905,7 +2905,7 @@ Examples:
     elif args.mode == "full":
         result = run_optimization_full(
             verbose=verbose,
-            maxiter=args.max_iter,
+            maxiter=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2917,7 +2917,7 @@ Examples:
     else:  # lepton
         result = run_optimization_lepton(
             verbose=verbose,
-            maxiter=args.max_iter,
+            maxiter=args.max_eval,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,

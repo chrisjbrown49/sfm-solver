@@ -32,7 +32,7 @@ This project implements the Single-Field Model (SFM) theoretical framework for p
 
 ### Development Environment
 - **Operating System**: Windows
-- **Default Shell**: PowerShell (commands must use PowerShell syntax)
+- **Default Shell**: PowerShell (commands must use PowerShell syntax); use semicolons to chain terminal commands not &&
 - **Python Environment**: Virtual environment located at `<project root>/sfm-solver/.venv`
   - **IMPORTANT**: Always activate the virtual environment before running Python code via terminal commands
   - Activation command: `.\.venv\Scripts\Activate.ps1` (from sfm-solver directory)
