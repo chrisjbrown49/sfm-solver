@@ -1352,6 +1352,259 @@ class SFMParameterOptimizer:
         return opt_result
 
 
+    def _objective_baryon_ratio(self, params: np.ndarray) -> float:
+        """
+        Objective function for baryon parameter optimization with g2/g1 ratio search.
+        
+        Optimizes g1, g2_ratio, and lambda_so to match proton and neutron masses,
+        where g2 = g2_ratio * g1 (enforcing physical constraint).
+        Alpha and g_internal fixed at current values (calibrated for leptons).
+        
+        Args:
+            params: Array of [g1, lambda_so, g2_ratio]
+            
+        Returns:
+            Total weighted error in mass predictions.
+        """
+        g1, lambda_so, g2_ratio = params
+        g2 = g2_ratio * g1  # Compute g2 from ratio
+        
+        # Use fixed values from constants (calibrated for leptons)
+        alpha = ALPHA_INITIAL
+        g_internal = G_INTERNAL_INITIAL
+        
+        self._eval_count += 1
+        start_time = time.time()
+        
+        from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        
+        # Create solver with current parameters
+        solver = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            g_internal=g_internal,
+            g1=g1,
+            g2=g2,
+            lambda_so=lambda_so,
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # First, get electron amplitude to derive beta
+        try:
+            result_e = solver.solve_lepton_self_consistent(
+                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
+            )
+            
+            # Check convergence with diagnostics
+            if not result_e.converged:
+                conv_status = "UNKNOWN"
+                final_change = None
+                validity = ""
+                
+                if result_e.convergence_history and 'A' in result_e.convergence_history:
+                    A_hist = result_e.convergence_history['A']
+                    if len(A_hist) > 1:
+                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
+                        if final_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif final_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
+                              f"{conv_status}")
+                if final_change is not None:
+                    warning_msg += f", dA/A={final_change:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
+            A_e_squared = result_e.structure_norm ** 2
+            beta_derived = 0.511 / A_e_squared  # SFM units convention
+        except Exception:
+            return 1e20
+        
+        # CRITICAL: Recreate solver with derived beta
+        # The beta parameter affects internal physics during SCF iteration
+        solver = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            g_internal=g_internal,
+            g1=g1,
+            g2=g2,
+            lambda_so=lambda_so,
+            beta=beta_derived,  # Use derived beta
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
+        
+        # Solve for proton and neutron using 4D solver
+        try:
+            result_p = solver.solve_baryon_4D_self_consistent(
+                quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
+                quark_windings=(5, 5, -3),  # uud
+                quark_spins=(+1, -1, +1),
+                quark_generations=(1, 1, 1),
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
+                verbose=False,
+            )
+            
+            # Check proton convergence with diagnostics
+            if not result_p.converged:
+                conv_status = "UNKNOWN"
+                final_dA, final_dDx = None, None
+                validity = ""
+                
+                if result_p.convergence_history:
+                    hist = result_p.convergence_history
+                    if 'A' in hist and len(hist['A']) > 1:
+                        final_dA = abs(hist['A'][-1] - hist['A'][-2]) / max(hist['A'][-1], 0.01)
+                    if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                        final_dDx = abs(hist['Delta_x'][-1] - hist['Delta_x'][-2]) / max(hist['Delta_x'][-1], 0.001)
+                    
+                    if final_dA is not None and final_dDx is not None:
+                        max_change = max(final_dA, final_dDx)
+                        if max_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif max_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Proton: {result_p.iterations}/{self.max_iter_baryon} iters, "
+                              f"{conv_status}")
+                if final_dA is not None:
+                    warning_msg += f", dA/A={final_dA:.2e}"
+                if final_dDx is not None:
+                    warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
+            m_proton = beta_derived * result_p.structure_norm ** 2 * 1000  # Baryon formula
+            
+            result_n = solver.solve_baryon_4D_self_consistent(
+                quark_wells=(1, 2, 3),
+                color_phases=(0, 2*np.pi/3, 4*np.pi/3),
+                quark_windings=(5, -3, -3),  # udd
+                quark_spins=(+1, +1, -1),
+                quark_generations=(1, 1, 1),
+                max_iter_outer=self.max_iter_baryon,
+                max_iter_scf=self.max_iter_scf,
+                verbose=False,
+            )
+            
+            # Check neutron convergence with diagnostics
+            if not result_n.converged:
+                conv_status = "UNKNOWN"
+                final_dA, final_dDx = None, None
+                validity = ""
+                
+                if result_n.convergence_history:
+                    hist = result_n.convergence_history
+                    if 'A' in hist and len(hist['A']) > 1:
+                        final_dA = abs(hist['A'][-1] - hist['A'][-2]) / max(hist['A'][-1], 0.01)
+                    if 'Delta_x' in hist and len(hist['Delta_x']) > 1:
+                        final_dDx = abs(hist['Delta_x'][-1] - hist['Delta_x'][-2]) / max(hist['Delta_x'][-1], 0.001)
+                    
+                    if final_dA is not None and final_dDx is not None:
+                        max_change = max(final_dA, final_dDx)
+                        if max_change < 5e-4:
+                            conv_status = "SOFT"
+                            validity = " [LIKELY VALID]"
+                        elif max_change < 1e-3:
+                            conv_status = "MODERATE"
+                            validity = " [CAUTION]"
+                        else:
+                            conv_status = "HARD"
+                            validity = " [UNRELIABLE]"
+                
+                warning_msg = (f"WARNING: Neutron: {result_n.iterations}/{self.max_iter_baryon} iters, "
+                              f"{conv_status}")
+                if final_dA is not None:
+                    warning_msg += f", dA/A={final_dA:.2e}"
+                if final_dDx is not None:
+                    warning_msg += f", dDx/Dx={final_dDx:.2e}"
+                warning_msg += validity
+                
+                if self.log_file:
+                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                        f.write(f"  {warning_msg}\n")
+            
+            m_neutron = beta_derived * result_n.structure_norm ** 2 * 1000  # Baryon formula
+        except Exception:
+            return 1e20
+        
+        # Experimental values (convert to MeV)
+        m_p_exp = 938.272  # MeV
+        m_n_exp = 939.565  # MeV
+        delta_m_exp = m_n_exp - m_p_exp  # ~1.293 MeV
+        
+        # Predicted mass difference
+        delta_m_pred = m_neutron - m_proton
+        
+        # Compute errors
+        # 1. Absolute mass errors (PRIMARY - high weight, these are what we want to optimize)
+        p_error = ((m_proton - m_p_exp) / m_p_exp) ** 2
+        n_error = ((m_neutron - m_n_exp) / m_n_exp) ** 2
+        
+        # 2. Mass splitting error (SECONDARY - normalized by average mass for proper scale)
+        # Use average mass as denominator so splitting error is comparable to absolute errors
+        m_avg = (m_p_exp + m_n_exp) / 2  # ~938.9 MeV
+        splitting_error = ((delta_m_pred - delta_m_exp) / m_avg) ** 2
+        
+        # 3. Ordering penalty: neutron MUST be heavier than proton
+        ordering_penalty = 0.0 if delta_m_pred > 0 else 100.0
+        
+        # Combine errors with weights
+        # Absolute masses are most important (10x weight each)
+        # Mass splitting is secondary (0.5x weight)
+        total_error = 10.0 * p_error + 10.0 * n_error + 0.5 * splitting_error + ordering_penalty
+        
+        elapsed = time.time() - start_time
+        
+        is_best = total_error < self._best_error
+        if is_best:
+            self._best_error = total_error
+            self._best_params = (g1, g2, lambda_so, g2_ratio, beta_derived)
+        
+        # Calculate percent errors (with sign: negative = below target, positive = above target)
+        p_err_pct = (m_proton - m_p_exp) / m_p_exp * 100
+        n_err_pct = (m_neutron - m_n_exp) / m_n_exp * 100
+        
+        if self.log_file:
+            with open(self.log_file, 'a', encoding='utf-8') as f:
+                f.write(f"\nEval {self._eval_count}: g1={g1:.2f}, lambda_so={lambda_so:.4f}, g2_ratio={g2_ratio:.4f} (g2={g2:.6f})")
+                f.write(f" -> m_p={m_proton:.2f} MeV ({p_err_pct:+.1f}%), m_n={m_neutron:.2f} MeV ({n_err_pct:+.1f}%)")
+                f.write(f", delta_m={delta_m_pred:.3f} MeV")
+                f.write(f", error={total_error:.4f}")
+                if is_best:
+                    f.write(" *** BEST ***")
+                f.write("\n")
+        
+        if self.verbose and (self._eval_count % 5 == 0 or is_best):
+            marker = " *** BEST ***" if is_best else ""
+            print(f"Eval {self._eval_count}: g1={g1:.2f}, lso={lambda_so:.3f}, ratio={g2_ratio:.3f} (g2={g2:.2f}) "
+                  f"-> m_p={m_proton:.1f} MeV ({p_err_pct:+.1f}%), m_n={m_neutron:.1f} MeV ({n_err_pct:+.1f}%){marker}")
+        
+        return total_error
+
     def _objective_baryon(self, params: np.ndarray) -> float:
         """
         Objective function for baryon parameter optimization.
@@ -1429,6 +1682,21 @@ class SFMParameterOptimizer:
             beta_derived = 0.511 / A_e_squared  # SFM units convention
         except Exception:
             return 1e20
+        
+        # CRITICAL: Recreate solver with derived beta
+        # The beta parameter affects internal physics during SCF iteration
+        solver = NonSeparableWavefunctionSolver(
+            alpha=alpha,
+            g_internal=g_internal,
+            g1=g1,
+            g2=g2,
+            lambda_so=lambda_so,
+            beta=beta_derived,  # Use derived beta
+            V0=self.V0,
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+        )
         
         # Solve for proton and neutron using 4D solver
         try:
@@ -1592,6 +1860,7 @@ class SFMParameterOptimizer:
         popsize: int = 10,
         save_json: bool = True,
         bounds_tol: float = 0.01,
+        use_ratio_search: bool = False,
     ) -> OptimizationResult:
         """
         Baryon parameter optimization: optimize g1, g2, and lambda_so for proton and neutron masses.
@@ -1603,13 +1872,16 @@ class SFMParameterOptimizer:
         with the ~1.3 MeV mass difference as a secondary consideration for fine-tuning.
         
         Args:
-            bounds: List of (min, max) bounds for [g1, g2, lambda_so].
+            bounds: List of (min, max) bounds for parameters.
+                   If use_ratio_search=False: [g1, g2, lambda_so]
+                   If use_ratio_search=True: [g1, lambda_so, g2_ratio]
                    If None, calculated as initial_value * (1 +/- bounds_tol).
             maxiter: Maximum iterations.
             seed: Random seed for reproducibility.
             popsize: Population size for differential evolution.
             save_json: If True, saves optimized constants to constants.json.
             bounds_tol: Fractional tolerance for auto-calculated bounds (default: 0.01 = 1%).
+            use_ratio_search: If True, optimize g2_ratio instead of g2 directly (enforces g2 = g2_ratio * g1).
             
         Returns:
             OptimizationResult with optimal parameters and predictions.
@@ -1627,27 +1899,51 @@ class SFMParameterOptimizer:
         #
         # Recommended bounds should respect these physical constraints.
         
-        if bounds is None:
-            # Calculate bounds as +/- bounds_tol around initial values
-            bounds = [
-                (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
-                (G2_INITIAL * (1 - bounds_tol), G2_INITIAL * (1 + bounds_tol)),
-                (LAMBDA_SO_INITIAL * (1 - bounds_tol), LAMBDA_SO_INITIAL * (1 + bounds_tol)),
-            ]
+        if use_ratio_search:
+            # Ratio search mode: optimize [g1, lambda_so, g2_ratio]
+            # where g2 = g2_ratio * g1 (enforces physical constraint)
+            g2_ratio_initial = G2_INITIAL / G1_INITIAL  # ≈ 1.37
+            
+            if bounds is None:
+                # Calculate bounds as +/- bounds_tol around initial values
+                bounds = [
+                    (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
+                    (LAMBDA_SO_INITIAL * (1 - bounds_tol), LAMBDA_SO_INITIAL * (1 + bounds_tol)),
+                    (g2_ratio_initial * (1 - bounds_tol), g2_ratio_initial * (1 + bounds_tol)),
+                ]
+        else:
+            # Standard mode: optimize [g1, g2, lambda_so] independently
+            if bounds is None:
+                # Calculate bounds as +/- bounds_tol around initial values
+                bounds = [
+                    (G1_INITIAL * (1 - bounds_tol), G1_INITIAL * (1 + bounds_tol)),
+                    (G2_INITIAL * (1 - bounds_tol), G2_INITIAL * (1 + bounds_tol)),
+                    (LAMBDA_SO_INITIAL * (1 - bounds_tol), LAMBDA_SO_INITIAL * (1 + bounds_tol)),
+                ]
         
         if self.verbose:
             print("=" * 70)
             print("BARYON PARAMETER OPTIMIZATION")
-            print("Optimizing {g1, g2, lambda_so} for proton and neutron masses")
+            if use_ratio_search:
+                print("Mode: RATIO SEARCH (g2 = g2_ratio * g1)")
+                print("Optimizing {g1, lambda_so, g2_ratio} for proton and neutron masses")
+            else:
+                print("Mode: STANDARD (independent parameters)")
+                print("Optimizing {g1, g2, lambda_so} for proton and neutron masses")
             print("Alpha and g_internal fixed at current values (calibrated for leptons)")
             print("=" * 70)
             print(f"\nFixed parameters:")
             print(f"  alpha      = {ALPHA_INITIAL}")
             print(f"  g_internal = {G_INTERNAL_INITIAL}")
             print(f"\nParameter bounds:")
-            print(f"  g1:        [{bounds[0][0]}, {bounds[0][1]}]")
-            print(f"  g2:        [{bounds[1][0]}, {bounds[1][1]}]")
-            print(f"  lambda_so: [{bounds[2][0]}, {bounds[2][1]}]")
+            if use_ratio_search:
+                print(f"  g1:        [{bounds[0][0]:.2f}, {bounds[0][1]:.2f}]")
+                print(f"  lambda_so: [{bounds[1][0]:.4f}, {bounds[1][1]:.4f}]")
+                print(f"  g2_ratio:  [{bounds[2][0]:.4f}, {bounds[2][1]:.4f}]")
+            else:
+                print(f"  g1:        [{bounds[0][0]:.2f}, {bounds[0][1]:.2f}]")
+                print(f"  g2:        [{bounds[1][0]:.2f}, {bounds[1][1]:.2f}]")
+                print(f"  lambda_so: [{bounds[2][0]:.4f}, {bounds[2][1]:.4f}]")
             print(f"\nTargets: proton mass = 938.27 MeV, neutron mass = 939.57 MeV")
             print(f"         mass difference = 1.293 MeV")
             print("-" * 70)
@@ -1661,29 +1957,45 @@ class SFMParameterOptimizer:
             with open(self.log_file, 'w', encoding='utf-8') as f:
                 f.write("=" * 70 + "\n")
                 f.write("SFM BARYON PARAMETER OPTIMIZATION\n")
+                if use_ratio_search:
+                    f.write("Mode: RATIO SEARCH (g2 = g2_ratio * g1)\n")
+                else:
+                    f.write("Mode: STANDARD (independent parameters)\n")
                 f.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 70 + "\n")
                 f.write("Targets: proton mass = 938.27 MeV, neutron mass = 939.57 MeV\n")
                 f.write("         mass difference = 1.293 MeV\n")
                 f.write(f"Fixed: alpha={ALPHA_INITIAL}, g_internal={G_INTERNAL_INITIAL}\n")
-                f.write(f"Bounds: g1=[{bounds[0][0]}, {bounds[0][1]}], "
-                        f"g2=[{bounds[1][0]}, {bounds[1][1]}], "
-                        f"lambda_so=[{bounds[2][0]}, {bounds[2][1]}]\n")
+                if use_ratio_search:
+                    f.write(f"Bounds: g1=[{bounds[0][0]:.2f}, {bounds[0][1]:.2f}], "
+                            f"lambda_so=[{bounds[1][0]:.4f}, {bounds[1][1]:.4f}], "
+                            f"g2_ratio=[{bounds[2][0]:.4f}, {bounds[2][1]:.4f}]\n")
+                else:
+                    f.write(f"Bounds: g1=[{bounds[0][0]:.2f}, {bounds[0][1]:.2f}], "
+                            f"g2=[{bounds[1][0]:.2f}, {bounds[1][1]:.2f}], "
+                            f"lambda_so=[{bounds[2][0]:.4f}, {bounds[2][1]:.4f}]\n")
                 f.write("=" * 70 + "\n")
         
         start_time = time.time()
         
         # Seed with current values
-        x0 = [G1_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
-        
-        if self.verbose:
-            print(f"Starting from: g1={x0[0]}, g2={x0[1]}, lambda_so={x0[2]}")
+        if use_ratio_search:
+            g2_ratio_initial = G2_INITIAL / G1_INITIAL
+            x0 = [G1_INITIAL, LAMBDA_SO_INITIAL, g2_ratio_initial]
+            if self.verbose:
+                print(f"Starting from: g1={x0[0]:.2f}, lambda_so={x0[1]:.4f}, g2_ratio={x0[2]:.4f} (g2={G2_INITIAL:.2f})")
+        else:
+            x0 = [G1_INITIAL, G2_INITIAL, LAMBDA_SO_INITIAL]
+            if self.verbose:
+                print(f"Starting from: g1={x0[0]:.2f}, g2={x0[1]:.2f}, lambda_so={x0[2]:.4f}")
         
         # Use differential evolution for global optimization over 3 parameters
+        objective_func = self._objective_baryon_ratio if use_ratio_search else self._objective_baryon
+        
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = differential_evolution(
-                self._objective_baryon,
+                objective_func,
                 bounds=bounds,
                 x0=x0,
                 maxiter=maxiter,
@@ -1698,7 +2010,11 @@ class SFMParameterOptimizer:
         
         elapsed = time.time() - start_time
         
-        g1_opt, g2_opt, lambda_so_opt = result.x
+        if use_ratio_search:
+            g1_opt, lambda_so_opt, g2_ratio_opt = result.x
+            g2_opt = g2_ratio_opt * g1_opt  # Compute g2 from ratio
+        else:
+            g1_opt, g2_opt, lambda_so_opt = result.x
         
         # Derive beta from electron mass
         try:
@@ -1760,7 +2076,11 @@ class SFMParameterOptimizer:
         if self.verbose:
             print("-" * 70)
             print(f"Optimization complete.")
-            print(f"Optimal: g1={g1_opt:.2f}, g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
+            if use_ratio_search:
+                print(f"Optimal: g1={g1_opt:.2f}, lambda_so={lambda_so_opt:.4f}, g2_ratio={g2_ratio_opt:.4f}")
+                print(f"         g2={g2_opt:.6f} (computed from ratio)")
+            else:
+                print(f"Optimal: g1={g1_opt:.2f}, g2={g2_opt:.6f}, lambda_so={lambda_so_opt:.4f}")
             print(f"Derived: beta={beta_opt:.8f} GeV")
         
         # Compute results for all particles with optimized baryon parameters
@@ -2344,11 +2664,13 @@ def run_optimization_baryon(
     max_iter_baryon: int = 30,
     max_iter_scf: int = 10,
     bounds_tol: float = 0.01,
+    use_ratio_search: bool = False,
 ) -> OptimizationResult:
     """
     Run baryon parameter optimization for proton and neutron masses.
     
     Optimizes g1, g2, and lambda_so while keeping alpha/g_internal fixed (calibrated for leptons).
+    If use_ratio_search=True, optimizes g2_ratio instead of g2 (enforcing g2 = g2_ratio * g1).
     
     Args:
         verbose: Print progress information.
@@ -2359,6 +2681,7 @@ def run_optimization_baryon(
         max_iter_baryon: Maximum outer iterations for baryon solver.
         max_iter_scf: Maximum SCF iterations for baryon solver.
         bounds_tol: Fractional tolerance for parameter bounds (default: 0.01 = 1%).
+        use_ratio_search: If True, optimize g2_ratio instead of g2 directly (default: False).
     
     Returns:
         OptimizationResult with optimal parameters.
@@ -2370,7 +2693,12 @@ def run_optimization_baryon(
         max_iter_baryon=max_iter_baryon,
         max_iter_scf=max_iter_scf,
     )
-    return optimizer.optimize_baryon(maxiter=maxiter, save_json=save_json, bounds_tol=bounds_tol)
+    return optimizer.optimize_baryon(
+        maxiter=maxiter, 
+        save_json=save_json, 
+        bounds_tol=bounds_tol,
+        use_ratio_search=use_ratio_search,
+    )
 
 
 def run_optimization_lepton(
@@ -2434,6 +2762,7 @@ Examples:
   python parameter_optimizer.py                     # full mode (default), save to JSON
   python parameter_optimizer.py --mode lepton       # lepton mode - optimize alpha, g_internal, g1
   python parameter_optimizer.py --mode baryon       # baryon mode - optimize g1, g2, lambda_so for p-n masses
+  python parameter_optimizer.py --mode baryon --use-ratio-search  # baryon mode with ratio search (g2 = g2_ratio * g1)
   python parameter_optimizer.py --mode full         # full mode - optimize all 5 params (alpha, g_internal, g1, g2, lambda_so)
   python parameter_optimizer.py --save-json off     # Don't save to constants.json
   python parameter_optimizer.py --max-iter 200      # Run 200 full iterations
@@ -2516,6 +2845,13 @@ Examples:
         help="Fractional tolerance for parameter bounds as +/- fraction of initial value (default: 0.01 = 1%%)"
     )
     
+    parser.add_argument(
+        "--use-ratio-search",
+        action="store_true",
+        dest="use_ratio_search",
+        help="[BARYON MODE ONLY] Optimize g2_ratio instead of g2 directly (enforces g2 = g2_ratio * g1)"
+    )
+    
     args = parser.parse_args()
     
     # Determine save_json setting
@@ -2537,6 +2873,8 @@ Examples:
     print("SFM PARAMETER OPTIMIZER")
     print("=" * 70)
     print(f"Mode: {mode_names.get(args.mode, args.mode)}")
+    if args.mode == "baryon" and args.use_ratio_search:
+        print(f"Ratio search: ENABLED (g2 = g2_ratio * g1)")
     print(f"Max iterations: {args.max_iter}")
     print(f"Bounds tolerance: {args.bounds_tol * 100:.1f}% (+/- around initial values)")
     print(f"Save to constants.json: {'Yes' if save_json else 'No'}")
@@ -2562,6 +2900,7 @@ Examples:
             max_iter_baryon=args.max_iter_baryon,
             max_iter_scf=args.max_iter_scf,
             bounds_tol=args.bounds_tol,
+            use_ratio_search=args.use_ratio_search,
         )
     elif args.mode == "full":
         result = run_optimization_full(
