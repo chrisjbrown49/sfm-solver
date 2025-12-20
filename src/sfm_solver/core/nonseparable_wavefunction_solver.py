@@ -447,12 +447,12 @@ class NonSeparableWavefunctionSolver:
         and are NOT tuned to experimental data. The physical solution
         must emerge through self-consistent iteration.
         """
-        # A_init = 0.5 is an "ultra-relaxed" starting point to escape
+        # A_init = 0.1 is a "ground-up" starting point to avoid all 
         # high-energy local minima.
-        A_init = 0.5
+        A_init = 0.1
         
-        # Delta_x_init = 5.0 starts with near-zero kinetic energy.
-        Delta_x_init = 5.0
+        # Delta_x_init = 10.0 starts with zero effective kinetic pressure.
+        Delta_x_init = 10.0
         
         delta_sigma_init = 0.8
         
@@ -2687,6 +2687,60 @@ class NonSeparableWavefunctionSolver:
         
         return chi_components, Delta_x_current
     
+    def _compute_full_5D_energy(
+        self,
+        chi: NDArray,
+        n: int,
+        l: int,
+        delta_x: float,
+        k_winding: int,
+        V_mean: Optional[NDArray] = None
+    ) -> float:
+        """
+        Compute the full 5D energy expectation value from first principles.
+        
+        E = <Ψ|H_5D|Ψ> / <Ψ|Ψ>
+        
+        H_5D = K_space + K_subspace + V_well + V_nl
+        
+        Args:
+            chi: Subspace wavefunction component
+            n, l: Spatial quantum numbers
+            delta_x: Spatial scale
+            k_winding: Winding number
+            V_mean: Optional mean field potential matrix
+            
+        Returns:
+            Total energy expectation value
+        """
+        dsigma = self.basis.dsigma
+        norm_sq = np.sum(np.abs(chi)**2) * dsigma
+        if norm_sq < 1e-10:
+            return 0.0
+            
+        # 1. Spatial Kinetic Energy: (2n + l) / delta_x^2
+        # (Standard 3D harmonic oscillator eigenvalues in dimensionless units)
+        E_space = (2 * n + l) / (delta_x**2 + 1e-30)
+        
+        # 2. Subspace Kinetic Energy (including winding)
+        # T_op = -d²/dσ², T_winding = -2ik d/dσ + k²
+        T_op = self._build_kinetic_operator()
+        T_winding = self._build_winding_kinetic_terms(k_winding)
+        H_sub_kin = T_op + T_winding
+        
+        E_sub_kin = np.real(np.vdot(chi, H_sub_kin @ chi)) * dsigma / norm_sq
+        
+        # 3. Subspace Potential Energy (V_well)
+        E_pot = np.sum(self.V_sigma * np.abs(chi)**2) * dsigma / norm_sq
+        
+        # 4. Nonlinear/Mean-field Potential
+        E_mean = 0.0
+        if V_mean is not None:
+            # V_mean is already g1 * |chi_total|^2
+            E_mean = np.sum(V_mean * np.abs(chi)**2) * dsigma / norm_sq
+            
+        return float(E_space + E_sub_kin + E_pot + E_mean)
+
     def _build_4D_components_fixed_primary(
         self,
         chi_primary: NDArray,
@@ -2729,13 +2783,14 @@ class NonSeparableWavefunctionSolver:
         # Start with fixed primary
         chi_components = {target_key: chi_primary.copy()}
         
-        # Energy of primary state
-        spatial_scale = 1.0 / (Delta_x**2 + 1e-30)
-        V_target = self._compute_potential_energy(chi_primary)
-        V_mean_target = 0.0
+        # Energy of primary state from full 5D Hamiltonian
+        V_mean_primary = None
         if V_mean_4D is not None and target_key in V_mean_4D:
-            V_mean_target = np.sum(V_mean_4D[target_key] * np.abs(chi_primary)**2) * dsigma
-        E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target + V_mean_target
+            V_mean_primary = V_mean_4D[target_key]
+            
+        E_target_0 = self._compute_full_5D_energy(
+            chi_primary, n_eff, 0, Delta_x, k_winding, V_mean_primary
+        )
         
         # Build induced components from spatial-subspace coupling
         for i, state in enumerate(self.basis.spatial_states):
@@ -2750,13 +2805,16 @@ class NonSeparableWavefunctionSolver:
             
             # Use envelope structure from SCF primary
             envelope = np.abs(chi_primary) / (np.abs(chi_primary).max() + 1e-30)
-            V_envelope = self._compute_potential_energy(envelope)
             
-            V_mean_state = 0.0
+            # Compute full energy of this state
+            V_mean_state = None
             if V_mean_4D is not None and key in V_mean_4D:
-                V_mean_state = np.sum(V_mean_4D[key] * np.abs(envelope)**2) * dsigma
+                V_mean_state = V_mean_4D[key]
+                
+            E_state = self._compute_full_5D_energy(
+                envelope, state.n, state.l, Delta_x, k_winding, V_mean_state
+            )
             
-            E_state = (2 * state.n + state.l) * spatial_scale + V_envelope + V_mean_state
             E_denom = E_target_0 - E_state
             
             # Regularize
