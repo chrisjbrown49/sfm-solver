@@ -23,7 +23,7 @@ solver = NonSeparableWavefunctionSolver(
     g2=G2, lambda_so=LAMBDA_SO, V0=V0, V1=V1, n_max=5, l_max=2, N_sigma=64,
 )
 
-e = solver.solve_lepton_self_consistent(n_target=1, max_iter_outer=30, max_iter_nl=0)
+e = solver.solve_lepton_self_consistent(n_target=1, max_iter_outer=100, max_iter_nl=0)
 beta = 0.511 / (e.structure_norm ** 2)  # Electron mass = 0.511 MeV = 0.000511 GeV, but we work in GeV
 print(f"  Electron: A = {e.structure_norm:.6f}")
 print(f"  Converged: {e.converged} (iterations: {e.iterations})")
@@ -58,8 +58,8 @@ proton = solver.solve_baryon_4D_self_consistent(
     quark_windings=PROTON.windings,
     quark_spins=PROTON.spins,
     quark_generations=PROTON.generations,
-    max_iter_outer=30,
-    max_iter_scf=30,
+    max_iter_outer=300,
+    max_iter_scf=100,
     verbose=True,
 )
 
@@ -123,8 +123,8 @@ neutron = solver.solve_baryon_4D_self_consistent(
     quark_windings=NEUTRON.windings,
     quark_spins=NEUTRON.spins,
     quark_generations=NEUTRON.generations,
-    max_iter_outer=30,
-    max_iter_scf=10,
+    max_iter_outer=300,
+    max_iter_scf=100,
     verbose=True,
 )
 

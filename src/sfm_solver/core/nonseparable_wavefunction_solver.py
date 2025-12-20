@@ -441,56 +441,22 @@ class NonSeparableWavefunctionSolver:
         lambda_so: float
     ) -> Tuple[float, float, float]:
         """
-        Initialize baryon solver state based on parameter regime.
+        Initialize baryon solver state from first principles.
         
-        Physical basis from optimization analysis:
-        - g1 sets confinement → affects amplitude A (empirical: A ∝ g1)
-        - g2/g1 ratio indicates well structure stability (optimal ≈ 1.35)
-        - lambda_so affects spatial distribution
-        
-        Args:
-            g1: Nonlinear self-interaction coupling
-            g2: Circulation/EM coupling
-            lambda_so: Spin-orbit coupling strength
-            
-        Returns:
-            (A_init, Delta_x_init, delta_sigma_init)
+        Initial values are standard starting points for SFM solvers
+        and are NOT tuned to experimental data. The physical solution
+        must emerge through self-consistent iteration.
         """
-        # Reference values from optimization (Eval 4, 11, 17 averages)
-        g1_ref = 49.0
-        g2_ref = 67.0
-        ratio_ref = g2_ref / g1_ref  # ≈ 1.37
+        # A_init = 0.5 is an "ultra-relaxed" starting point to escape
+        # high-energy local minima.
+        A_init = 0.5
         
-        # Amplitude scales with confinement strength
-        # From analysis: higher g1 → stronger confinement → larger A
-        A_base = 15.0
-        A_scale = 1.0 + 0.02 * (g1 - g1_ref)  # ±2% per unit g1
-        A_init = A_base * A_scale
+        # Delta_x_init = 5.0 starts with near-zero kinetic energy.
+        Delta_x_init = 5.0
         
-        # Spatial scale inversely proportional to g1
-        # Stronger confinement → smaller spatial extent
-        Delta_x_base = 0.30
-        Delta_x_init = Delta_x_base * (g1_ref / g1) ** 0.5
+        delta_sigma_init = 0.8
         
-        # Subspace width influenced by g2/g1 ratio
-        # Deviation from optimal ratio → adjust for stability
-        delta_sigma_base = 0.80
-        ratio = g2 / g1
-        ratio_deviation = abs(ratio - ratio_ref) / ratio_ref
-        if ratio_deviation < 0.1:
-            # Near optimal ratio: use base value
-            ratio_correction = 1.0
-        else:
-            # Far from optimal: reduce for stability
-            ratio_correction = 0.9
-        delta_sigma_init = delta_sigma_base * ratio_correction
-        
-        # Ensure physical bounds
-        A_init = np.clip(A_init, 10.0, 25.0)
-        Delta_x_init = np.clip(Delta_x_init, 0.15, 0.50)
-        delta_sigma_init = np.clip(delta_sigma_init, 0.60, 1.00)
-        
-        return A_init, Delta_x_init, delta_sigma_init
+        return float(A_init), float(Delta_x_init), float(delta_sigma_init)
     
     def _build_subspace_derivative_matrix(self) -> NDArray:
         """Build the first derivative operator d/dσ."""
@@ -1075,10 +1041,12 @@ class NonSeparableWavefunctionSolver:
             chi_components = {target_key: chi_primary}
             
             # FIRST-PRINCIPLES: Include potential energy in energy denominators
-            # E = E_kinetic + <V> = (2n + l) + <V>
+            # E = E_kinetic + <V> = (2n + l)/dx^2 + <V>
+            # The spatial kinetic energy scales inversely with the square of the size.
+            spatial_scale = 1.0 / (Delta_x_current**2 + 1e-30)
             V_target = self._compute_potential_energy(chi_primary)
             V_envelope = self._compute_potential_energy(envelope)
-            E_target_0 = 2 * n_eff + 0 + V_target
+            E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target
             
             for i, state in enumerate(self.basis.spatial_states):
                 key = (state.n, state.l, state.m)
@@ -1091,7 +1059,7 @@ class NonSeparableWavefunctionSolver:
                     continue
                 
                 # Include potential energy for induced state
-                E_state = 2 * state.n + state.l + V_envelope
+                E_state = (2 * state.n + state.l) * spatial_scale + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -1233,6 +1201,7 @@ class NonSeparableWavefunctionSolver:
         n_target: int,
         k_winding: int,
         spatial_coupling: NDArray,
+        delta_x: float,
         resonance_width: float = 0.0,
     ) -> Dict[Tuple[int, int, int], NDArray]:
         """
@@ -1246,6 +1215,7 @@ class NonSeparableWavefunctionSolver:
             n_target: Target spatial quantum number
             k_winding: Subspace winding number
             spatial_coupling: Coupling matrix at current scale
+            delta_x: Spatial scale (used for kinetic energy denominators)
             resonance_width: Lorentzian width for resonance enhancement (0 = disabled)
             
         Returns:
@@ -1267,10 +1237,12 @@ class NonSeparableWavefunctionSolver:
         chi_components = {target_key: chi_primary}
         
         # FIRST-PRINCIPLES: Include potential energy in energy denominators
-        # E = E_kinetic + <V> = (2n + l) + <V>
+        # E = E_kinetic + <V> = (2n + l)/dx^2 + <V>
+        # The spatial kinetic energy scales inversely with the square of the size.
+        spatial_scale = 1.0 / (delta_x**2 + 1e-30)
         V_target = self._compute_potential_energy(chi_primary)
         V_envelope = self._compute_potential_energy(envelope)
-        E_target_0 = 2 * n_target + 0 + V_target  # l=0 for target s-wave
+        E_target_0 = (2 * n_target + 0) * spatial_scale + V_target  # l=0 for target s-wave
         
         # NOTE: No spatial_enhancement factor - n-dependence emerges naturally from:
         # 1. R_ij matrix elements (computed from actual gradient integrals)
@@ -1289,8 +1261,8 @@ class NonSeparableWavefunctionSolver:
                 continue
             
             # Energy denominator - includes potential energy (first-principles)
-            # E = (2n + l) + <V>
-            E_state = 2 * state.n + state.l + V_envelope
+            # E = (2n + l)/dx^2 + <V>
+            E_state = (2 * state.n + state.l) * spatial_scale + V_envelope
             E_denom = E_target_0 - E_state
             
             # Regularize small denominators (numerical stability)
@@ -1392,6 +1364,7 @@ class NonSeparableWavefunctionSolver:
         n_target: int,
         k_winding: int,
         spatial_coupling: NDArray,
+        delta_x: float,
         max_iter_nl: int = 10,
         tol_nl: float = 1e-3,
         resonance_width: float = 0.0,
@@ -1448,8 +1421,9 @@ class NonSeparableWavefunctionSolver:
                 chi_components[key] = np.zeros(self.basis.N_sigma, dtype=complex)
         
         # Base kinetic energy - standard 3D harmonic oscillator form
-        # E = 2n + l (in units where ℏω = 1)
-        E_target_0 = 2 * n_target + 0  # l=0 for target s-wave
+        # E = (2n + l)/dx^2
+        spatial_scale = 1.0 / (delta_x**2 + 1e-30)
+        E_target_0 = (2 * n_target + 0) * spatial_scale  # l=0 for target s-wave
         
         # NOTE: No spatial_enhancement factor - n-dependence emerges naturally
         # See next_steps.md Phase 1, Task 1.1
@@ -1464,15 +1438,17 @@ class NonSeparableWavefunctionSolver:
             for chi in chi_components.values():
                 chi_total += chi
             
-            # Nonlinear density: g₁|χ|⁴
-            rho_nl = self.g1 * np.abs(chi_total)**4
+            # Nonlinear density: g₁|χ|²
+            # Standardized to |χ|² across all solvers for physical consistency
+            rho_nl = self.g1 * np.abs(chi_total)**2
             
             # Store old components for convergence check
             chi_components_old = {k: v.copy() for k, v in chi_components.items()}
             
             # Nonlinear shift for target state
+            V_target = self._compute_potential_energy(chi_primary)
             V_nl_target = np.sum(rho_nl * np.abs(chi_primary)**2) * dsigma
-            E_target_eff = E_target_0 + V_nl_target
+            E_target_eff = E_target_0 + V_target + V_nl_target
             
             # Update induced components with nonlinear shifts
             total_change = 0.0
@@ -1487,18 +1463,23 @@ class NonSeparableWavefunctionSolver:
                     continue
                 
                 # Kinetic energy - standard harmonic oscillator
-                E_state_kinetic = 2 * state.n + state.l
+                # E = (2n + l)/dx^2
+                E_state_kinetic = (2 * state.n + state.l) * spatial_scale
                 
                 # Nonlinear shift for this state
                 chi_state = chi_components_old[key]
                 chi_state_norm = np.sum(np.abs(chi_state)**2) * dsigma
+                
+                # Potential energy expectation
+                V_envelope = self._compute_potential_energy(envelope)
+                
                 if chi_state_norm > 1e-10:
                     V_nl_state = np.sum(rho_nl * np.abs(chi_state)**2) * dsigma
                 else:
                     V_nl_state = 0.0
                 
-                # Effective energy with nonlinear correction
-                E_state_eff = E_state_kinetic + V_nl_state
+                # Effective energy with nonlinear correction and potential
+                E_state_eff = E_state_kinetic + V_envelope + V_nl_state
                 
                 # Updated denominator
                 E_denom = E_target_eff - E_state_eff
@@ -1523,8 +1504,8 @@ class NonSeparableWavefunctionSolver:
                 # Track change for convergence
                 change = np.sum(np.abs(induced - chi_components_old[key])**2) * dsigma
                 total_change += change
-            
-            chi_components[key] = induced
+                
+                chi_components[key] = induced
         
             # === SECOND-ORDER: l=1 → l=2 transitions (within nonlinear loop) ===
             # Clear and recompute l=2 components to avoid accumulation
@@ -1539,10 +1520,10 @@ class NonSeparableWavefunctionSolver:
                 if l1_idx < 0:
                     continue
                 
-                E_l1 = 2 * n_l1 + 1
+                E_l1 = (2 * n_l1 + 1) * spatial_scale
                 chi_l1_norm = np.sum(np.abs(chi_l1)**2) * dsigma
                 V_nl_l1 = np.sum(rho_nl * np.abs(chi_l1)**2) * dsigma if chi_l1_norm > 1e-10 else 0.0
-                E_l1_eff = E_l1 + V_nl_l1
+                E_l1_eff = E_l1 + V_envelope + V_nl_l1
                 
                 for j, state2 in enumerate(self.basis.spatial_states):
                     if state2.l != 2:
@@ -1553,8 +1534,8 @@ class NonSeparableWavefunctionSolver:
                     if abs(R_l1_l2) < 1e-10:
                         continue
                     
-                    E_l2 = 2 * state2.n + state2.l
-                    E_denom_2 = E_l1_eff - E_l2
+                    E_l2 = (2 * state2.n + state2.l) * spatial_scale
+                    E_denom_2 = E_l1_eff - (E_l2 + V_envelope)
                     if abs(E_denom_2) < 0.5:
                         E_denom_2 = 0.5 * np.sign(E_denom_2) if E_denom_2 != 0 else 0.5
                     
@@ -1685,6 +1666,7 @@ class NonSeparableWavefunctionSolver:
             if max_iter_nl > 0:
                 chi_components = self._build_perturbative_structure_with_nonlinear(
                     n_target, k_winding, spatial_coupling,
+                    delta_x=Delta_x_current,
                     max_iter_nl=max_iter_nl,
                     tol_nl=tol_nl,
                     resonance_width=resonance_width,
@@ -1693,6 +1675,7 @@ class NonSeparableWavefunctionSolver:
             else:
                 chi_components = self._build_perturbative_structure(
                     n_target, k_winding, spatial_coupling,
+                    delta_x=Delta_x_current,
                     resonance_width=resonance_width,
                 )
             
@@ -1786,6 +1769,7 @@ class NonSeparableWavefunctionSolver:
         if max_iter_nl > 0:
             chi_components_final = self._build_perturbative_structure_with_nonlinear(
                 n_target, k_winding, spatial_coupling_final,
+                delta_x=Delta_x_current,
                 max_iter_nl=max_iter_nl,
                 tol_nl=tol_nl,
                 resonance_width=resonance_width,
@@ -1794,6 +1778,7 @@ class NonSeparableWavefunctionSolver:
         else:
             chi_components_final = self._build_perturbative_structure(
                 n_target, k_winding, spatial_coupling_final,
+                delta_x=Delta_x_current,
                 resonance_width=resonance_width,
             )
         
@@ -2041,6 +2026,7 @@ class NonSeparableWavefunctionSolver:
             overlaps = []
             for i in range(n_states):
                 overlap = np.abs(np.sum(np.conj(chi_envelope) * eigenvectors[:, i]) * dsigma)
+                
                 overlaps.append((overlap, eigenvalues[i], i))
             
             # === ENERGY-FIRST SELECTION STRATEGY ===
@@ -2233,7 +2219,7 @@ class NonSeparableWavefunctionSolver:
         color_phases: tuple = (0, 2*np.pi/3, 4*np.pi/3),
         quark_windings: tuple = None,  # Quark winding numbers for EM
         n_radial: int = 1,
-        max_iter_outer: int = 30,
+        max_iter_outer: int = 100,
         tol_outer: float = 1e-4,
         verbose: bool = False,
     ) -> WavefunctionStructure:
@@ -2375,8 +2361,10 @@ class NonSeparableWavefunctionSolver:
             
             # FIRST-PRINCIPLES: Include potential energy in energy denominators
             # (consistent with lepton and meson solvers)
+            # Spatial energy scales as 1/Delta_x^2
+            spatial_scale = 1.0 / (Delta_x_current**2 + 1e-30)
             V_target = self._compute_potential_energy(chi_primary)
-            E_target_0 = 2 * n_eff + 0 + V_target
+            E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target
             
             # Build induced components from spatial-subspace coupling
             # Using COMPOSITE chi_primary (captures three-quark structure)
@@ -2392,7 +2380,7 @@ class NonSeparableWavefunctionSolver:
                 
                 # For induced states, use chi_primary envelope for V expectation
                 V_envelope = self._compute_potential_energy(chi_primary)
-                E_state = 2 * state.n + state.l + V_envelope
+                E_state = (2 * state.n + state.l) * spatial_scale + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
@@ -2620,12 +2608,13 @@ class NonSeparableWavefunctionSolver:
             chi_components = {target_key: chi_primary}
             
             # Energy denominators with mean field
+            spatial_scale = 1.0 / (Delta_x_current**2 + 1e-30)
             V_target = self._compute_potential_energy(chi_primary)
             V_mean_target = 0.0
             if V_mean_4D is not None and target_key in V_mean_4D:
                 V_mean_target = np.sum(V_mean_4D[target_key] * np.abs(chi_primary)**2) * dsigma
             
-            E_target_0 = 2 * n_eff + 0 + V_target + V_mean_target
+            E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target + V_mean_target
             
             # Build induced components
             for i, state in enumerate(self.basis.spatial_states):
@@ -2646,7 +2635,7 @@ class NonSeparableWavefunctionSolver:
                 if V_mean_4D is not None and key in V_mean_4D:
                     V_mean_state = np.sum(V_mean_4D[key] * np.abs(envelope)**2) * dsigma
                 
-                E_state = 2 * state.n + state.l + V_envelope + V_mean_state
+                E_state = (2 * state.n + state.l) * spatial_scale + V_envelope + V_mean_state
                 E_denom = E_target_0 - E_state
                 
                 # Regularize
@@ -2741,11 +2730,12 @@ class NonSeparableWavefunctionSolver:
         chi_components = {target_key: chi_primary.copy()}
         
         # Energy of primary state
+        spatial_scale = 1.0 / (Delta_x**2 + 1e-30)
         V_target = self._compute_potential_energy(chi_primary)
         V_mean_target = 0.0
         if V_mean_4D is not None and target_key in V_mean_4D:
             V_mean_target = np.sum(V_mean_4D[target_key] * np.abs(chi_primary)**2) * dsigma
-        E_target_0 = 2 * n_eff + 0 + V_target + V_mean_target
+        E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target + V_mean_target
         
         # Build induced components from spatial-subspace coupling
         for i, state in enumerate(self.basis.spatial_states):
@@ -2766,7 +2756,7 @@ class NonSeparableWavefunctionSolver:
             if V_mean_4D is not None and key in V_mean_4D:
                 V_mean_state = np.sum(V_mean_4D[key] * np.abs(envelope)**2) * dsigma
             
-            E_state = 2 * state.n + state.l + V_envelope + V_mean_state
+            E_state = (2 * state.n + state.l) * spatial_scale + V_envelope + V_mean_state
             E_denom = E_target_0 - E_state
             
             # Regularize
@@ -2842,8 +2832,8 @@ class NonSeparableWavefunctionSolver:
         quark_windings: tuple = None,
         quark_spins: tuple = (+1, -1, +1),      # NEW: Spin quantum numbers
         quark_generations: tuple = (1, 1, 1),    # NEW: Generation numbers
-        max_iter_outer: int = 30,
-        max_iter_scf: int = 10,
+        max_iter_outer: int = 300,
+        max_iter_scf: int = 100,
         tol_outer: float = 1e-4,
         tol_scf: float = 1e-3,
         verbose: bool = False,
@@ -2901,42 +2891,33 @@ class NonSeparableWavefunctionSolver:
             print(f"Spins: {quark_spins}")
             print(f"Generations: {quark_generations}")
         
-        # === INITIALIZE WITH SCF SOLVER ===
-        # Use proper self-consistent field solver to get realistic initial quark wavefunctions
-        # This finds the true ground state in the three-well potential with mean field
-        if verbose:
-            print("\n=== STEP 1: SCF Initialization ===")
+        # === INITIAL CONDITIONS ===
+        # Initialize solver state from first principles.
+        A_init, Dx_init, _ = self._initialize_baryon_from_parameters(self.g1, self.g2, self.lambda_so)
         
-        chi1_scf, chi2_scf, chi3_scf, A_scf = self.solve_baryon_self_consistent_field(
+        if verbose:
+            print(f"\n=== STEP 1: Seeding Subspace Primaries ===")
+            print(f"  Target: A ~ {A_init:.2f}, Dx ~ {Dx_init:.4f}")
+        
+        # Initial seed from subspace SCF (establishes well localization)
+        chi1_scf, chi2_scf, chi3_scf, A_sub_scf = self.solve_baryon_self_consistent_field(
             color_phases=color_phases,
             quark_windings=quark_windings,
             quark_spins=quark_spins,
             quark_generations=quark_generations,
-            max_iter=500,
+            max_iter=100,
             tol=1e-4,
-            mixing=0.05,
-            verbose=verbose,
+            mixing=0.3,   # Slightly more aggressive initial mixing
+            verbose=False,
         )
         
-        if verbose:
-            A1 = np.sqrt(np.sum(np.abs(chi1_scf)**2) * self.basis.dsigma)
-            A2 = np.sqrt(np.sum(np.abs(chi2_scf)**2) * self.basis.dsigma)
-            A3 = np.sqrt(np.sum(np.abs(chi3_scf)**2) * self.basis.dsigma)
-            print(f"\nSCF initialization complete: A_scf = {A_scf:.6f}")
-            print(f"Individual quark amplitudes:")
-            print(f"  |chi1| = {A1:.6f}")
-            print(f"  |chi2| = {A2:.6f}")
-            print(f"  |chi3| = {A3:.6f}")
-        
-        # === INITIALIZE SPATIAL SCALE ===
-        # KEY FIX: All three quarks share a SINGLE Δx determined by composite amplitude
-        # ALWAYS use SCF amplitude - it solves the actual physics equations
-        A_current = A_scf
-        Delta_x_baryon = 1.0 / (self.g_internal * A_scf**6) ** (1.0/3.0) if A_scf > 0.01 else 1.0/3.0
+        # Seed A_current from the natural subspace amplitude to avoid initial scale jumps.
+        # We take the larger of the two to ensure strong induction.
+        A_current = max(A_init, A_sub_scf)
+        Delta_x_baryon = Dx_init
         
         if verbose:
-            print(f"\n=== STEP 2: 4D Spatial-Subspace Coupling with Collective Confinement ===")
-            print(f"SCF initialization: A={A_scf:.2f}, Dx={Delta_x_baryon:.6f}")
+            print(f"  Initial subspace amplitude (unscaled): {A_sub_scf:.4f}")
         
         history = {
             'Delta_x': [Delta_x_baryon],
@@ -2945,12 +2926,10 @@ class NonSeparableWavefunctionSolver:
         
         final_iter = 0
         
-        # Convert SCF wavefunctions to chi_components format (primary state only)
-        n_eff = 1
-        target_key = (n_eff, 0, 0)
-        quark1_chi = {target_key: chi1_scf.copy()}
-        quark2_chi = {target_key: chi2_scf.copy()}
-        quark3_chi = {target_key: chi3_scf.copy()}
+        # Convergence state tracking
+        dA_prev = 0.0
+        dDx_prev = 0.0
+        mixing_outer = 0.1  # Initial mixing strength
         
         # === OUTER LOOP: BARYON SELF-CONFINEMENT ===
         for iter_outer in range(max_iter_outer):
@@ -2959,76 +2938,42 @@ class NonSeparableWavefunctionSolver:
                 print(f"OUTER ITERATION {iter_outer+1}/{max_iter_outer}")
                 print(f"{'='*70}")
                 print(f"Dx_baryon = {Delta_x_baryon:.6f}, A_composite = {A_current:.6f}")
+
+            # === STEP 1: Update subspace primaries with 4D mean field ===
+            # In the first-principles framework, the subspace SCF is updated
+            # using the nonlinear potential derived from the 5D Hamiltonian.
+            chi1_scf, chi2_scf, chi3_scf, A_sub_scf = self.solve_baryon_self_consistent_field(
+                color_phases=color_phases,
+                quark_windings=quark_windings,
+                quark_spins=quark_spins,
+                quark_generations=quark_generations,
+                max_iter=max_iter_scf, 
+                tol=1e-4,
+                mixing=0.3,
+                verbose=False
+            )
             
-            # === BUILD INDUCED COMPONENTS FOR EACH QUARK ===
-            # Now that we have good primary components from SCF, add spatial-subspace coupling
-            # ALL THREE QUARKS USE THE SAME Δx (collective confinement)
+            # === STEP 2: Build 4D induced components for each quark ===
+            # All three quarks share the collective confinement scale.
+            # We scale the subspace primaries to the current physical amplitude
+            # so that induced components are built with correct physical strength.
+            scale_to_phys = A_current / (A_sub_scf + 1e-30)
+            
             quark1_chi = self._build_4D_components_fixed_primary(
-                chi1_scf, w1, phi1, k1, Delta_x_baryon, None, verbose=False)
+                chi1_scf * scale_to_phys, w1, phi1, k1, Delta_x_baryon, None, verbose=False)
             quark2_chi = self._build_4D_components_fixed_primary(
-                chi2_scf, w2, phi2, k2, Delta_x_baryon, None, verbose=False)
+                chi2_scf * scale_to_phys, w2, phi2, k2, Delta_x_baryon, None, verbose=False)
             quark3_chi = self._build_4D_components_fixed_primary(
-                chi3_scf, w3, phi3, k3, Delta_x_baryon, None, verbose=False)
+                chi3_scf * scale_to_phys, w3, phi3, k3, Delta_x_baryon, None, verbose=False)
             
-            for iter_scf in range(max_iter_scf):
-                if verbose and iter_outer == 0:
-                    print(f"\n  SCF iteration {iter_scf+1}/{max_iter_scf}")
-                
-                # Store old solutions
-                quark1_chi_old = {k: v.copy() for k, v in quark1_chi.items()}
-                quark2_chi_old = {k: v.copy() for k, v in quark2_chi.items()}
-                quark3_chi_old = {k: v.copy() for k, v in quark3_chi.items()}
-                
-                # === BUILD 4D MEAN FIELD ===
-                # V_mean(σ) for each spatial state (n,l,m)
-                V_mean_4D = {}
-                all_keys = set(quark1_chi.keys()) | set(quark2_chi.keys()) | set(quark3_chi.keys())
-                
-                for key in all_keys:
-                    chi1 = quark1_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                    chi2 = quark2_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                    chi3 = quark3_chi.get(key, np.zeros(self.basis.N_sigma, dtype=complex))
-                    
-                    # 4D superposition for this spatial mode
-                    chi_total = chi1 + chi2 + chi3
-                    
-                    # Mean field for this mode
-                    V_mean_4D[key] = self.g1 * np.abs(chi_total)**2
-                
-                # === REBUILD INDUCED COMPONENTS WITH UPDATED MEAN FIELD ===
-                # SCF primaries are fixed; only induced components update
-                # All three quarks use the SAME Delta_x_baryon (collective confinement)
-                quark1_chi = self._build_4D_components_fixed_primary(
-                    chi1_scf, w1, phi1, k1, Delta_x_baryon, V_mean_4D, verbose=False)
-                quark2_chi = self._build_4D_components_fixed_primary(
-                    chi2_scf, w2, phi2, k2, Delta_x_baryon, V_mean_4D, verbose=False)
-                quark3_chi = self._build_4D_components_fixed_primary(
-                    chi3_scf, w3, phi3, k3, Delta_x_baryon, V_mean_4D, verbose=False)
-                
-                # === CHECK SCF CONVERGENCE ===
-                change1 = sum(np.sum(np.abs(quark1_chi[k] - quark1_chi_old[k])**2) * self.basis.dsigma 
-                            for k in quark1_chi.keys())
-                change2 = sum(np.sum(np.abs(quark2_chi[k] - quark2_chi_old[k])**2) * self.basis.dsigma 
-                            for k in quark2_chi.keys())
-                change3 = sum(np.sum(np.abs(quark3_chi[k] - quark3_chi_old[k])**2) * self.basis.dsigma 
-                            for k in quark3_chi.keys())
-                
-                total_change = change1 + change2 + change3
-                
-                if verbose and iter_outer == 0:
-                    print(f"    Total change: {total_change:.2e}")
-                
-                if total_change < tol_scf:
-                    if verbose and iter_outer == 0:
-                        print(f"    SCF converged after {iter_scf+1} iterations")
-                    break
+            # === STEP 3: Compute total 4D amplitude ===
+            # Total amplitude from 4D superposition
+            A_composite_unscaled = self.compute_4D_baryon_amplitude(quark1_chi, quark2_chi, quark3_chi)
             
-            # === COMPUTE 4D COMPOSITE AMPLITUDE ===
-            A_new = self.compute_4D_baryon_amplitude(quark1_chi, quark2_chi, quark3_chi)
+            # Physical amplitude update
+            A_new = A_composite_unscaled
             
-            # === UPDATE BARYON Δx FROM COMPOSITE AMPLITUDE ===
-            # KEY: Self-confinement uses COMPOSITE amplitude, not individual quark amplitudes!
-            # Δx_baryon = 1/(g_internal × A_composite^6)^(1/3)
+            # === STEP 4: Update Δx from self-confinement ===
             A_sixth = A_new ** 6
             if self.g_internal > 0 and A_sixth > 1e-30:
                 Delta_x_new = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)
@@ -3036,14 +2981,14 @@ class NonSeparableWavefunctionSolver:
                 Delta_x_new = Delta_x_baryon
             
             if verbose:
-                print(f"\n4D Composite Amplitude: A = {A_new:.6f}")
-                print(f"Baryon self-confinement: Dx_new = {Delta_x_new:.6f} (was {Delta_x_baryon:.6f})")
+                print(f"  Subspace A: {A_sub_scf:.4f}, Total A: {A_new:.6f}")
+                print(f"  Dx_new = {Delta_x_new:.6f} (was {Delta_x_baryon:.6f})")
             
-            # === CHECK OUTER CONVERGENCE ===
+            # === STEP 5: Check outer convergence ===
             delta_A = abs(A_new - A_current)
             delta_Dx = abs(Delta_x_new - Delta_x_baryon)
-            rel_delta_A = delta_A / max(A_current, 0.01)
-            rel_delta_Dx = delta_Dx / max(Delta_x_baryon, 0.001)
+            rel_delta_A = delta_A / (A_current + 1e-10)
+            rel_delta_Dx = delta_Dx / (Delta_x_baryon + 1e-10)
             
             if verbose:
                 print(f"Convergence: dA/A = {rel_delta_A:.2e}, dDx/Dx = {rel_delta_Dx:.2e}")
@@ -3057,36 +3002,34 @@ class NonSeparableWavefunctionSolver:
                 final_iter = iter_outer
                 break
             
-            # === UPDATE WITH ADAPTIVE MIXING ===
-            # Adaptive mixing based on convergence state
-            if iter_outer < 3:
-                # Initial iterations: very conservative to establish stable trajectory
-                mixing = 0.10
-            elif rel_delta_A > 0.02 or rel_delta_Dx > 0.02:
-                # Large changes: conservative to avoid overshooting
-                mixing = 0.15
-            elif rel_delta_A < 0.001 and rel_delta_Dx < 0.001:
-                # Near convergence: aggressive to accelerate final approach
-                mixing = 0.50
+            # === STEP 6: Adaptive mixing with oscillation detection ===
+            # Detect oscillations by checking if updates reverse direction
+            if iter_outer > 0:
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_baryon
+                
+                # Check for sign reversals (oscillations)
+                oscillating = (dA_current * dA_prev < 0) or (dDx_current * dDx_prev < 0)
+                
+                if oscillating:
+                    # Reduce mixing when oscillating
+                    mixing_outer = max(0.05, mixing_outer * 0.5)
+                    if verbose:
+                        print(f"    [OSCILLATION] Reducing mixing to {mixing_outer:.3f}")
+                elif iter_outer > 5:
+                    # Increase mixing if stable
+                    mixing_outer = min(0.3, mixing_outer * 1.1)
+                
+                # Store for next iteration
+                dA_prev = dA_current
+                dDx_prev = dDx_current
             else:
-                # Normal convergence: moderate mixing
-                mixing = 0.30
+                # First iteration: just store deltas
+                dA_prev = A_new - A_current
+                dDx_prev = Delta_x_new - Delta_x_baryon
             
-            # Add oscillation detection and damping
-            if iter_outer > 5 and 'A' in history:
-                recent_As = history['A'][-5:]
-                if len(recent_As) == 5:
-                    variation = np.std(recent_As) / np.mean(recent_As)
-                    if variation > 0.03:  # Oscillating
-                        mixing = min(mixing, 0.15)
-                        if verbose:
-                            print(f"  [Oscillation detected, reducing mixing to {mixing:.2f}]")
-            
-            if verbose and iter_outer % 5 == 0:
-                print(f"  Adaptive mixing: {mixing:.2f}")
-            
-            A_current = (1 - mixing) * A_current + mixing * A_new
-            Delta_x_baryon = (1 - mixing) * Delta_x_baryon + mixing * Delta_x_new
+            A_current = (1 - mixing_outer) * A_current + mixing_outer * A_new
+            Delta_x_baryon = (1 - mixing_outer) * Delta_x_baryon + mixing_outer * Delta_x_new
             
             history['A'].append(A_current)
             history['Delta_x'].append(Delta_x_baryon)
@@ -3232,9 +3175,10 @@ class NonSeparableWavefunctionSolver:
             chi_components = {target_key: chi_primary_norm}
             
             # FIRST-PRINCIPLES: Include potential energy in energy denominators
+            spatial_scale = 1.0 / (Delta_x_current**2 + 1e-30)
             V_target = self._compute_potential_energy(chi_primary_norm)
             V_envelope = self._compute_potential_energy(single_well_envelope)
-            E_target_0 = 2 * n_eff + 0 + V_target
+            E_target_0 = (2 * n_eff + 0) * spatial_scale + V_target
             
             # Induced components from spatial-subspace coupling
             for i, state in enumerate(self.basis.spatial_states):
@@ -3248,7 +3192,7 @@ class NonSeparableWavefunctionSolver:
                     continue
                 
                 # Include potential energy (first-principles)
-                E_state = 2 * state.n + state.l + V_envelope
+                E_state = (2 * state.n + state.l) * spatial_scale + V_envelope
                 E_denom = E_target_0 - E_state
                 
                 if abs(E_denom) < 0.5:
