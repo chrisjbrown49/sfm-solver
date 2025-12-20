@@ -27,20 +27,33 @@ from sfm_solver.core.constants import (
     MUON_MASS_GEV,
     TAU_MASS_GEV,
 )
-from sfm_solver.core.parameters import SFMParameters
-from sfm_solver.core.grid import SpectralGrid
-from sfm_solver.core.sfm_global import (
-    SFMGlobalConstants,
-    SFM_CONSTANTS,
-    reset_global_constants,
-)
 
-# New two-stage solver architecture
+# New two-stage solver architecture (MAIN INTERFACE)
 from sfm_solver.core.unified_solver import UnifiedSFMSolver, UnifiedSolverResult
 from sfm_solver.core.shape_solver import DimensionlessShapeSolver, DimensionlessShapeResult
 from sfm_solver.core.spatial_coupling import SpatialCouplingBuilder, SpatialState
 from sfm_solver.core.energy_minimizer import UniversalEnergyMinimizer, EnergyMinimizationResult
 
+# Legacy utility classes (optional imports for backward compatibility)
+try:
+    from sfm_solver.core.parameters import SFMParameters
+    from sfm_solver.core.grid import SpectralGrid
+    from sfm_solver.core.sfm_global import (
+        SFMGlobalConstants,
+        SFM_CONSTANTS,
+        reset_global_constants,
+    )
+    _LEGACY_AVAILABLE = True
+except ImportError:
+    # Legacy modules not available - this is OK for new architecture
+    _LEGACY_AVAILABLE = False
+    SFMParameters = None
+    SpectralGrid = None
+    SFMGlobalConstants = None
+    SFM_CONSTANTS = None
+    reset_global_constants = None
+
+# Build __all__ list dynamically
 __all__ = [
     # Constants
     "HBAR",
@@ -53,14 +66,7 @@ __all__ = [
     "ELECTRON_MASS_GEV",
     "MUON_MASS_GEV",
     "TAU_MASS_GEV",
-    # Global SFM constants (single source of truth)
-    "SFMGlobalConstants",
-    "SFM_CONSTANTS",
-    "reset_global_constants",
-    # Utility Classes
-    "SFMParameters",
-    "SpectralGrid",
-    # New Two-Stage Solver Architecture (RECOMMENDED)
+    # New Two-Stage Solver Architecture (MAIN INTERFACE)
     "UnifiedSFMSolver",
     "UnifiedSolverResult",
     "DimensionlessShapeSolver",
@@ -70,3 +76,13 @@ __all__ = [
     "UniversalEnergyMinimizer",
     "EnergyMinimizationResult",
 ]
+
+# Add legacy classes if available
+if _LEGACY_AVAILABLE:
+    __all__.extend([
+        "SFMGlobalConstants",
+        "SFM_CONSTANTS",
+        "reset_global_constants",
+        "SFMParameters",
+        "SpectralGrid",
+    ])

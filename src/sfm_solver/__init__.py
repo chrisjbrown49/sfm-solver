@@ -1,61 +1,78 @@
 """
-SFM Solver - Single-Field Model Eigenvalue Solver
+SFM Solver - Single-Field Model Two-Stage Solver
 
-A numerical solver for computing eigenvalues and eigenfunctions
-in the Single-Field Model framework.
+A first-principles solver for computing particle masses in the
+Single-Field Model framework.
 
-This top-level package exposes the core infrastructure used in the validated
-Tier 1 / Tier 1b / Tier 2 / Tier 2b pipelines:
-- Physics-based lepton solver (SFMLeptonSolver)
-- Subspace-only eigensolvers (linear and nonlinear)
-- Three-well subspace potential
-- Core SFM parameters and grids
+NEW TWO-STAGE ARCHITECTURE (RECOMMENDED):
+==========================================
+Stage 1: Solve for dimensionless wavefunction shape
+Stage 2: Minimize energy over scale parameters (Delta_x, Delta_sigma, A)
 
-Legacy and experimental components (fitted amplitude solver, GP solver, 
-full coupled (r,σ) solver, spin-orbit effective potentials, α-fitting 
-utilities, and their tests) have been moved to sfm_solver.legacy and are 
-no longer part of the public API.
+Main Interface:
+    from sfm_solver import UnifiedSFMSolver
+    
+    solver = UnifiedSFMSolver()  # Uses defaults from constants.json
+    result = solver.solve_baryon(quark_windings=(5,5,-3))
+    print(f"Predicted mass: {result.mass} GeV")
+
+Components:
+- UnifiedSFMSolver: Main interface combining both stages
+- DimensionlessShapeSolver: Stage 1 (shape at unit scale)
+- UniversalEnergyMinimizer: Stage 2 (optimize scales)
+- SpatialCouplingBuilder: Build 4D structure from shape
+
+Legacy solvers are available in sfm_solver.legacy but are deprecated.
 """
 
+# Import core constants
 from sfm_solver.core import (
     HBAR,
+    HBAR_EV,
     C,
     E_CHARGE,
-    SFMParameters,
-    SpectralGrid,
+    G_NEWTON,
+    ALPHA_EM,
+    GEV_TO_KG,
+    ELECTRON_MASS_GEV,
+    MUON_MASS_GEV,
+    TAU_MASS_GEV,
 )
-from sfm_solver.potentials import ThreeWellPotential
-from sfm_solver.eigensolver import (
-    SpectralOperators,
-    SFMLeptonSolver,
-    SFMLeptonState,
-    solve_lepton_masses,
-)
-from sfm_solver.spatial.radial import RadialGrid, RadialOperators
-from sfm_solver.reporting import ResultsReporter
 
-__version__ = "0.1.0"
+# Import new two-stage solver architecture (MAIN INTERFACE)
+from sfm_solver.core import (
+    UnifiedSFMSolver,
+    UnifiedSolverResult,
+    DimensionlessShapeSolver,
+    DimensionlessShapeResult,
+    SpatialCouplingBuilder,
+    SpatialState,
+    UniversalEnergyMinimizer,
+    EnergyMinimizationResult,
+)
+
+__version__ = "0.2.0"  # Updated for new architecture
 
 __all__ = [
     # Constants
     "HBAR",
+    "HBAR_EV",
     "C",
     "E_CHARGE",
-    # Core classes
-    "SFMParameters",
-    "SpectralGrid",
-    # Spatial grid
-    "RadialGrid",
-    "RadialOperators",
-    # Potentials
-    "ThreeWellPotential",
-    # Core infrastructure
-    "SpectralOperators",
-    # Physics-based lepton solver
-    "SFMLeptonSolver",
-    "SFMLeptonState",
-    "solve_lepton_masses",
-    # Reporting
-    "ResultsReporter",
+    "G_NEWTON",
+    "ALPHA_EM",
+    "GEV_TO_KG",
+    "ELECTRON_MASS_GEV",
+    "MUON_MASS_GEV",
+    "TAU_MASS_GEV",
+    # New Two-Stage Solver Architecture (MAIN INTERFACE)
+    "UnifiedSFMSolver",
+    "UnifiedSolverResult",
+    "DimensionlessShapeSolver",
+    "DimensionlessShapeResult",
+    "SpatialCouplingBuilder",
+    "SpatialState",
+    "UniversalEnergyMinimizer",
+    "EnergyMinimizationResult",
 ]
 

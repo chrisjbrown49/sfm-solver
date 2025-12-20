@@ -68,9 +68,10 @@ def test_baryon(solver, baryon_config, verbose=False):
     print(f"\nTesting {baryon_config.name}...")
     start_time = time.time()
     
+    # Use default color phases for color neutrality: (0, 2π/3, 4π/3)
     result = solver.solve_baryon(
-        quark_windings=baryon_config.quark_windings,
-        color_phases=baryon_config.color_phases,
+        quark_windings=baryon_config.windings,
+        color_phases=(0, 2*np.pi/3, 4*np.pi/3),
         n_target=1,
         max_scf_iter=300,
         scf_tol=1e-4,
@@ -92,7 +93,7 @@ def test_baryon(solver, baryon_config, verbose=False):
     
     return {
         'name': baryon_config.name,
-        'quark_content': baryon_config.quark_content,
+        'quark_content': baryon_config.quarks,
         'mass_predicted_MeV': mass_mev,
         'mass_experimental_MeV': baryon_config.mass_exp,
         'error_percent': error_percent,
