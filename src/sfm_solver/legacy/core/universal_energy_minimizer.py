@@ -1,5 +1,15 @@
 """
-Universal Energy Minimizer for SFM Particles.
+DEPRECATED: Legacy Universal Energy Minimizer for SFM Particles.
+
+=============================================================================
+WARNING: This module has been superseded by the new two-stage architecture:
+    - Stage 1: DimensionlessShapeSolver (shape_solver.py)
+    - Stage 2: UniversalEnergyMinimizer (energy_minimizer.py)
+    - Combined: UnifiedSFMSolver (unified_solver.py)
+
+This legacy implementation is kept for reference only.
+Please use the new unified solver for all new work.
+=============================================================================
 
 This module minimizes E_total(A, Δx, Δσ) over the three free scale parameters
 for ANY wavefunction structure from the NonSeparableWavefunctionSolver.

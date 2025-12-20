@@ -1,7 +1,14 @@
 """
 Core module for SFM Solver.
 
-Contains physical constants, parameter definitions, and grid utilities.
+Contains physical constants, parameter definitions, grid utilities, and solvers.
+
+RECOMMENDED: Use the new two-stage solver architecture:
+- UnifiedSFMSolver: Main interface for solving particles
+- DimensionlessShapeSolver: Stage 1 (shape)
+- UniversalEnergyMinimizer: Stage 2 (scale)
+
+Legacy solvers are available in sfm_solver.legacy.core but are deprecated.
 
 Global Constants:
 - SFM_CONSTANTS: Single source of truth for β, L₀, κ (from Beautiful Equation)
@@ -28,6 +35,12 @@ from sfm_solver.core.sfm_global import (
     reset_global_constants,
 )
 
+# New two-stage solver architecture
+from sfm_solver.core.unified_solver import UnifiedSFMSolver, UnifiedSolverResult
+from sfm_solver.core.shape_solver import DimensionlessShapeSolver, DimensionlessShapeResult
+from sfm_solver.core.spatial_coupling import SpatialCouplingBuilder, SpatialState
+from sfm_solver.core.energy_minimizer import UniversalEnergyMinimizer, EnergyMinimizationResult
+
 __all__ = [
     # Constants
     "HBAR",
@@ -44,7 +57,16 @@ __all__ = [
     "SFMGlobalConstants",
     "SFM_CONSTANTS",
     "reset_global_constants",
-    # Classes
+    # Utility Classes
     "SFMParameters",
     "SpectralGrid",
+    # New Two-Stage Solver Architecture (RECOMMENDED)
+    "UnifiedSFMSolver",
+    "UnifiedSolverResult",
+    "DimensionlessShapeSolver",
+    "DimensionlessShapeResult",
+    "SpatialCouplingBuilder",
+    "SpatialState",
+    "UniversalEnergyMinimizer",
+    "EnergyMinimizationResult",
 ]

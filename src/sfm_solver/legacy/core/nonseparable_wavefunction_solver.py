@@ -1,5 +1,15 @@
 """
-Non-Separable Wavefunction Solver for SFM.
+DEPRECATED: Legacy Non-Separable Wavefunction Solver for SFM.
+
+=============================================================================
+WARNING: This module has been superseded by the new two-stage architecture:
+    - Stage 1: DimensionlessShapeSolver (shape_solver.py)
+    - Stage 2: UniversalEnergyMinimizer (energy_minimizer.py)
+    - Combined: UnifiedSFMSolver (unified_solver.py)
+
+This legacy implementation is kept for reference only.
+Please use the new unified solver for all new work.
+=============================================================================
 
 This module solves for the full entangled superposition wavefunction:
     ψ(r,θ,φ,σ) = Σ_{n,l,m} R_{nl}(r) Y_l^m(θ,φ) χ_{nlm}(σ)
