@@ -490,10 +490,29 @@ class UniversalEnergyMinimizer:
         E_total = self._compute_total_energy(
             shape_structure, Delta_x_current, Delta_sigma_current, A_current
         )
+        
+        # Compute individual energy components for reporting
+        chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma_current, A_current)
+        E_spatial = self._compute_spatial_energy(Delta_x_current, A_current)
+        E_curvature = self._compute_curvature_energy(Delta_x_current, A_current)
+        E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma_current)
+        E_pot_sigma = self._compute_potential_sigma(chi_scaled)
+        E_nl_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma_current)
+        E_sigma = E_kin_sigma + E_pot_sigma + E_nl_sigma
+        E_coupling = self._compute_coupling_energy(chi_scaled, Delta_x_current, Delta_sigma_current, A_current)
+        E_em = self._compute_em_energy(chi_scaled)
+        
         # Create energy components dictionary
         energy_components = {
             'E_total': E_total,
-            'note': 'Scale-independent energy (first-principles)'
+            'E_sigma': E_sigma,
+            'E_kinetic_sigma': E_kin_sigma,
+            'E_potential_sigma': E_pot_sigma,
+            'E_nonlinear_sigma': E_nl_sigma,
+            'E_spatial': E_spatial,
+            'E_coupling': E_coupling,
+            'E_curvature': E_curvature,
+            'E_em': E_em
         }
         
         # === COMPUTE MASS FOR REPORTING ===

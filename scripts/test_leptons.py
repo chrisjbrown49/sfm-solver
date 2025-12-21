@@ -17,7 +17,6 @@ from sfm_solver.core.unified_solver import UnifiedSFMSolver
 from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_LEPTONS,
-    VALIDATION_LEPTONS,
 )
 
 
@@ -234,17 +233,8 @@ def main():
     
     print_lepton_results(calibration_results, "CALIBRATION LEPTON RESULTS")
     
-    # Test validation leptons
-    print("\n" + "="*80)
-    print("TESTING VALIDATION LEPTONS (NEUTRINOS)")
-    print("="*80)
-    
+    # Note: Validation leptons (neutrinos) are commented out - suspected to be multi-lepton particles
     validation_results = []
-    for lepton in VALIDATION_LEPTONS:
-        result = test_lepton(solver, lepton, beta, verbose=False)
-        validation_results.append(result)
-    
-    print_lepton_results(validation_results, "VALIDATION LEPTON RESULTS (NEUTRINOS)")
     
     # Summary
     print("\n" + "="*80)

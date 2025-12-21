@@ -80,52 +80,53 @@ class TestUniversalEnergyMinimizer:
     
     def test_energy_components(self, minimizer, test_shape_structure):
         """Test that all energy components are computed without error."""
-        Delta_x = 1.0
-        Delta_sigma = 0.5
-        A = 10.0
-        
-        E_total, components = minimizer._compute_total_energy(
-            test_shape_structure, Delta_x, Delta_sigma, A
+        # Use the public API to get energy components
+        result = minimizer.minimize_lepton_energy(
+            shape_structure=test_shape_structure,
+            generation_n=1
         )
         
-        # Check all components exist
-        assert 'E_sigma' in components
-        assert 'E_kinetic_sigma' in components
-        assert 'E_potential_sigma' in components
-        assert 'E_nonlinear_sigma' in components
-        assert 'E_spatial' in components
-        assert 'E_coupling' in components
-        assert 'E_curvature' in components
-        assert 'E_em' in components
+        # Check all components exist as attributes
+        assert hasattr(result, 'E_sigma')
+        assert hasattr(result, 'E_spatial')
+        assert hasattr(result, 'E_coupling')
+        assert hasattr(result, 'E_curvature')
+        assert hasattr(result, 'E_em')
         
         # All should be finite
-        for name, value in components.items():
-            assert np.isfinite(value), f"{name} is not finite: {value}"
+        for component_name in ['E_sigma', 'E_spatial', 'E_coupling', 'E_curvature', 'E_em']:
+            value = getattr(result, component_name)
+            assert np.isfinite(value), f"{component_name} = {value} is not finite"
         
         # Total should equal sum
-        expected_total = sum(components[k] for k in ['E_sigma', 'E_spatial', 'E_coupling', 'E_curvature', 'E_em'])
-        assert abs(E_total - expected_total) < 1e-6, f"Total {E_total} != sum {expected_total}"
+        expected_total = (
+            result.E_sigma + 
+            result.E_spatial + 
+            result.E_coupling + 
+            result.E_curvature + 
+            result.E_em
+        )
+        assert abs(result.E_total - expected_total) < 1e-6, \
+            f"Total {result.E_total} != sum {expected_total}"
     
     def test_energy_minimum(self, minimizer, test_shape_structure):
-        """Test that found point is actually a minimum (basic check)."""
-        # Use simple initial guess
-        Delta_x_0 = 1.0
-        Delta_sigma_0 = 0.5
-        A_0 = 5.0
-        
-        # Compute energy at initial point
-        E_initial, _ = minimizer._compute_total_energy(
-            test_shape_structure, Delta_x_0, Delta_sigma_0, A_0
+        """Test that energy functional is sensitive to parameters."""
+        # Compute energy at one point
+        E_1 = minimizer._compute_total_energy(
+            test_shape_structure, Delta_x=1.0, Delta_sigma=0.5, A=5.0
         )
         
-        # Perturb slightly
-        Delta_x_pert = Delta_x_0 * 1.01
-        E_pert, _ = minimizer._compute_total_energy(
-            test_shape_structure, Delta_x_pert, Delta_sigma_0, A_0
+        # Compute energy at perturbed point
+        E_2 = minimizer._compute_total_energy(
+            test_shape_structure, Delta_x=1.01, Delta_sigma=0.5, A=5.0
         )
         
-        # Energy should change (not stuck at zero)
-        assert abs(E_pert - E_initial) > 1e-10, "Energy not sensitive to parameters"
+        # Energy should be different (functional is working)
+        assert abs(E_2 - E_1) > 1e-10, "Energy not sensitive to Delta_x changes"
+        
+        # Both energies should be finite
+        assert np.isfinite(E_1), f"E_1 = {E_1} is not finite"
+        assert np.isfinite(E_2), f"E_2 = {E_2} is not finite"
     
     def test_minimize_lepton_energy(self, minimizer, test_shape_structure):
         """Test that lepton energy minimization runs without error."""
