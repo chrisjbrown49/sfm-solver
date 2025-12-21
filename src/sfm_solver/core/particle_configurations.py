@@ -59,39 +59,40 @@ TAU = LeptonConfig(
 # ============================================================================
 # VALIDATION PARTICLES (blind predictions)
 # ============================================================================
-
+# !!! Suspect that neutrinos are actually multi-lepton particles with k=[1,-1] similar to Pions !!!
+# !!! Remove from lepton validation particles and mark for future investigation !!!
 # First generation
-ELECTRON_NEUTRINO = LeptonConfig(
-    name="electron_neutrino",
-    generation=1,
-    winding=1,  # Same winding but weak spin-orbit
-    charge=0,
-    mass_exp=0.0,  # Upper limit, actual value TBD
-    mass_uncertainty=0.001,
-    is_neutrino=True,
-)
+# ELECTRON_NEUTRINO = LeptonConfig(
+#     name="electron_neutrino",
+#     generation=1,
+#     winding=1,  # Same winding but weak spin-orbit
+#     charge=0,
+#     mass_exp=0.0,  # Upper limit, actual value TBD
+#     mass_uncertainty=0.001,
+#     is_neutrino=True,
+# )
 
-# Second generation
-MUON_NEUTRINO = LeptonConfig(
-    name="muon_neutrino",
-    generation=2,
-    winding=1,
-    charge=0,
-    mass_exp=0.0,
-    mass_uncertainty=0.001,
-    is_neutrino=True,
-)
+# # Second generation
+# MUON_NEUTRINO = LeptonConfig(
+#     name="muon_neutrino",
+#     generation=2,
+#     winding=1,
+#     charge=0,
+#     mass_exp=0.0,
+#     mass_uncertainty=0.001,
+#     is_neutrino=True,
+# )
 
-# Third generation
-TAU_NEUTRINO = LeptonConfig(
-    name="tau_neutrino",
-    generation=3,
-    winding=1,
-    charge=0,
-    mass_exp=0.0,
-    mass_uncertainty=0.001,
-    is_neutrino=True,
-)
+# # Third generation
+# TAU_NEUTRINO = LeptonConfig(
+#     name="tau_neutrino",
+#     generation=3,
+#     winding=1,
+#     charge=0,
+#     mass_exp=0.0,
+#     mass_uncertainty=0.001,
+#     is_neutrino=True,
+# )
 
 # ============================================================================
 # MESON CONFIGURATIONS
@@ -438,11 +439,12 @@ DELTA_PLUS = BaryonConfig(
 # ============================================================================
 
 CALIBRATION_LEPTONS = [ELECTRON, MUON, TAU]
-VALIDATION_LEPTONS = [
-    ELECTRON_NEUTRINO,
-    MUON_NEUTRINO,
-    TAU_NEUTRINO,
-]
+# VALIDATION_LEPTONS commented out - neutrinos suspected to be multi-lepton particles
+# VALIDATION_LEPTONS = [
+#     ELECTRON_NEUTRINO,
+#     MUON_NEUTRINO,
+#     TAU_NEUTRINO,
+# ]
 
 CALIBRATION_MESONS = [PION_PLUS, J_PSI]
 VALIDATION_MESONS = [
@@ -461,7 +463,7 @@ VALIDATION_BARYONS = [
 
 EXCITED_BARYONS = [DELTA_PLUS_PLUS, DELTA_PLUS]
 
-ALL_LEPTONS = CALIBRATION_LEPTONS + VALIDATION_LEPTONS
+ALL_LEPTONS = CALIBRATION_LEPTONS  # VALIDATION_LEPTONS commented out for now
 ALL_MESONS = CALIBRATION_MESONS + VALIDATION_MESONS
 ALL_BARYONS = CALIBRATION_BARYONS + VALIDATION_BARYONS + EXCITED_BARYONS
 ALL_PARTICLES = ALL_LEPTONS + ALL_MESONS + ALL_BARYONS

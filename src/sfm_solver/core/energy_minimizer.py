@@ -21,6 +21,10 @@ from typing import Dict, Tuple, Optional
 from scipy.optimize import minimize
 import warnings
 
+# Unit conversion constant: ℏc in GeV·fm
+# Used to convert spatial lengths from fm to natural units (GeV^-1)
+HBAR_C_GEV_FM = 0.1973269804  # GeV·fm
+
 
 @dataclass
 class EnergyMinimizationResult:
@@ -163,13 +167,14 @@ class UniversalEnergyMinimizer:
         """
         Compute optimal spatial scale from gravitational self-confinement.
         
-        FIRST-PRINCIPLES DERIVATION (from legacy solver):
+        FIRST-PRINCIPLES DERIVATION:
         ================================================
         
         The spatial confinement comes from gravitational self-energy balance.
-        The characteristic scale is:
+        From "A Beautiful Balance" research note, the characteristic scale is:
         
-            Δx = (1/(g_internal × A⁶))^(1/3)
+            Δx = ℏ²/(g_internal × A⁶)  [in natural units where ℏ=c=1]
+            Δx = 1/(g_internal × A⁶)   [gives result in GeV^-1]
         
         This formula ensures:
         - Larger amplitude A → smaller Δx (more confined)
@@ -186,16 +191,20 @@ class UniversalEnergyMinimizer:
             Optimal Delta_x from gravitational self-confinement (in fm)
         """
         if self.g_internal <= 0 or A < 1e-10:
-            return 1.0  # Default fallback
+            return 1.0  # Default fallback in fm
         
-        # From gravitational self-confinement: Δx = (1/(g_internal × A⁶))^(1/3)
+        # From gravitational self-confinement: Δx = 1/(g_internal × A⁶) [GeV^-1]
+        # This gives Δx ∝ A^(-6) - strong confinement for larger amplitudes
         A_sixth = A ** 6
-        delta_x_opt = (1.0 / (self.g_internal * A_sixth)) ** (1.0/3.0)
+        delta_x_nat = 1.0 / (self.g_internal * A_sixth)  # Result in GeV^-1
+        
+        # Convert from GeV^-1 to fm
+        delta_x_fm = delta_x_nat * HBAR_C_GEV_FM
         
         # Apply reasonable physical bounds (spatial scale should be in fm range)
         MIN_DELTA_X = 0.001  # fm - minimum resolvable scale
-        MAX_DELTA_X = 1000000.0  # fm - allow large delocalization (1 mm scale)
-        delta_x_opt = max(MIN_DELTA_X, min(MAX_DELTA_X, delta_x_opt))
+        MAX_DELTA_X = 1000.0  # fm - nuclear to atomic scale
+        delta_x_opt = max(MIN_DELTA_X, min(MAX_DELTA_X, delta_x_fm))
         
         return delta_x_opt
     
@@ -700,13 +709,22 @@ class UniversalEnergyMinimizer:
         E_x = hbar^2 / (2m * Delta_x^2) where m = beta * A^2
         
         Using natural units where hbar = c = 1.
+        
+        Args:
+            Delta_x: Spatial extent in fm
+            A: Amplitude
+            
+        Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         m = self.beta * A**2
         
         if m < 1e-20:
             return 1e10  # Prevent division by zero
         
-        E_x = 1.0 / (2.0 * m * Delta_x**2)
+        # Convert Delta_x from fm to GeV^-1 (natural units)
+        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
+        
+        E_x = 1.0 / (2.0 * m * Delta_x_nat**2)
         
         return E_x
     
@@ -723,11 +741,21 @@ class UniversalEnergyMinimizer:
         E_coupling from mixed derivatives that create generation hierarchy.
         
         Scales as: E_c ~ alpha * (1/Delta_x) * (1/Delta_sigma) * A^2
+        
+        Args:
+            Delta_x: Spatial extent in fm
+            Delta_sigma: Subspace width (dimensionless)
+            A: Amplitude
+            
+        Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         # Simplified estimate
         # Full implementation would compute actual gradient coupling integrals
         
-        E_coupling = self.alpha * A**2 / (Delta_x * Delta_sigma)
+        # Convert Delta_x from fm to GeV^-1 (natural units)
+        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
+        
+        E_coupling = self.alpha * A**2 / (Delta_x_nat * Delta_sigma)
         
         return E_coupling
     
@@ -738,12 +766,21 @@ class UniversalEnergyMinimizer:
         E_curv = G_5D * m^2 / Delta_x where m = beta * A^2
         
         Using g_internal = G_5D * beta^3, so G_5D = g_internal / beta^3
+        
+        Args:
+            Delta_x: Spatial extent in fm
+            A: Amplitude
+            
+        Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         m = self.beta * A**2
         
         G_5D = self.g_internal / (self.beta**3)
         
-        E_curv = G_5D * m**2 / Delta_x
+        # Convert Delta_x from fm to GeV^-1 (natural units)
+        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
+        
+        E_curv = G_5D * m**2 / Delta_x_nat
         
         return E_curv
     
@@ -773,11 +810,20 @@ class UniversalEnergyMinimizer:
         Compute scaled spatial energy: Ẽ_x = β × E_x = 1/(2·A²·Δx²)
         
         This is β-independent! The spatial confinement energy in amplitude space.
+        
+        Args:
+            Delta_x: Spatial extent in fm
+            A: Amplitude
+            
+        Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         if A < 1e-10:
             return 1e10  # Prevent division by zero
         
-        E_tilde_x = 1.0 / (2.0 * A**2 * Delta_x**2)
+        # Convert Delta_x from fm to GeV^-1 (natural units)
+        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
+        
+        E_tilde_x = 1.0 / (2.0 * A**2 * Delta_x_nat**2)
         
         return E_tilde_x
     
@@ -787,8 +833,17 @@ class UniversalEnergyMinimizer:
         
         Uses g_internal directly (fundamental parameter).
         This is the gravitational self-confinement in amplitude space.
+        
+        Args:
+            Delta_x: Spatial extent in fm
+            A: Amplitude
+            
+        Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
-        E_tilde_curv = self.g_internal * A**4 / Delta_x
+        # Convert Delta_x from fm to GeV^-1 (natural units)
+        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
+        
+        E_tilde_curv = self.g_internal * A**4 / Delta_x_nat
         
         return E_tilde_curv
     
