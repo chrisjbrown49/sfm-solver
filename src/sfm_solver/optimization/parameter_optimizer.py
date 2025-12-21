@@ -1067,18 +1067,16 @@ class SFMParameterOptimizer:
             try:
                 from sfm_solver.core.unified_solver import UnifiedSFMSolver
                 
-                # Use new UnifiedSFMSolver with beta=None for amplitude-only optimization
+                # Use new UnifiedSFMSolver for amplitude-only optimization
+                # Beta will be derived from electron after optimization
                 solver = UnifiedSFMSolver(
-                    beta=None,  # Will derive beta from electron after optimization
                     alpha=alpha,
                     g_internal=g_internal,
                     g1=g1,
                     g2=0.004,
-                    V0=self.V0,
                     n_max=5,
                     l_max=2,
                     N_sigma=64,
-                    auto_calibrate_beta=False,  # Don't auto-calibrate yet
                     verbose=False,
                 )
                 
@@ -1252,16 +1250,23 @@ class SFMParameterOptimizer:
         # Derive beta from optimal parameters
         try:
             from sfm_solver.core.unified_solver import UnifiedSFMSolver
+            from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
             
             solver = UnifiedSFMSolver(
-                beta=None,
                 alpha=alpha_opt,
                 g_internal=g_internal_opt,
                 g1=g1_opt,
-                auto_calibrate_beta=False,
+                g2=0.004,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
                 verbose=False,
             )
             
+            # Use the calibrate_beta_from_electron helper
+            beta_opt = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
+            
+            # Also get result for convergence check
             result_e = solver.solve_lepton(
                 winding_k=1, generation_n=1
             )
@@ -1276,9 +1281,6 @@ class SFMParameterOptimizer:
                     print(f"  {warning_msg}")
                 if self.log_file:
                     self._log(f"  {warning_msg}")
-            
-            A_e_squared = result_e.A ** 2
-            beta_opt = 0.511 / A_e_squared  # SFM units convention
             
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
