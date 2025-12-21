@@ -169,26 +169,23 @@ class SpatialCouplingBuilder:
             
             chi_components[(n, l, m)] = chi_nlm
         
-        # Normalize total structure to integral_Sigma |chi_nlm|^2 = 1
-        total_norm_sq = 0.0
-        N_sigma = len(subspace_shape)
-        dsigma = 2*np.pi / N_sigma
-        
-        for chi in chi_components.values():
-            total_norm_sq += np.sum(np.abs(chi)**2) * dsigma
-        
-        if total_norm_sq < 1e-20:
-            warnings.warn("Total norm is extremely small in 4D structure")
-            return chi_components
-        
-        normalization_factor = 1.0 / np.sqrt(total_norm_sq)
-        
-        for key in chi_components:
-            chi_components[key] *= normalization_factor
+        # DO NOT renormalize! The primary component is already normalized from Stage 1.
+        # The induced components are perturbative corrections and should be small.
+        # The overall scale is provided by amplitude A in Stage 2.
         
         if self.verbose:
+            # Report total norm for diagnostic purposes
+            N_sigma = len(subspace_shape)
+            dsigma = 2*np.pi / N_sigma
+            total_norm_sq = 0.0
+            for chi in chi_components.values():
+                total_norm_sq += np.sum(np.abs(chi)**2) * dsigma
+            
+            primary_norm_sq = np.sum(np.abs(subspace_shape)**2) * dsigma
+            
             print(f"  Created {len(chi_components)} spatial components")
-            print(f"  Normalization factor: {normalization_factor:.6f}")
+            print(f"  Primary component norm: {np.sqrt(primary_norm_sq):.6f}")
+            print(f"  Total structure norm: {np.sqrt(total_norm_sq):.6f}")
         
         return chi_components
     
