@@ -158,6 +158,94 @@ class TestUnifiedSolver:
         assert 'n_target' in result.quantum_numbers
 
 
+@pytest.mark.integration
+class TestBetaCalibration:
+    """Test suite for β calibration functionality."""
+    
+    def test_beta_calibration_from_electron(self, test_constants):
+        """Test β calibration from electron mass."""
+        # Create solver without β
+        solver = UnifiedSFMSolver(
+            beta=None,
+            auto_calibrate_beta=False,
+            n_max=test_constants['n_max'],
+            l_max=test_constants['l_max'],
+            N_sigma=test_constants['N_sigma'],
+            verbose=False
+        )
+        
+        # Initially β should be None
+        assert solver.beta is None
+        assert solver.energy_minimizer.beta is None
+        
+        # Calibrate from electron
+        beta_calibrated = solver.calibrate_beta_from_electron(verbose=False)
+        
+        # β should now be set
+        assert beta_calibrated > 0
+        assert solver.beta == beta_calibrated
+        assert solver.energy_minimizer.beta == beta_calibrated
+        
+        # β should be in reasonable range (order 10^-2 GeV)
+        assert 0.001 < beta_calibrated < 0.1
+        
+        # Verify electron mass matches by construction
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1)
+        m_e_pred = result_e.mass * 1000  # MeV
+        m_e_exp = 0.510999  # MeV
+        
+        # Should match exactly (within numerical precision)
+        assert abs(m_e_pred - m_e_exp) < 1e-5
+    
+    def test_auto_calibrate_beta_on_init(self, test_constants):
+        """Test auto-calibration of β on initialization."""
+        # Create solver with auto-calibration
+        solver = UnifiedSFMSolver(
+            beta=None,
+            auto_calibrate_beta=True,
+            n_max=test_constants['n_max'],
+            l_max=test_constants['l_max'],
+            N_sigma=test_constants['N_sigma'],
+            verbose=False
+        )
+        
+        # β should be calibrated automatically
+        assert solver.beta is not None
+        assert solver.beta > 0
+        assert solver.energy_minimizer.beta == solver.beta
+        
+        # Electron mass should match
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1)
+        m_e_pred = result_e.mass * 1000  # MeV
+        m_e_exp = 0.510999  # MeV
+        
+        assert abs(m_e_pred - m_e_exp) < 1e-5
+    
+    def test_mass_ratios_from_amplitude_ratios(self, test_constants):
+        """Test that mass ratios equal amplitude ratios."""
+        solver = UnifiedSFMSolver(
+            auto_calibrate_beta=True,
+            n_max=test_constants['n_max'],
+            l_max=test_constants['l_max'],
+            N_sigma=test_constants['N_sigma'],
+            verbose=False
+        )
+        
+        # Solve electron and muon
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1)
+        result_mu = solver.solve_lepton(winding_k=1, generation_n=2)
+        
+        # Mass ratio should equal amplitude ratio squared
+        mass_ratio = result_mu.mass / result_e.mass
+        amplitude_ratio_sq = (result_mu.A / result_e.A)**2
+        
+        # Should match within numerical precision
+        assert abs(mass_ratio - amplitude_ratio_sq) < 1e-6
+        
+        # This is the fundamental relationship: m_μ/m_e = A_μ²/A_e²
+        # Independent of β value
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
 

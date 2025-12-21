@@ -56,8 +56,9 @@ from typing import List, Dict, Optional, Tuple, Callable
 import time
 import warnings
 
-from sfm_solver.core.grid import SpectralGrid
-from sfm_solver.potentials.three_well import ThreeWellPotential
+# Legacy imports - not needed for new architecture
+# from sfm_solver.core.grid import SpectralGrid
+# from sfm_solver.potentials.three_well import ThreeWellPotential
 from sfm_solver.core.constants import (
     save_constants_to_json,
     load_constants_from_json,
@@ -1057,15 +1058,18 @@ class SFMParameterOptimizer:
         
         # Compute A^2 for leptons
         A_squared = {}
+        all_converged = True  # Track convergence status
         
         for particle in self.calibration:
             if particle.particle_type != 'lepton':
                 continue
             
             try:
-                from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+                from sfm_solver.core.unified_solver import UnifiedSFMSolver
                 
-                solver = NonSeparableWavefunctionSolver(
+                # Use new UnifiedSFMSolver with beta=None for amplitude-only optimization
+                solver = UnifiedSFMSolver(
+                    beta=None,  # Will derive beta from electron after optimization
                     alpha=alpha,
                     g_internal=g_internal,
                     g1=g1,
@@ -1074,48 +1078,30 @@ class SFMParameterOptimizer:
                     n_max=5,
                     l_max=2,
                     N_sigma=64,
-                )
-                
-                n_target = particle.generation
-                result = solver.solve_lepton_self_consistent(
-                    n_target=n_target,
-                    k_winding=1,
-                    max_iter_outer=self.max_iter_lepton,
-                    max_iter_nl=0,
+                    auto_calibrate_beta=False,  # Don't auto-calibrate yet
                     verbose=False,
                 )
                 
-                # Check convergence with diagnostics
-                if not result.converged:
-                    conv_status = "UNKNOWN"
-                    final_change = None
-                    validity = ""
-                    
-                    if result.convergence_history and 'A' in result.convergence_history:
-                        A_hist = result.convergence_history['A']
-                        if len(A_hist) > 1:
-                            final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
-                            if final_change < 5e-4:
-                                conv_status = "SOFT"
-                                validity = " [LIKELY VALID]"
-                            elif final_change < 1e-3:
-                                conv_status = "MODERATE"
-                                validity = " [CAUTION]"
-                            else:
-                                conv_status = "HARD"
-                                validity = " [UNRELIABLE]"
-                    
+                n_target = particle.generation
+                result = solver.solve_lepton(
+                    winding_k=1,
+                    generation_n=n_target,
+                )
+                
+                # Check convergence
+                particle_converged = result.shape_converged and result.energy_converged
+                if not particle_converged:
+                    all_converged = False
                     warning_msg = (f"WARNING: Lepton - {particle.name} (n={n_target}): "
-                                  f"{result.iterations}/{self.max_iter_lepton} iters, {conv_status}")
-                    if final_change is not None:
-                        warning_msg += f", dA/A={final_change:.2e}"
-                    warning_msg += validity
+                                  f"shape_converged={result.shape_converged}, "
+                                  f"energy_converged={result.energy_converged}")
                     
                     if self.log_file:
                         with open(self.log_file, 'a', encoding='utf-8') as f:
                             f.write(f"  {warning_msg}\n")
                 
-                A_squared[particle.name] = result.structure_norm ** 2
+                # New solver returns A directly
+                A_squared[particle.name] = result.A ** 2
                 
             except Exception as e:
                 return 1e20
@@ -1157,7 +1143,8 @@ class SFMParameterOptimizer:
         
         elapsed = time.time() - start_time
         
-        is_best = total_error < self._best_error
+        # Only consider converged solutions as "best"
+        is_best = all_converged and total_error < self._best_error
         if is_best:
             self._best_error = total_error
             self._best_params = (alpha, g_internal, g1, beta_derived)
@@ -1166,6 +1153,8 @@ class SFMParameterOptimizer:
             with open(self.log_file, 'a', encoding='utf-8') as f:
                 f.write(f"\nEval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, g1={g1:.1f}")
                 f.write(f" -> error={total_error:.2f}%")
+                if not all_converged:
+                    f.write(" [NOT CONVERGED]")
                 if is_best:
                     f.write(" *** BEST ***")
                 f.write("\n")
@@ -1262,54 +1251,39 @@ class SFMParameterOptimizer:
         
         # Derive beta from optimal parameters
         try:
-            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            from sfm_solver.core.unified_solver import UnifiedSFMSolver
             
-            solver = NonSeparableWavefunctionSolver(
+            solver = UnifiedSFMSolver(
+                beta=None,
                 alpha=alpha_opt,
                 g_internal=g_internal_opt,
                 g1=g1_opt,
+                auto_calibrate_beta=False,
+                verbose=False,
             )
             
-            result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
+            result_e = solver.solve_lepton(
+                winding_k=1, generation_n=1
             )
             
-            # Check convergence with diagnostics
-            if not result_e.converged:
-                conv_status = "UNKNOWN"
-                final_change = None
-                validity = ""
-                
-                if result_e.convergence_history and 'A' in result_e.convergence_history:
-                    A_hist = result_e.convergence_history['A']
-                    if len(A_hist) > 1:
-                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
-                        if final_change < 5e-4:
-                            conv_status = "SOFT"
-                            validity = " [LIKELY VALID]"
-                        elif final_change < 1e-3:
-                            conv_status = "MODERATE"
-                            validity = " [CAUTION]"
-                        else:
-                            conv_status = "HARD"
-                            validity = " [UNRELIABLE]"
-                
-                warning_msg = (f"WARNING: Final electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
-                              f"{conv_status}")
-                if final_change is not None:
-                    warning_msg += f", dA/A={final_change:.2e}"
-                warning_msg += validity
+            # Check convergence
+            if not (result_e.shape_converged and result_e.energy_converged):
+                warning_msg = (f"WARNING: Final electron: "
+                              f"shape_converged={result_e.shape_converged}, "
+                              f"energy_converged={result_e.energy_converged}")
                 
                 if self.verbose:
                     print(f"  {warning_msg}")
                 if self.log_file:
                     self._log(f"  {warning_msg}")
             
-            A_e_squared = result_e.structure_norm ** 2
+            A_e_squared = result_e.A ** 2
             beta_opt = 0.511 / A_e_squared  # SFM units convention
             
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
+            import traceback
+            traceback.print_exc()
             beta_opt = BETA_INITIAL
         
         # For backward compatibility with result structure
@@ -2792,11 +2766,11 @@ Examples:
     )
     
     parser.add_argument(
-        "--max-eval",
+        "--max-generations",
         type=int,
         default=100,
-        dest="max_eval",
-        help="Maximum number of optimizer evaluations (reported as 'Eval' in log, default: 100)"
+        dest="max_generations",
+        help="Maximum number of optimizer generations (each generation evaluates ~10-15 particles, default: 100)"
     )
     
     parser.add_argument(
@@ -2875,7 +2849,7 @@ Examples:
     print(f"Mode: {mode_names.get(args.mode, args.mode)}")
     if args.mode == "baryon" and args.use_ratio_search:
         print(f"Ratio search: ENABLED (g2 = g2_ratio * g1)")
-    print(f"Max evaluations: {args.max_eval}")
+    print(f"Max generations: {args.max_generations} (~{args.max_generations * 10}-{args.max_generations * 15} evaluations)")
     print(f"Bounds tolerance: {args.bounds_tol * 100:.1f}% (+/- around initial values)")
     print(f"Save to constants.json: {'Yes' if save_json else 'No'}")
     print(f"Log file: {log_file}")
@@ -2893,7 +2867,7 @@ Examples:
     if args.mode == "baryon":
         result = run_optimization_baryon(
             verbose=verbose,
-            maxeval=args.max_eval,
+            maxeval=args.max_generations,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2905,7 +2879,7 @@ Examples:
     elif args.mode == "full":
         result = run_optimization_full(
             verbose=verbose,
-            maxeval=args.max_eval,
+            maxeval=args.max_generations,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,
@@ -2917,7 +2891,7 @@ Examples:
     else:  # lepton
         result = run_optimization_lepton(
             verbose=verbose,
-            maxeval=args.max_eval,
+            maxeval=args.max_generations,
             log_file=log_file,
             save_json=save_json,
             max_iter_lepton=args.max_iter_lepton,

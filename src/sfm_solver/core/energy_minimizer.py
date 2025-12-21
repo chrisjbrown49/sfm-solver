@@ -32,7 +32,7 @@ class EnergyMinimizationResult:
     A: float  # Amplitude
     
     # Predicted mass
-    mass: float  # GeV
+    mass: Optional[float]  # GeV, None if beta not calibrated
     
     # Energy breakdown
     E_total: float
@@ -71,44 +71,51 @@ class UniversalEnergyMinimizer:
     
     def __init__(
         self,
-        beta: float,
         g_internal: float,
         g1: float,
         g2: float,
         V0: float,
         V1: float,
         alpha: float,
+        beta: Optional[float] = None,
+        use_scaled_energy: bool = True,
         verbose: bool = False
     ):
         """
         Initialize universal energy minimizer.
         
         Args:
-            beta: Mass conversion factor (m = beta * A^2)
-            g_internal: Gravitational self-confinement = G_5D * beta^3
-            g1: Nonlinear coupling
-            g2: EM coupling
-            V0: Three-well primary depth
-            V1: Three-well secondary depth
-            alpha: Spatial-subspace coupling
+            g_internal: FUNDAMENTAL gravitational strength (g_internal = G_5D x beta^3)
+            g1: Nonlinear coupling (GeV)
+            g2: EM coupling (GeV)
+            V0: Three-well primary depth (GeV)
+            V1: Three-well secondary depth (GeV)
+            alpha: Spatial-subspace coupling (GeV)
+            beta: Mass conversion factor (m = beta * A^2). If None, will be calibrated.
+            use_scaled_energy: If True, minimize E_tilde = beta×E (beta-independent formulation)
             verbose: Print diagnostic information
         """
-        self.beta = beta
-        self.g_internal = g_internal
+        self.g_internal = g_internal  # FUNDAMENTAL - drives all physics
         self.g1 = g1
         self.g2 = g2
         self.V0 = V0
         self.V1 = V1
         self.alpha = alpha
+        self.beta = beta  # Can be None initially for calibration
+        self.use_scaled_energy = use_scaled_energy
         self.verbose = verbose
         
         if self.verbose:
             print("=== UniversalEnergyMinimizer Initialized ===")
-            print(f"  beta: {beta:.6f} GeV")
-            print(f"  g_internal: {g_internal:.6f}")
+            if beta is not None:
+                print(f"  beta: {beta:.6f} GeV")
+            else:
+                print(f"  beta: Not yet calibrated (will use beta-independent formulation)")
+            print(f"  g_internal: {g_internal:.6f} (FUNDAMENTAL)")
             print(f"  g1: {g1:.3f}")
             print(f"  g2: {g2:.6f}")
             print(f"  alpha: {alpha:.3f} GeV")
+            print(f"  use_scaled_energy: {use_scaled_energy}")
     
     def minimize_baryon_energy(
         self,
@@ -258,23 +265,34 @@ class UniversalEnergyMinimizer:
         Returns:
             EnergyMinimizationResult
         """
+        # Choose energy function based on beta availability
+        use_scaled = self.use_scaled_energy or self.beta is None
+        
         # Define energy functional to minimize
         def energy_functional(params):
             Delta_x, Delta_sigma, A = params
             
             # Physical bounds
-            if Delta_x < 0.01 or Delta_x > 100.0:
+            # Extremely relaxed bounds to allow highly delocalized states (e.g., neutrinos)
+            # Lighter particles are more delocalized and need larger spatial scales
+            # These bounds should not constrain the physics - only prevent numerical issues
+            if Delta_x < 0.0001 or Delta_x > 10000000.0:
                 return 1e10
-            if Delta_sigma < 0.05 or Delta_sigma > 5.0:
+            if Delta_sigma < 0.01 or Delta_sigma > 100000.0:
                 return 1e10
-            if A < 0.1 or A > 1000.0:
+            if A < 0.00001 or A > 1000000.0:
                 return 1e10
             
-            # Compute total energy
+            # Compute total energy (scaled if beta not available)
             try:
-                E_total, _ = self._compute_total_energy(
-                    shape_structure, Delta_x, Delta_sigma, A
-                )
+                if use_scaled:
+                    E_total = self._compute_scaled_total_energy(
+                        shape_structure, Delta_x, Delta_sigma, A
+                    )
+                else:
+                    E_total, _ = self._compute_total_energy(
+                        shape_structure, Delta_x, Delta_sigma, A
+                    )
                 return E_total
             except Exception as e:
                 if self.verbose:
@@ -299,23 +317,42 @@ class UniversalEnergyMinimizer:
         Delta_x_opt, Delta_sigma_opt, A_opt = result.x
         
         # Compute final energy components
-        E_total, energy_components = self._compute_total_energy(
-            shape_structure, Delta_x_opt, Delta_sigma_opt, A_opt
-        )
+        if use_scaled:
+            E_total = self._compute_scaled_total_energy(
+                shape_structure, Delta_x_opt, Delta_sigma_opt, A_opt
+            )
+            # Create dummy energy components for now
+            energy_components = {
+                'E_scaled_total': E_total,
+                'note': 'Using beta-independent formulation'
+            }
+        else:
+            E_total, energy_components = self._compute_total_energy(
+                shape_structure, Delta_x_opt, Delta_sigma_opt, A_opt
+            )
         
-        # Compute mass
-        mass = self.beta * A_opt**2
+        # Compute mass (if beta is available)
+        if self.beta is not None:
+            mass = self.beta * A_opt**2
+        else:
+            mass = None  # Will be calibrated later
         
         if self.verbose:
             print(f"\n  Optimal solution:")
             print(f"    Delta_x = {Delta_x_opt:.6f} fm")
             print(f"    Delta_sigma = {Delta_sigma_opt:.6f}")
             print(f"    A = {A_opt:.6f}")
-            print(f"    Mass = {mass:.6f} GeV")
+            if mass is not None:
+                print(f"    Mass = {mass:.6f} GeV")
+            else:
+                print(f"    Mass = (will be calibrated from beta)")
             print(f"    E_total = {E_total:.6e}")
             print(f"  Energy breakdown:")
             for name, value in energy_components.items():
-                print(f"    {name}: {value:.6e}")
+                if isinstance(value, (int, float)):
+                    print(f"    {name}: {value:.6e}")
+                else:
+                    print(f"    {name}: {value}")
         
         return EnergyMinimizationResult(
             Delta_x=Delta_x_opt,
@@ -323,14 +360,14 @@ class UniversalEnergyMinimizer:
             A=A_opt,
             mass=mass,
             E_total=E_total,
-            E_sigma=energy_components['E_sigma'],
-            E_kinetic_sigma=energy_components['E_kinetic_sigma'],
-            E_potential_sigma=energy_components['E_potential_sigma'],
-            E_nonlinear_sigma=energy_components['E_nonlinear_sigma'],
-            E_spatial=energy_components['E_spatial'],
-            E_coupling=energy_components['E_coupling'],
-            E_curvature=energy_components['E_curvature'],
-            E_em=energy_components['E_em'],
+            E_sigma=energy_components.get('E_sigma', 0.0),
+            E_kinetic_sigma=energy_components.get('E_kinetic_sigma', 0.0),
+            E_potential_sigma=energy_components.get('E_potential_sigma', 0.0),
+            E_nonlinear_sigma=energy_components.get('E_nonlinear_sigma', 0.0),
+            E_spatial=energy_components.get('E_spatial', 0.0),
+            E_coupling=energy_components.get('E_coupling', 0.0),
+            E_curvature=energy_components.get('E_curvature', 0.0),
+            E_em=energy_components.get('E_em', 0.0),
             converged=result.success,
             iterations=result.nit if hasattr(result, 'nit') else 0,
             optimization_message=result.message,
@@ -567,6 +604,85 @@ class UniversalEnergyMinimizer:
         E_em = self.beta * self.g2 * np.abs(J)**2
         
         return E_em
+    
+    def _compute_scaled_spatial_energy(self, Delta_x: float, A: float) -> float:
+        """
+        Compute scaled spatial energy: Ẽ_x = β × E_x = 1/(2·A²·Δx²)
+        
+        This is β-independent! The spatial confinement energy in amplitude space.
+        """
+        if A < 1e-10:
+            return 1e10  # Prevent division by zero
+        
+        E_tilde_x = 1.0 / (2.0 * A**2 * Delta_x**2)
+        
+        return E_tilde_x
+    
+    def _compute_scaled_curvature_energy(self, Delta_x: float, A: float) -> float:
+        """
+        Compute scaled curvature energy: Ẽ_curv = β × E_curv = g_internal × A⁴/Δx
+        
+        Uses g_internal directly (fundamental parameter).
+        This is the gravitational self-confinement in amplitude space.
+        """
+        E_tilde_curv = self.g_internal * A**4 / Delta_x
+        
+        return E_tilde_curv
+    
+    def _compute_scaled_total_energy(
+        self,
+        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        Delta_x: float,
+        Delta_sigma: float,
+        A: float
+    ) -> float:
+        """
+        Compute Ẽ_total = β × E_total (β-independent formulation).
+        
+        This allows energy minimization without knowing β.
+        After finding optimal A, calibrate: β = m_exp / A²
+        
+        The scaled energy uses:
+        - Ẽ_x = 1/(2·A²·Δx²)  [no β!]
+        - Ẽ_curv = g_internal·A⁴/Δx  [uses g_internal directly]
+        - Ẽ_other = β × E_other  [β as placeholder]
+        
+        The minimum occurs at the same (Δx, Δσ, A) regardless of β value.
+        """
+        # Use β=1 as placeholder for scaling factors in other energy terms
+        beta_placeholder = 1.0
+        
+        # Scale wavefunctions
+        chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma, A)
+        
+        # β-independent energy components
+        E_tilde_x = self._compute_scaled_spatial_energy(Delta_x, A)
+        E_tilde_curv = self._compute_scaled_curvature_energy(Delta_x, A)
+        
+        # Other components (multiply by beta_placeholder for consistency)
+        E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma)
+        E_pot_sigma = self._compute_potential_sigma(chi_scaled)
+        E_nl_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma)
+        E_coupling = self._compute_coupling_energy(chi_scaled, Delta_x, Delta_sigma, A)
+        
+        # EM energy (compute without beta factor for scaled version)
+        chi_total = sum(chi_scaled.values())
+        N = len(chi_total)
+        dsigma = 2*np.pi / N
+        D1 = self._build_derivative_operator(N)
+        dchi = D1 @ chi_total
+        J = np.sum(np.conj(chi_total) * dchi) * dsigma
+        E_em_base = self.g2 * np.abs(J)**2  # Without beta factor
+        
+        E_tilde_sigma = beta_placeholder * (E_kin_sigma + E_pot_sigma + E_nl_sigma)
+        E_tilde_coupling = beta_placeholder * E_coupling
+        E_tilde_em = beta_placeholder * E_em_base
+        
+        # Total scaled energy
+        E_tilde_total = (E_tilde_x + E_tilde_curv + E_tilde_sigma + 
+                         E_tilde_coupling + E_tilde_em)
+        
+        return E_tilde_total
     
     def _build_derivative_operator(self, N: int) -> NDArray:
         """

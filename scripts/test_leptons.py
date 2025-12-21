@@ -192,13 +192,13 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Create solver with test parameters
+    # Create solver with auto-calibration
     print("\nCreating solver...")
-    print("  Note: Overriding beta = 0.000500 GeV for testing")
+    print("  Note: beta will be auto-calibrated from electron mass")
     print("  All other parameters loaded from constants.json")
     
     solver = UnifiedSFMSolver(
-        beta=0.0005,  # Override for testing
+        auto_calibrate_beta=True,  # Calibrate from electron
         n_max=5,
         l_max=2,
         N_sigma=64,
