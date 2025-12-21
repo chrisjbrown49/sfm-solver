@@ -14,14 +14,22 @@ import time
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
+from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_LEPTONS,
     VALIDATION_LEPTONS,
 )
 
 
-def test_lepton(solver, lepton_config, verbose=False):
-    """Test lepton and return results."""
+def test_lepton(solver, lepton_config, beta, verbose=False):
+    """Test lepton and return results.
+    
+    Args:
+        solver: UnifiedSFMSolver instance
+        lepton_config: Particle configuration
+        beta: Mass scale (GeV) from electron calibration
+        verbose: Print detailed output
+    """
     print(f"\nTesting {lepton_config.name}...")
     start_time = time.time()
     
@@ -40,8 +48,8 @@ def test_lepton(solver, lepton_config, verbose=False):
             print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
             print(f"  Time: {elapsed_time:.3f} s")
         
-        # Convert mass to MeV
-        mass_mev = result.mass * 1000.0
+        # Calculate mass from amplitude using calibrated beta
+        mass_mev = beta * (result.A ** 2) * 1000.0
         
         # Compute error (handle neutrinos with zero experimental mass)
         if lepton_config.mass_exp > 0:
@@ -192,18 +200,27 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Create solver with auto-calibration
+    # Create solver (without beta)
     print("\nCreating solver...")
-    print("  Note: beta will be auto-calibrated from electron mass")
-    print("  All other parameters loaded from constants.json")
+    print("  All parameters loaded from constants.json")
     
     solver = UnifiedSFMSolver(
-        auto_calibrate_beta=True,  # Calibrate from electron
         n_max=5,
         l_max=2,
         N_sigma=64,
-        verbose=True
+        verbose=False  # Less verbose during calibration
     )
+    
+    # Calibrate beta from electron
+    print("\n" + "="*80)
+    print("CALIBRATING MASS SCALE FROM ELECTRON")
+    print("="*80)
+    print("  Solving electron to determine beta = m_e / A_e^2...")
+    
+    beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
+    
+    print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
+    print(f"  This beta will be used to convert all amplitudes to masses: m = beta * A^2")
     
     # Test calibration leptons
     print("\n" + "="*80)
@@ -212,7 +229,7 @@ def main():
     
     calibration_results = []
     for lepton in CALIBRATION_LEPTONS:
-        result = test_lepton(solver, lepton, verbose=False)
+        result = test_lepton(solver, lepton, beta, verbose=False)
         calibration_results.append(result)
     
     print_lepton_results(calibration_results, "CALIBRATION LEPTON RESULTS")
@@ -224,7 +241,7 @@ def main():
     
     validation_results = []
     for lepton in VALIDATION_LEPTONS:
-        result = test_lepton(solver, lepton, verbose=False)
+        result = test_lepton(solver, lepton, beta, verbose=False)
         validation_results.append(result)
     
     print_lepton_results(validation_results, "VALIDATION LEPTON RESULTS (NEUTRINOS)")

@@ -7,11 +7,15 @@ Takes normalized shape from Stage 1 and finds optimal scale parameters
 
 KEY PRINCIPLE: Stage 2 (physical scales)
     - Input: Normalized shape structure from Stage 1
-    - Output: Optimal (Delta_x, Delta_sigma, A) and predicted mass
+    - Output: Optimal (Delta_x, Delta_sigma, A)
     - Energy functional: E_total(Delta_x, Delta_sigma, A)
-    - Mass prediction: m = beta * A^2
+    - First-principles: Amplitude A emerges from energy minimization alone
 
 The shape is FIXED (from Stage 1), only the SCALE varies.
+
+CRITICAL: Energy minimization is performed in a scale-independent manner,
+ensuring that the optimal amplitude A is determined purely by field dynamics
+and energy balance, independent of any external mass scale.
 """
 
 import numpy as np
@@ -35,8 +39,8 @@ class EnergyMinimizationResult:
     Delta_sigma: float  # Subspace width
     A: float  # Amplitude
     
-    # Predicted mass
-    mass: Optional[float]  # GeV, None if beta not calibrated
+    # Predicted mass (requires mass scale calibration)
+    mass: Optional[float]  # GeV, None if mass scale not yet set
     
     # Energy breakdown
     E_total: float
@@ -81,22 +85,26 @@ class UniversalEnergyMinimizer:
         V0: float,
         V1: float,
         alpha: float,
-        beta: Optional[float] = None,
-        use_scaled_energy: bool = True,
         verbose: bool = False
     ):
         """
         Initialize universal energy minimizer.
         
+        This minimizer finds optimal (Delta_x, Delta_sigma, A) by minimizing
+        the total energy functional. The energy minimization is performed in a
+        scale-independent manner, ensuring amplitudes emerge from first principles.
+        
+        Returns dimensionless amplitudes only. To convert to physical masses,
+        use the helper function in calculate_beta module.
+        
         Args:
-            g_internal: FUNDAMENTAL gravitational strength (g_internal = G_5D x beta^3)
-            g1: Nonlinear coupling (GeV)
-            g2: EM coupling (GeV)
+            g_internal: FUNDAMENTAL gravitational self-confinement strength.
+                       Controls how strongly larger amplitudes are spatially confined.
+            g1: Nonlinear self-interaction coupling in subspace (dimensionless)
+            g2: Electromagnetic circulation coupling (dimensionless)
             V0: Three-well primary depth (GeV)
             V1: Three-well secondary depth (GeV)
-            alpha: Spatial-subspace coupling (GeV)
-            beta: Mass conversion factor (m = beta * A^2). If None, will be calibrated.
-            use_scaled_energy: If True, minimize E_tilde = beta×E (beta-independent formulation)
+            alpha: Spatial-subspace coupling strength (GeV)
             verbose: Print diagnostic information
         """
         self.g_internal = g_internal  # FUNDAMENTAL - drives all physics
@@ -105,21 +113,16 @@ class UniversalEnergyMinimizer:
         self.V0 = V0
         self.V1 = V1
         self.alpha = alpha
-        self.beta = beta  # Can be None initially for calibration
-        self.use_scaled_energy = use_scaled_energy
         self.verbose = verbose
         
         if self.verbose:
             print("=== UniversalEnergyMinimizer Initialized ===")
-            if beta is not None:
-                print(f"  beta: {beta:.6f} GeV")
-            else:
-                print(f"  beta: Not yet calibrated (will use beta-independent formulation)")
-            print(f"  g_internal: {g_internal:.6f} (FUNDAMENTAL)")
-            print(f"  g1: {g1:.3f}")
-            print(f"  g2: {g2:.6f}")
-            print(f"  alpha: {alpha:.3f} GeV")
-            print(f"  use_scaled_energy: {use_scaled_energy}")
+            print(f"  g_internal: {g_internal:.6f} (Gravitational self-confinement)")
+            print(f"  g1: {g1:.3f} (Nonlinear subspace coupling)")
+            print(f"  g2: {g2:.6f} (EM circulation coupling)")
+            print(f"  alpha: {alpha:.3f} GeV (Spatial-subspace coupling)")
+            print(f"  V0: {V0:.6f} GeV, V1: {V1:.6f} GeV (Three-well depths)")
+            print(f"  Energy minimization: Scale-independent (first-principles)")
     
     def _compute_optimal_delta_sigma(self, A: float) -> float:
         """
@@ -232,7 +235,8 @@ class UniversalEnergyMinimizer:
         # Auto-generate initial guess if not provided
         if initial_guess is None:
             A_0 = 60.0  # Typical baryon amplitude
-            Delta_x_0 = (1.0 / (self.g_internal * A_0**6))**(1/3)
+            # Use same formula as _compute_optimal_delta_x (with unit conversion)
+            Delta_x_0 = (1.0 / (self.g_internal * A_0**6)) * HBAR_C_GEV_FM  # Convert to fm
             Delta_sigma_0 = 0.5
             initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
         
@@ -277,7 +281,8 @@ class UniversalEnergyMinimizer:
             # Leptons have much smaller amplitudes than baryons
             A_scales = {1: 1.0, 2: 5.0, 3: 20.0}  # Rough estimates
             A_0 = A_scales.get(generation_n, 1.0)
-            Delta_x_0 = (1.0 / (self.g_internal * A_0**6))**(1/3)
+            # Use same formula as _compute_optimal_delta_x (with unit conversion)
+            Delta_x_0 = (1.0 / (self.g_internal * A_0**6)) * HBAR_C_GEV_FM  # Convert to fm
             Delta_sigma_0 = 0.5
             initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
         
@@ -319,7 +324,8 @@ class UniversalEnergyMinimizer:
         # Auto-generate initial guess
         if initial_guess is None:
             A_0 = 40.0  # Typical meson amplitude (between lepton and baryon)
-            Delta_x_0 = (1.0 / (self.g_internal * A_0**6))**(1/3)
+            # Use same formula as _compute_optimal_delta_x (with unit conversion)
+            Delta_x_0 = (1.0 / (self.g_internal * A_0**6)) * HBAR_C_GEV_FM  # Convert to fm
             Delta_sigma_0 = 0.5
             initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
         
@@ -361,8 +367,9 @@ class UniversalEnergyMinimizer:
         Returns:
             EnergyMinimizationResult
         """
-        # Choose energy function based on beta availability
-        use_scaled = self.use_scaled_energy or self.beta is None
+        # CRITICAL: Scale-independent energy minimization (first-principles)
+        # The optimal amplitude A emerges purely from energy balance and field dynamics
+        # No external mass scale affects the energy minimization process
         
         # Extract initial values
         Delta_x_current, Delta_sigma_current, A_current = initial_guess
@@ -406,25 +413,17 @@ class UniversalEnergyMinimizer:
             Delta_sigma_suggested = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_suggested))
             
             # === STEP 3: Compute energy and gradient for A ===
-            # We update A using energy gradient
+            # Update A using energy gradient from scale-independent formulation
             epsilon = 1e-6
             
             # Energy at current A
-            if use_scaled:
-                E_current = self._compute_scaled_total_energy(
-                    shape_structure, Delta_x_current, Delta_sigma_current, A_current
-                )
-                # Energy at A + epsilon
-                E_plus = self._compute_scaled_total_energy(
-                    shape_structure, Delta_x_current, Delta_sigma_current, A_current + epsilon
-                )
-            else:
-                E_current, _ = self._compute_total_energy(
-                    shape_structure, Delta_x_current, Delta_sigma_current, A_current
-                )
-                E_plus, _ = self._compute_total_energy(
-                    shape_structure, Delta_x_current, Delta_sigma_current, A_current + epsilon
-                )
+            E_current = self._compute_total_energy(
+                shape_structure, Delta_x_current, Delta_sigma_current, A_current
+            )
+            # Energy at A + epsilon
+            E_plus = self._compute_total_energy(
+                shape_structure, Delta_x_current, Delta_sigma_current, A_current + epsilon
+            )
             
             # Numerical gradient
             grad_A = (E_plus - E_current) / epsilon
@@ -486,36 +485,27 @@ class UniversalEnergyMinimizer:
             
             final_iter = iteration
         
-        # Final energy and components
-        if use_scaled:
-            E_total = self._compute_scaled_total_energy(
-                shape_structure, Delta_x_current, Delta_sigma_current, A_current
-            )
-            # Create energy components (approximate - not fully broken down in scaled mode)
-            energy_components = {
-                'E_scaled_total': E_total,
-                'note': 'Using beta-independent formulation'
-            }
-        else:
-            E_total, energy_components = self._compute_total_energy(
-                shape_structure, Delta_x_current, Delta_sigma_current, A_current
-            )
+        # === COMPUTE FINAL ENERGY ===
+        # Scale-independent total energy
+        E_total = self._compute_total_energy(
+            shape_structure, Delta_x_current, Delta_sigma_current, A_current
+        )
+        # Create energy components dictionary
+        energy_components = {
+            'E_total': E_total,
+            'note': 'Scale-independent energy (first-principles)'
+        }
         
-        # Compute mass (if beta is available)
-        if self.beta is not None:
-            mass = self.beta * A_current**2
-        else:
-            mass = None  # Will be calibrated later
+        # === COMPUTE MASS FOR REPORTING ===
+        # Mass calculation is NOT done here - return amplitude only
+        # Use calculate_beta helper in test scripts to convert: m = beta * A^2
+        mass = None  # Always None - amplitude is the fundamental output
         
         if self.verbose:
             print(f"\n  Final solution:")
             print(f"    Delta_x = {Delta_x_current:.6f} fm")
             print(f"    Delta_sigma = {Delta_sigma_current:.6f}")
             print(f"    A = {A_current:.6f}")
-            if mass is not None:
-                print(f"    Mass = {mass:.6f} GeV")
-            else:
-                print(f"    Mass = (will be calibrated from beta)")
             print(f"    E_total = {E_total:.6e}")
             print(f"  Energy breakdown:")
             for name, value in energy_components.items():
@@ -547,64 +537,6 @@ class UniversalEnergyMinimizer:
             n_target=n_target,
             k_winding=k_winding
         )
-    
-    def _compute_total_energy(
-        self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
-        Delta_x: float,
-        Delta_sigma: float,
-        A: float
-    ) -> Tuple[float, Dict[str, float]]:
-        """
-        Compute total energy for given scale parameters.
-        
-        E_total = E_sigma + E_spatial + E_coupling + E_curvature + E_em
-        
-        Args:
-            shape_structure: Normalized shape from Stage 1
-            Delta_x: Spatial extent
-            Delta_sigma: Subspace width
-            A: Amplitude
-            
-        Returns:
-            (E_total, energy_components_dict)
-        """
-        # Scale the wavefunctions
-        chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma, A)
-        
-        # 1. Subspace energy
-        E_kinetic_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma)
-        E_potential_sigma = self._compute_potential_sigma(chi_scaled)
-        E_nonlinear_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma)
-        E_sigma = E_kinetic_sigma + E_potential_sigma + E_nonlinear_sigma
-        
-        # 2. Spatial energy (quantum confinement)
-        E_spatial = self._compute_spatial_energy(Delta_x, A)
-        
-        # 3. Coupling energy (spatial-subspace)
-        E_coupling = self._compute_coupling_energy(chi_scaled, Delta_x, Delta_sigma, A)
-        
-        # 4. Curvature energy (gravitational self-confinement)
-        E_curvature = self._compute_curvature_energy(Delta_x, A)
-        
-        # 5. EM self-energy
-        E_em = self._compute_em_energy(chi_scaled)
-        
-        # Total
-        E_total = E_sigma + E_spatial + E_coupling + E_curvature + E_em
-        
-        energy_components = {
-            'E_sigma': E_sigma,
-            'E_kinetic_sigma': E_kinetic_sigma,
-            'E_potential_sigma': E_potential_sigma,
-            'E_nonlinear_sigma': E_nonlinear_sigma,
-            'E_spatial': E_spatial,
-            'E_coupling': E_coupling,
-            'E_curvature': E_curvature,
-            'E_em': E_em
-        }
-        
-        return E_total, energy_components
     
     def _scale_wavefunctions(
         self,
@@ -702,32 +634,6 @@ class UniversalEnergyMinimizer:
         
         return E_nl
     
-    def _compute_spatial_energy(self, Delta_x: float, A: float) -> float:
-        """
-        Compute spatial quantum confinement energy.
-        
-        E_x = hbar^2 / (2m * Delta_x^2) where m = beta * A^2
-        
-        Using natural units where hbar = c = 1.
-        
-        Args:
-            Delta_x: Spatial extent in fm
-            A: Amplitude
-            
-        Note: Delta_x is converted from fm to GeV^-1 for calculation
-        """
-        m = self.beta * A**2
-        
-        if m < 1e-20:
-            return 1e10  # Prevent division by zero
-        
-        # Convert Delta_x from fm to GeV^-1 (natural units)
-        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
-        
-        E_x = 1.0 / (2.0 * m * Delta_x_nat**2)
-        
-        return E_x
-    
     def _compute_coupling_energy(
         self,
         chi_scaled: Dict,
@@ -759,61 +665,22 @@ class UniversalEnergyMinimizer:
         
         return E_coupling
     
-    def _compute_curvature_energy(self, Delta_x: float, A: float) -> float:
+    def _compute_spatial_energy(self, Delta_x: float, A: float) -> float:
         """
-        Compute gravitational self-confinement energy.
+        Compute spatial confinement energy.
         
-        E_curv = G_5D * m^2 / Delta_x where m = beta * A^2
+        E_x = 1/(2·A²·Δx²)
         
-        Using g_internal = G_5D * beta^3, so G_5D = g_internal / beta^3
+        Quantum confinement energy scales inversely with the square of both
+        amplitude and spatial extent. Larger amplitudes in smaller regions
+        have higher confinement energy.
         
         Args:
             Delta_x: Spatial extent in fm
-            A: Amplitude
+            A: Amplitude (dimensionless)
             
-        Note: Delta_x is converted from fm to GeV^-1 for calculation
-        """
-        m = self.beta * A**2
-        
-        G_5D = self.g_internal / (self.beta**3)
-        
-        # Convert Delta_x from fm to GeV^-1 (natural units)
-        Delta_x_nat = Delta_x / HBAR_C_GEV_FM
-        
-        E_curv = G_5D * m**2 / Delta_x_nat
-        
-        return E_curv
-    
-    def _compute_em_energy(self, chi_scaled: Dict) -> float:
-        """
-        Compute electromagnetic self-energy from circulation.
-        
-        E_EM = beta * g2 * |J|^2
-        
-        where J = integral chi* d(chi)/dsigma dsigma (circulation)
-        """
-        chi_total = sum(chi_scaled.values())
-        N = len(chi_total)
-        dsigma = 2*np.pi / N
-        
-        D1 = self._build_derivative_operator(N)
-        dchi = D1 @ chi_total
-        
-        J = np.sum(np.conj(chi_total) * dchi) * dsigma
-        
-        E_em = self.beta * self.g2 * np.abs(J)**2
-        
-        return E_em
-    
-    def _compute_scaled_spatial_energy(self, Delta_x: float, A: float) -> float:
-        """
-        Compute scaled spatial energy: Ẽ_x = β × E_x = 1/(2·A²·Δx²)
-        
-        This is β-independent! The spatial confinement energy in amplitude space.
-        
-        Args:
-            Delta_x: Spatial extent in fm
-            A: Amplitude
+        Returns:
+            Spatial energy contribution (natural energy units)
             
         Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
@@ -823,31 +690,70 @@ class UniversalEnergyMinimizer:
         # Convert Delta_x from fm to GeV^-1 (natural units)
         Delta_x_nat = Delta_x / HBAR_C_GEV_FM
         
-        E_tilde_x = 1.0 / (2.0 * A**2 * Delta_x_nat**2)
+        E_x = 1.0 / (2.0 * A**2 * Delta_x_nat**2)
         
-        return E_tilde_x
+        return E_x
     
-    def _compute_scaled_curvature_energy(self, Delta_x: float, A: float) -> float:
+    def _compute_curvature_energy(self, Delta_x: float, A: float) -> float:
         """
-        Compute scaled curvature energy: Ẽ_curv = β × E_curv = g_internal × A⁴/Δx
+        Compute gravitational self-confinement energy.
         
-        Uses g_internal directly (fundamental parameter).
-        This is the gravitational self-confinement in amplitude space.
+        E_curv = g_internal × A⁴/Δx
+        
+        The field's own energy-density creates spacetime curvature that
+        confines it. Stronger fields (larger A) in smaller regions create
+        stronger gravitational self-confinement. This is the mechanism that
+        prevents infinite spatial delocalization.
         
         Args:
             Delta_x: Spatial extent in fm
-            A: Amplitude
+            A: Amplitude (dimensionless)
+            
+        Returns:
+            Gravitational self-energy contribution (natural energy units)
             
         Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         # Convert Delta_x from fm to GeV^-1 (natural units)
         Delta_x_nat = Delta_x / HBAR_C_GEV_FM
         
-        E_tilde_curv = self.g_internal * A**4 / Delta_x_nat
+        E_curv = self.g_internal * A**4 / Delta_x_nat
         
-        return E_tilde_curv
+        return E_curv
     
-    def _compute_scaled_total_energy(
+    def _compute_em_energy(self, chi_scaled: Dict) -> float:
+        """
+        Compute electromagnetic self-energy from subspace circulation.
+        
+        E_em = g2 * |J|²
+        
+        where J = integral chi* d(chi)/dsigma dsigma (circulation current)
+        
+        The winding of the field in the compactified subspace dimension
+        creates an electromagnetic circulation current. The self-energy
+        of this current contributes to the total energy.
+        
+        Args:
+            chi_scaled: Scaled wavefunction dictionary {(n,l,m): chi_nlm}
+            
+        Returns:
+            EM circulation energy contribution (natural energy units)
+        """
+        chi_total = sum(chi_scaled.values())
+        N = len(chi_total)
+        dsigma = 2*np.pi / N
+        
+        # Compute circulation current J
+        D1 = self._build_derivative_operator(N)
+        dchi = D1 @ chi_total
+        J = np.sum(np.conj(chi_total) * dchi) * dsigma
+        
+        # EM circulation energy
+        E_em = self.g2 * np.abs(J)**2
+        
+        return E_em
+    
+    def _compute_total_energy(
         self,
         shape_structure: Dict[Tuple[int, int, int], NDArray],
         Delta_x: float,
@@ -855,52 +761,54 @@ class UniversalEnergyMinimizer:
         A: float
     ) -> float:
         """
-        Compute Ẽ_total = β × E_total (β-independent formulation).
+        Compute total energy from all field contributions.
         
-        This allows energy minimization without knowing β.
-        After finding optimal A, calibrate: β = m_exp / A²
+        The energy functional determines optimal scale parameters purely from
+        field dynamics and energy balance. The amplitude A that minimizes this
+        energy is the natural field strength for this configuration.
         
-        The scaled energy uses:
-        - Ẽ_x = 1/(2·A²·Δx²)  [no β!]
-        - Ẽ_curv = g_internal·A⁴/Δx  [uses g_internal directly]
-        - Ẽ_other = β × E_other  [β as placeholder]
+        Energy components:
+        - E_x = 1/(2·A²·Δx²)  [spatial quantum confinement]
+        - E_curv = g_internal·A⁴/Δx  [gravitational self-confinement]
+        - E_sigma = kinetic + potential + nonlinear  [subspace field energy]
+        - E_coupling = alpha·A²/(Δx·Δσ)  [spatial-subspace mixing]
+        - E_em = g2·|J|²  [electromagnetic circulation]
         
-        The minimum occurs at the same (Δx, Δσ, A) regardless of β value.
+        The minimum of this functional gives the stable field configuration.
+        This is pure first-principles physics - no external scales required.
+        
+        Args:
+            shape_structure: Normalized shape from Stage 1
+            Delta_x: Spatial extent (fm)
+            Delta_sigma: Subspace width (dimensionless)
+            A: Amplitude (dimensionless)
+            
+        Returns:
+            Total energy in natural units
         """
-        # Use β=1 as placeholder for scaling factors in other energy terms
-        beta_placeholder = 1.0
-        
         # Scale wavefunctions
         chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma, A)
         
-        # β-independent energy components
-        E_tilde_x = self._compute_scaled_spatial_energy(Delta_x, A)
-        E_tilde_curv = self._compute_scaled_curvature_energy(Delta_x, A)
+        # Compute energy components from field configuration
+        E_x = self._compute_spatial_energy(Delta_x, A)
+        E_curv = self._compute_curvature_energy(Delta_x, A)
         
-        # Other components (multiply by beta_placeholder for consistency)
+        # Subspace energy components
         E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma)
         E_pot_sigma = self._compute_potential_sigma(chi_scaled)
         E_nl_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma)
+        E_sigma = E_kin_sigma + E_pot_sigma + E_nl_sigma
+        
+        # Coupling energy
         E_coupling = self._compute_coupling_energy(chi_scaled, Delta_x, Delta_sigma, A)
         
-        # EM energy (compute without beta factor for scaled version)
-        chi_total = sum(chi_scaled.values())
-        N = len(chi_total)
-        dsigma = 2*np.pi / N
-        D1 = self._build_derivative_operator(N)
-        dchi = D1 @ chi_total
-        J = np.sum(np.conj(chi_total) * dchi) * dsigma
-        E_em_base = self.g2 * np.abs(J)**2  # Without beta factor
+        # Electromagnetic circulation energy
+        E_em = self._compute_em_energy(chi_scaled)
         
-        E_tilde_sigma = beta_placeholder * (E_kin_sigma + E_pot_sigma + E_nl_sigma)
-        E_tilde_coupling = beta_placeholder * E_coupling
-        E_tilde_em = beta_placeholder * E_em_base
+        # Total energy
+        E_total = E_x + E_curv + E_sigma + E_coupling + E_em
         
-        # Total scaled energy
-        E_tilde_total = (E_tilde_x + E_tilde_curv + E_tilde_sigma + 
-                         E_tilde_coupling + E_tilde_em)
-        
-        return E_tilde_total
+        return E_total
     
     def _build_derivative_operator(self, N: int) -> NDArray:
         """

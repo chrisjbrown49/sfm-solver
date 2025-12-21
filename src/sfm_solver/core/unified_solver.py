@@ -24,8 +24,7 @@ from sfm_solver.core.constants import (
     G1 as G1_DEFAULT,
     G2 as G2_DEFAULT,
     V0 as V0_DEFAULT,
-    V1 as V1_DEFAULT,
-    BETA as BETA_DEFAULT
+    V1 as V1_DEFAULT
 )
 
 
@@ -76,19 +75,20 @@ class UnifiedSFMSolver:
         solver = UnifiedSFMSolver()
         
         # Or override specific parameters
-        solver = UnifiedSFMSolver(beta=0.001, verbose=True)
+        solver = UnifiedSFMSolver(g_internal=1e6, verbose=True)
         
         # Solve for a particle
         result = solver.solve_baryon(
             quark_windings=(5, 5, -3),
             color_phases=(0, 2*np.pi/3, 4*np.pi/3)
         )
-        print(f"Predicted mass: {result.mass} GeV")
+        # Test script reports results:
+        print(f"Amplitude A: {result.A}")
+        print(f"Mass: {result.mass} GeV")
     """
     
     def __init__(
         self,
-        beta: Optional[float] = None,
         g_internal: Optional[float] = None,
         g1: Optional[float] = None,
         g2: Optional[float] = None,
@@ -98,42 +98,37 @@ class UnifiedSFMSolver:
         n_max: int = 5,
         l_max: int = 2,
         N_sigma: int = 64,
-        auto_calibrate_beta: bool = False,
         verbose: bool = False
     ):
         """
         Initialize unified solver.
         
-        By default, loads fundamental constants from constants.json.
+        The solver finds optimal field configurations through pure energy minimization
+        in a two-stage architecture. By default, loads parameters from constants.json.
         All parameters can be overridden by passing explicit values.
         
+        The solver returns dimensionless amplitudes A. To convert to physical masses,
+        use the helper function from calculate_beta module.
+        
         Args:
-            beta: Mass conversion factor (m = beta * A^2). 
-                  If None and auto_calibrate_beta=False, loads from constants.json.
-                  If None and auto_calibrate_beta=True, will be calibrated from electron.
-            g_internal: Gravitational self-confinement (FUNDAMENTAL).
+            g_internal: Gravitational self-confinement strength (FUNDAMENTAL).
+                        Controls how field amplitude creates spatial confinement.
                         If None, loads from constants.json (default: G_INTERNAL)
-            g1: Nonlinear coupling.
+            g1: Nonlinear self-interaction coupling in subspace (dimensionless).
                 If None, loads from constants.json (default: G1)
-            g2: EM coupling.
+            g2: Electromagnetic circulation coupling (dimensionless).
                 If None, loads from constants.json (default: G2)
-            V0: Three-well primary depth (energy reference).
+            V0: Three-well primary depth (GeV, energy reference).
                 If None, loads from constants.json (default: V0)
-            V1: Three-well secondary depth.
+            V1: Three-well secondary depth (GeV).
                 If None, loads from constants.json (default: V1)
-            alpha: Spatial-subspace coupling.
+            alpha: Spatial-subspace coupling strength (GeV).
                    If None, loads from constants.json (default: ALPHA)
-            n_max: Maximum spatial quantum number
-            l_max: Maximum angular momentum
-            N_sigma: Grid points in subspace
-            auto_calibrate_beta: If True and beta is None, automatically calibrate
-                                beta from electron mass on initialization.
+            n_max: Maximum spatial quantum number for shape expansion
+            l_max: Maximum angular momentum for shape expansion
+            N_sigma: Grid points in subspace dimension
             verbose: Print diagnostic information
         """
-        # Load defaults from constants.json if not provided
-        # For beta: keep as None if not provided (either for auto-calibration or manual calibration)
-        self.beta = beta  # Can be None (will be calibrated if auto_calibrate_beta=True)
-        
         self.g_internal = g_internal if g_internal is not None else G_INTERNAL_DEFAULT
         self.g1 = g1 if g1 is not None else G1_DEFAULT
         self.g2 = g2 if g2 is not None else G2_DEFAULT
@@ -143,7 +138,6 @@ class UnifiedSFMSolver:
         self.n_max = n_max
         self.l_max = l_max
         self.N_sigma = N_sigma
-        self.auto_calibrate_beta = auto_calibrate_beta
         self.verbose = verbose
         
         # Initialize Stage 1: Shape solver (dimensionless)
@@ -172,33 +166,20 @@ class UnifiedSFMSolver:
             V0=self.V0,
             V1=self.V1,
             alpha=self.alpha,
-            beta=self.beta if not auto_calibrate_beta else None,
-            use_scaled_energy=True,
             verbose=verbose
         )
         
         if self.verbose:
             print("=== UnifiedSFMSolver Initialized ===")
             print(f"  Parameters loaded from constants.json")
-            if self.beta is not None:
-                print(f"  beta = {self.beta:.6f} GeV")
-            else:
-                print(f"  beta = Not yet calibrated (will use beta-independent formulation)")
-            print(f"  alpha = {self.alpha:.6f} GeV")
-            print(f"  g_internal = {self.g_internal:.6f} (FUNDAMENTAL)")
-            print(f"  g1 = {self.g1:.3f}")
-            print(f"  g2 = {self.g2:.6f}")
-            print(f"  V0 = {self.V0:.3f} GeV")
-            print(f"  V1 = {self.V1:.3f} GeV")
-            print(f"  Two-stage architecture ready")
-            print(f"  Stage 1: Shape solver (dimensionless)")
-            print(f"  Stage 2: Energy minimizer (physical scales)")
-        
-        # Auto-calibrate beta if requested
-        if auto_calibrate_beta:
-            if self.verbose:
-                print(f"\n  Auto-calibrating beta from electron mass...")
-            self.calibrate_beta_from_electron(verbose=verbose)
+            print(f"  g_internal = {self.g_internal:.6f} (Gravitational self-confinement)")
+            print(f"  g1 = {self.g1:.3f} (Nonlinear subspace coupling)")
+            print(f"  g2 = {self.g2:.6f} (EM circulation coupling)")
+            print(f"  alpha = {self.alpha:.6f} GeV (Spatial-subspace coupling)")
+            print(f"  V0 = {self.V0:.3f} GeV, V1 = {self.V1:.3f} GeV (Three-well depths)")
+            print(f"  Two-stage architecture:")
+            print(f"  Stage 1: Shape solver (dimensionless field configuration)")
+            print(f"  Stage 2: Energy minimizer (scale-independent optimization)")
     
     def solve_baryon(
         self,
@@ -276,7 +257,6 @@ class UnifiedSFMSolver:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Predicted mass: {energy_result.mass:.6f} GeV")
             print(f"Amplitude A: {energy_result.A:.6f}")
             print(f"Spatial scale Delta_x: {energy_result.Delta_x:.6f} fm")
             print(f"Subspace width Delta_sigma: {energy_result.Delta_sigma:.6f}")
@@ -379,7 +359,6 @@ class UnifiedSFMSolver:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Predicted mass: {energy_result.mass:.6f} GeV")
             print(f"Amplitude A: {energy_result.A:.6f}")
         
         # Return unified result
@@ -489,7 +468,6 @@ class UnifiedSFMSolver:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Predicted mass: {energy_result.mass:.6f} GeV")
         
         # Return unified result
         return UnifiedSolverResult(
@@ -521,106 +499,3 @@ class UnifiedSFMSolver:
                 'n_target': n_target
             }
         )
-    
-    def calibrate_beta_from_electron(
-        self,
-        electron_mass_exp: float = 0.000510999,  # GeV
-        max_iter: int = 200,
-        verbose: bool = True
-    ) -> float:
-        """
-        Calibrate beta by solving for electron and matching experimental mass.
-        
-        This uses the beta-independent energy formulation to find the optimal
-        amplitude A_electron, then calibrates beta = m_electron_exp / A_electron^2.
-        
-        Process:
-            1. Solve electron shape (Stage 1, dimensionless)
-            2. Minimize scaled energy to find optimal A_electron (beta-independent)
-            3. Calculate beta = m_electron_exp / A_electron^2
-            4. Update energy minimizer with calibrated beta
-        
-        Args:
-            electron_mass_exp: Experimental electron mass (GeV)
-            max_iter: Maximum iterations for shape solver
-            verbose: Print calibration progress
-            
-        Returns:
-            beta: Calibrated mass conversion factor (GeV)
-        """
-        if verbose:
-            print("="*70)
-            print("CALIBRATING BETA FROM ELECTRON MASS")
-            print("="*70)
-            print(f"Target: m_e = {electron_mass_exp*1000:.6f} MeV")
-        
-        # Stage 1: Solve electron shape (dimensionless)
-        if verbose:
-            print("\nStage 1: Solving electron shape...")
-        
-        shape_result = self.shape_solver.solve_lepton_shape(
-            generation_n=1,
-            winding_k=1,
-            max_iter=max_iter,
-            tol=1e-6
-        )
-        
-        if verbose:
-            print(f"  Shape converged: {shape_result.converged} ({shape_result.iterations} iters)")
-        
-        # Build 4D structure
-        structure_4d = self.spatial_coupling.build_4d_structure(
-            subspace_shape=shape_result.composite_shape,
-            n_target=1,
-            l_target=0,
-            m_target=0
-        )
-        
-        # Stage 2: Minimize energy (beta-independent)
-        if verbose:
-            print("\nStage 2: Minimizing beta-independent energy...")
-        
-        # Temporarily ensure energy minimizer uses scaled energy
-        original_beta = self.energy_minimizer.beta
-        original_use_scaled = self.energy_minimizer.use_scaled_energy
-        self.energy_minimizer.beta = None  # Force beta-independent mode
-        self.energy_minimizer.use_scaled_energy = True
-        
-        optimization_result = self.energy_minimizer.minimize_lepton_energy(
-            shape_structure=structure_4d,
-            generation_n=1
-        )
-        
-        A_electron = optimization_result.A
-        
-        if verbose:
-            print(f"  Optimal amplitude: A_electron = {A_electron:.6f}")
-            print(f"  Optimal scales: Delta_x = {optimization_result.Delta_x:.3f} fm, "
-                  f"Delta_sigma = {optimization_result.Delta_sigma:.3f}")
-        
-        # Calibrate beta
-        beta_calibrated = electron_mass_exp / (A_electron**2)
-        
-        if verbose:
-            print(f"\nCalibration:")
-            print(f"  beta = m_e / A_e^2 = {electron_mass_exp:.6f} / {A_electron**2:.6f}")
-            print(f"  beta = {beta_calibrated:.6f} GeV")
-            print(f"\nVerification:")
-            print(f"  m = beta x A^2 = {beta_calibrated * A_electron**2 * 1000:.6f} MeV")
-            print(f"  Target m_e  = {electron_mass_exp * 1000:.6f} MeV")
-            print(f"  Exact match by construction")
-        
-        # Update energy minimizer with calibrated beta
-        self.energy_minimizer.beta = beta_calibrated
-        self.energy_minimizer.use_scaled_energy = original_use_scaled
-        self.beta = beta_calibrated
-        
-        if verbose:
-            print(f"\n{'='*70}")
-            print(f"BETA CALIBRATION COMPLETE")
-            print(f"{'='*70}")
-            print(f"All subsequent particle masses will use: m = beta x A^2")
-            print(f"Mass ratios will emerge from amplitude ratios")
-        
-        return beta_calibrated
-

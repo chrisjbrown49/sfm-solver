@@ -15,9 +15,12 @@ class TestUniversalEnergyMinimizer:
     
     @pytest.fixture
     def minimizer(self):
-        """Create an energy minimizer for testing."""
+        """Create an energy minimizer for testing.
+        
+        Note: No beta parameter - minimizer returns amplitudes only.
+        Mass conversion (m = beta * A^2) is done externally in test scripts.
+        """
         return UniversalEnergyMinimizer(
-            beta=0.0005,  # Typical value
             g_internal=0.003,
             g1=40.0,
             g2=1.0,
@@ -135,7 +138,8 @@ class TestUniversalEnergyMinimizer:
         assert result.Delta_x > 0
         assert result.Delta_sigma > 0
         assert result.A > 0
-        assert result.mass > 0
+        # Mass should be None - minimizer returns amplitudes only
+        assert result.mass is None, "Minimizer should not calculate mass (beta-independent)"
         assert result.particle_type == 'lepton'
         assert result.n_target == 1
         

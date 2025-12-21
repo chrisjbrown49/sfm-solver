@@ -14,11 +14,19 @@ import time
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
+from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import ELECTRON, MUON, TAU, PROTON, NEUTRON
 
 
-def test_lepton(solver, lepton_config, verbose=False):
-    """Test lepton and return results."""
+def test_lepton(solver, lepton_config, beta, verbose=False):
+    """Test lepton and return results.
+    
+    Args:
+        solver: UnifiedSFMSolver instance
+        lepton_config: Particle configuration
+        beta: Mass scale (GeV) from electron calibration
+        verbose: Print detailed output
+    """
     print(f"\nTesting {lepton_config.name}...")
     start_time = time.time()
     
@@ -36,8 +44,8 @@ def test_lepton(solver, lepton_config, verbose=False):
         print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
         print(f"  Time: {elapsed_time:.3f} s")
     
-    # Convert mass to MeV for comparison with experimental
-    mass_mev = result.mass * 1000.0
+    # Calculate mass from amplitude using calibrated beta
+    mass_mev = beta * (result.A ** 2) * 1000.0
     
     # Compute error
     if lepton_config.mass_exp > 0:
@@ -63,8 +71,15 @@ def test_lepton(solver, lepton_config, verbose=False):
     }
 
 
-def test_baryon(solver, baryon_config, verbose=False):
-    """Test baryon and return results."""
+def test_baryon(solver, baryon_config, beta, verbose=False):
+    """Test baryon and return results.
+    
+    Args:
+        solver: UnifiedSFMSolver instance
+        baryon_config: Particle configuration
+        beta: Mass scale (GeV) from electron calibration
+        verbose: Print detailed output
+    """
     print(f"\nTesting {baryon_config.name}...")
     start_time = time.time()
     
@@ -85,8 +100,8 @@ def test_baryon(solver, baryon_config, verbose=False):
         print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
         print(f"  Time: {elapsed_time:.3f} s")
     
-    # Convert mass to MeV
-    mass_mev = result.mass * 1000.0
+    # Calculate mass from amplitude using calibrated beta
+    mass_mev = beta * (result.A ** 2) * 1000.0
     
     # Compute error
     error_percent = abs(mass_mev - baryon_config.mass_exp) / baryon_config.mass_exp * 100.0
@@ -244,20 +259,28 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Override beta for testing (may need calibration)
-    beta = 0.0005  # Starting value, may need calibration
-    
-    print(f"\nCreating solver...")
-    print(f"  Note: Overriding beta = {beta:.6f} GeV for testing")
-    print(f"  All other parameters loaded from constants.json")
+    # Create solver (without beta)
+    print("\nCreating solver...")
+    print("  All parameters loaded from constants.json")
     
     solver = UnifiedSFMSolver(
-        beta=beta,  # Override beta for testing
         n_max=5,
         l_max=2,
         N_sigma=64,
-        verbose=True  # Print progress (will show loaded parameters)
+        verbose=False  # Less verbose during calibration
     )
+    
+    # CRITICAL: Calibrate beta from electron FIRST
+    print("\n" + "="*80)
+    print("CALIBRATING MASS SCALE FROM ELECTRON")
+    print("="*80)
+    print("  Solving electron to determine beta = m_e / A_e^2...")
+    
+    beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
+    
+    print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
+    print(f"  Electron mass: {beta * 1.0**2 * 1000:.6f} MeV (by construction)")
+    print(f"  This beta will be used to convert all particle amplitudes to masses")
     
     # Test leptons
     print("\n" + "="*80)
@@ -267,7 +290,7 @@ def main():
     lepton_results = []
     for lepton_config in [ELECTRON, MUON, TAU]:
         try:
-            result = test_lepton(solver, lepton_config, verbose=True)
+            result = test_lepton(solver, lepton_config, beta, verbose=True)
             lepton_results.append(result)
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -283,7 +306,7 @@ def main():
     baryon_results = []
     for baryon_config in [PROTON, NEUTRON]:
         try:
-            result = test_baryon(solver, baryon_config, verbose=True)
+            result = test_baryon(solver, baryon_config, beta, verbose=True)
             baryon_results.append(result)
         except Exception as e:
             print(f"  ERROR: {e}")

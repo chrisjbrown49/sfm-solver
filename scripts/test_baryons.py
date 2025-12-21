@@ -14,6 +14,7 @@ import time
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
+from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_BARYONS,
     VALIDATION_BARYONS,
@@ -22,8 +23,15 @@ from sfm_solver.core.particle_configurations import (
 )
 
 
-def test_baryon(solver, baryon_config, verbose=False):
-    """Test baryon and return results."""
+def test_baryon(solver, baryon_config, beta, verbose=False):
+    """Test baryon and return results.
+    
+    Args:
+        solver: UnifiedSFMSolver instance
+        baryon_config: Particle configuration
+        beta: Mass scale (GeV) from electron calibration
+        verbose: Print detailed output
+    """
     print(f"\nTesting {baryon_config.name}...")
     start_time = time.time()
     
@@ -45,8 +53,8 @@ def test_baryon(solver, baryon_config, verbose=False):
             print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
             print(f"  Time: {elapsed_time:.3f} s")
         
-        # Convert mass to MeV
-        mass_mev = result.mass * 1000.0
+        # Calculate mass from amplitude using calibrated beta
+        mass_mev = beta * (result.A ** 2) * 1000.0
         
         # Compute error
         error_percent = abs(mass_mev - baryon_config.mass_exp) / baryon_config.mass_exp * 100.0
@@ -189,18 +197,30 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Create solver with auto-calibration
+    # Create solver (without beta)
     print("\nCreating solver...")
-    print("  Note: beta will be auto-calibrated from electron mass")
-    print("  All other parameters loaded from constants.json")
+    print("  All parameters loaded from constants.json")
     
     solver = UnifiedSFMSolver(
-        auto_calibrate_beta=True,  # Calibrate from electron
         n_max=5,
         l_max=2,
         N_sigma=64,
-        verbose=True
+        verbose=False  # Less verbose during calibration
     )
+    
+    # CRITICAL: Calibrate beta from electron FIRST
+    # This ensures baryon predictions don't break lepton masses
+    print("\n" + "="*80)
+    print("CALIBRATING MASS SCALE FROM ELECTRON")
+    print("="*80)
+    print("  Solving electron to determine beta = m_e / A_e^2...")
+    print("  This ensures baryon parameter tuning doesn't break lepton predictions!")
+    
+    beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
+    
+    print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
+    print(f"  Electron mass: {beta * 1.0**2 * 1000:.6f} MeV (by construction)")
+    print(f"  This beta will be used to convert all baryon amplitudes to masses")
     
     # Test calibration baryons
     print("\n" + "="*80)
@@ -209,7 +229,7 @@ def main():
     
     calibration_results = []
     for baryon in CALIBRATION_BARYONS:
-        result = test_baryon(solver, baryon, verbose=False)
+        result = test_baryon(solver, baryon, beta, verbose=False)
         calibration_results.append(result)
     
     print_baryon_results(calibration_results, "CALIBRATION BARYON RESULTS")
@@ -240,7 +260,7 @@ def main():
     
     validation_results = []
     for baryon in VALIDATION_BARYONS:
-        result = test_baryon(solver, baryon, verbose=False)
+        result = test_baryon(solver, baryon, beta, verbose=False)
         validation_results.append(result)
     
     print_baryon_results(validation_results, "VALIDATION BARYON RESULTS")
