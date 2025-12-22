@@ -134,30 +134,29 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e8):
 
 def main():
     print("="*100)
-    print("2D SCAN: g1 AND alpha AT g_internal = 1e8")
+    print("AGGRESSIVE 2D SCAN: g1 AND alpha AT g_internal = 5e8")
     print("="*100)
     print("\nFixed parameter:")
-    print("  g_internal = 1.00e+08  (only value with convergence + physical scales)")
-    print("\nPrevious results:")
-    print("  - Coarse scan showed g_internal = 1e8 is the only regime with:")
-    print("    * Outer loop convergence")
-    print("    * Physical spatial scales (Delta_x ~ 4.5 fm)")
-    print("  - At (g1=50, alpha=30): All generations identical (A_mu/A_e=1.0, A_tau/A_e=1.0)")
-    print("  - Need to find g1 and alpha that create generation hierarchy")
-    print("\nGoal: Find (g1, alpha) combination that differentiates generations")
+    print("  g_internal = 5.00e+08  (current working value with convergence)")
+    print("\nCurrent baseline:")
+    print("  - With (g1=5000, alpha=150): Weak hierarchy (mu/e=1.07, tau/e=1.18)")
+    print("  - E_coupling is significant but not dominant")
+    print("  - All leptons converge within bounds")
+    print("\nGoal: AGGRESSIVE SCAN for stronger generation hierarchy")
     print("\nTarget metrics:")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
     print("  - A_tau/A_e: ~59.0 (from sqrt(3477))")
     print("  - Mass ratios: mu/e = 206.8, tau/e = 3477")
     
-    # 3x3 grid scan - exploring wide parameter space
-    g1_values = [10, 50, 200]  # Low to high
-    alpha_values = [10, 30, 100]  # Low to high
+    # AGGRESSIVE grid scan - pushing for stronger hierarchy
+    g1_values = [2000, 5000, 10000, 20000]  # Explore nonlinear effects
+    alpha_values = [200, 300, 400, 500, 600]  # Very aggressive coupling
     
-    g_internal_fixed = 1e8
+    g_internal_fixed = 5e8
     
     total_tests = len(g1_values) * len(alpha_values)
-    print(f"\nScanning {len(g1_values)} g1 values x {len(alpha_values)} alpha values = {total_tests} combinations...")
+    print(f"\nAGGRESSIVE SCAN: {len(g1_values)} g1 values x {len(alpha_values)} alpha values = {total_tests} combinations")
+    print("This will take approximately {:.0f} minutes...".format(total_tests * 0.5))
     print("="*100)
     
     results = []
@@ -178,7 +177,7 @@ def main():
     
     # Print summary table
     print("\n" + "="*100)
-    print("SUMMARY TABLE (3x3 GRID)")
+    print(f"SUMMARY TABLE ({len(g1_values)}x{len(alpha_values)} GRID)")
     print("="*100)
     
     table_data = []
@@ -263,7 +262,7 @@ def main():
             print(f"\n  EXCELLENT CANDIDATE FOUND!")
             print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.0f}) gives combined error of only {best['combined_error_pct']:.1f}%")
             print(f"\n  Optimal parameters:")
-            print(f"    g_internal = 1e8")
+            print(f"    g_internal = 5e8")
             print(f"    g1 = {best['g1']:.0f}")
             print(f"    alpha = {best['alpha']:.0f}")
             print(f"\n  Next steps:")

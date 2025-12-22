@@ -381,7 +381,6 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_curvature': energy_result.E_curvature,
                 'E_em': energy_result.E_em
             },
             E_total=energy_result.E_total,
@@ -603,7 +602,6 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_curvature': energy_result.E_curvature,
                 'E_em': energy_result.E_em
             },
             E_total=energy_result.E_total,
@@ -817,7 +815,6 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_curvature': energy_result.E_curvature,
                 'E_em': energy_result.E_em
             },
             E_total=energy_result.E_total,

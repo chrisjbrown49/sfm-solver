@@ -51,7 +51,6 @@ class EnergyMinimizationResult:
     E_nonlinear_sigma: float
     E_spatial: float
     E_coupling: float
-    E_curvature: float
     E_em: float
     
     # Convergence
@@ -279,18 +278,20 @@ class UniversalEnergyMinimizer:
         ================================================
         
         The spatial confinement comes from gravitational self-energy balance.
-        From "A Beautiful Balance" research note, the characteristic scale is:
+        From "Origin of Mass and Gravity" (Section 4) research note:
         
-            Δx = ℏ²/(g_internal × A⁶)  [in natural units where ℏ=c=1]
-            Δx = 1/(g_internal × A⁶)   [gives result in GeV^-1]
+            Δx = 1/(g_internal × A⁶)^(1/3)  [in fm]
+        
+        CRITICAL: The (1/3) power is essential! This comes from the cubic
+        relationship between gravitational binding energy and spatial scale.
         
         This formula ensures:
-        - Larger amplitude A → smaller Δx (more confined)
+        - Larger amplitude A → smaller Δx (more confined, Δx ∝ A^(-2))
         - Stronger gravity g_internal → smaller Δx (more confined)
         - Prevents infinite spatial delocalization
         
-        CRITICAL: This couples spatial extent to amplitude through
-        gravitational self-confinement, maintaining self-consistency.
+        This couples spatial extent to amplitude through gravitational 
+        self-confinement, maintaining self-consistency.
         
         Args:
             A: Current amplitude estimate
@@ -338,8 +339,8 @@ class UniversalEnergyMinimizer:
         # Auto-generate initial guess if not provided
         if initial_guess is None:
             A_0 = 60.0  # Typical baryon amplitude
-            # Use same formula as _compute_optimal_delta_x (with unit conversion)
-            Delta_x_0 = (1.0 / (self.g_internal * A_0**6)) * HBAR_C_GEV_FM  # Convert to fm
+            # Use gravitational self-confinement formula WITH (1/3) power
+            Delta_x_0 = self._compute_optimal_delta_x(A_0)  # Already in fm, includes (1/3) power
             Delta_sigma_0 = 0.5
             initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
         
@@ -436,8 +437,8 @@ class UniversalEnergyMinimizer:
         # Auto-generate initial guess
         if initial_guess is None:
             A_0 = 40.0  # Typical meson amplitude (between lepton and baryon)
-            # Use same formula as _compute_optimal_delta_x (with unit conversion)
-            Delta_x_0 = (1.0 / (self.g_internal * A_0**6)) * HBAR_C_GEV_FM  # Convert to fm
+            # Use gravitational self-confinement formula WITH (1/3) power
+            Delta_x_0 = self._compute_optimal_delta_x(A_0)  # Already in fm, includes (1/3) power
             Delta_sigma_0 = 0.5
             initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
         
@@ -621,7 +622,6 @@ class UniversalEnergyMinimizer:
         # Compute individual energy components for reporting
         chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma_current, A_current)
         E_spatial = self._compute_spatial_energy(Delta_x_current, A_current)
-        E_curvature = self._compute_curvature_energy(Delta_x_current, A_current)
         E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma_current)
         E_pot_sigma = self._compute_potential_sigma(chi_scaled)
         E_nl_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma_current)
@@ -639,7 +639,6 @@ class UniversalEnergyMinimizer:
             print(f"    E_sigma: {E_sigma:.6e}")
             print(f"    E_spatial: {E_spatial:.6e}")
             print(f"    E_coupling: {E_coupling:.6e}")
-            print(f"    E_curvature: {E_curvature:.6e}")
         
         # === MASS IS NOT COMPUTED HERE ===
         # Mass calculation is done externally using calculate_beta helper
@@ -660,7 +659,6 @@ class UniversalEnergyMinimizer:
             E_nonlinear_sigma=E_nl_sigma,
             E_spatial=E_spatial,
             E_coupling=E_coupling,
-            E_curvature=E_curvature,
             E_em=E_em,
             converged=converged,
             iterations=final_iter + 1,
@@ -949,10 +947,13 @@ class UniversalEnergyMinimizer:
         
         Energy components:
         - E_x = 1/(2·A²·Δx²)  [spatial quantum confinement]
-        - E_curv = g_internal·A⁴/Δx  [gravitational self-confinement]
         - E_sigma = kinetic + potential + nonlinear  [subspace field energy]
         - E_coupling = -alpha × spatial_factor(n,Δx) × subspace_factor × A  [GENERATION-DEPENDENT!]
         - E_em = g2·|J|²  [electromagnetic circulation]
+        
+        NOTE: Gravitational self-confinement is enforced via the CONSTRAINT
+        Delta_x = 1/(g_internal × A⁶)^(1/3), not as an energy term.
+        This matches the legacy solver architecture.
         
         The minimum of this functional gives the stable field configuration.
         This is pure first-principles physics - no external scales required.
@@ -976,7 +977,6 @@ class UniversalEnergyMinimizer:
         
         # Compute energy components from field configuration
         E_x = self._compute_spatial_energy(Delta_x, A)
-        E_curv = self._compute_curvature_energy(Delta_x, A)
         
         # Subspace energy components
         E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma)
@@ -990,8 +990,8 @@ class UniversalEnergyMinimizer:
         # Electromagnetic circulation energy
         E_em = self._compute_em_energy(chi_scaled)
         
-        # Total energy
-        E_total = E_x + E_curv + E_sigma + E_coupling + E_em
+        # Total energy (gravitational confinement enforced via constraint, not energy term)
+        E_total = E_x + E_sigma + E_coupling + E_em
         
         return E_total
     
