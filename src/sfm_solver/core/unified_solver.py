@@ -56,9 +56,14 @@ class UnifiedSolverResult:
     energy_converged: bool
     energy_iterations: int
     
-    # Particle info
+    # Particle info (must come before fields with defaults)
     particle_type: str
     quantum_numbers: Dict
+    
+    # Outer loop convergence info (fields with defaults must come last)
+    outer_iterations: int = 0
+    outer_converged: bool = True
+    scale_history: Optional[Dict[str, list]] = None
 
 
 class UnifiedSFMSolver:
@@ -189,10 +194,12 @@ class UnifiedSFMSolver:
         max_scf_iter: int = 500,
         scf_tol: float = 1e-4,
         scf_mixing: float = 0.1,
+        max_iter_outer: int = 30,
+        tol_outer: float = 1e-4,
         initial_scale_guess: Optional[Tuple[float, float, float]] = None
     ) -> UnifiedSolverResult:
         """
-        Solve for baryon using two-stage approach.
+        Solve for baryon using two-stage approach with outer iteration.
         
         Args:
             quark_windings: (k1, k2, k3) winding numbers
@@ -201,10 +208,12 @@ class UnifiedSFMSolver:
             max_scf_iter: Maximum SCF iterations for shape
             scf_tol: Convergence tolerance for shape
             scf_mixing: Mixing parameter for SCF stability
+            max_iter_outer: Maximum outer loop iterations
+            tol_outer: Convergence tolerance for outer loop (scale changes)
             initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
             
         Returns:
-            UnifiedSolverResult with mass, scales, and shape
+            UnifiedSolverResult with mass, scales, shape, and outer convergence info
         """
         if self.verbose:
             print("\n" + "="*70)
@@ -213,60 +222,156 @@ class UnifiedSFMSolver:
             print(f"Quark windings: {quark_windings}")
             print(f"Color phases: {color_phases}")
         
-        # =====================================================================
-        # STAGE 1: Solve for normalized shape (dimensionless)
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 1: Solving for dimensionless shape")
-            print("-"*70)
+        # Initialize scale tracking
+        scale_history = {
+            'A': [],
+            'Delta_x': [],
+            'Delta_sigma': [],
+            'iteration': []
+        }
         
-        shape_result = self.shape_solver.solve_baryon_shape(
-            quark_windings=quark_windings,
-            color_phases=color_phases,
-            max_iter=max_scf_iter,
-            tol=scf_tol,
-            mixing=scf_mixing
-        )
+        # Initialize current scales
+        if initial_scale_guess is not None:
+            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+        else:
+            # Baryons typically have larger amplitudes than leptons
+            A_current = 50.0  # Reasonable starting point for baryons
+            Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
+            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        if not shape_result.converged:
-            warnings.warn("Shape solver did not converge")
+        # Adaptive mixing for stability
+        mixing = 0.3
+        dA_prev = 0.0
+        dDx_prev = 0.0
+        dDs_prev = 0.0
         
-        # Build 4D structure with spatial coupling
-        structure_4d = self.spatial_coupling.build_4d_structure(
-            subspace_shape=shape_result.composite_shape,
-            n_target=n_target,
-            l_target=0,  # Baryons are spatial ground state (s-wave)
-            m_target=0
-        )
+        converged_outer = False
+        shape_result = None
+        energy_result = None
+        structure_4d = None
         
-        # =====================================================================
-        # STAGE 2: Minimize energy over scale parameters
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 2: Minimizing energy over scale parameters")
-            print("-"*70)
-        
-        energy_result = self.energy_minimizer.minimize_baryon_energy(
-            shape_structure=structure_4d,
-            initial_guess=initial_scale_guess
-        )
+        for iter_outer in range(max_iter_outer):
+            if self.verbose:
+                print(f"\n{'='*70}")
+                print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
+                print(f"{'='*70}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            
+            # =====================================================================
+            # STAGE 1: Solve for normalized shape (dimensionless)
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 1: Solving for dimensionless shape")
+                print("-"*70)
+            
+            shape_result = self.shape_solver.solve_baryon_shape(
+                quark_windings=quark_windings,
+                color_phases=color_phases,
+                max_iter=max_scf_iter,
+                tol=scf_tol,
+                mixing=scf_mixing
+            )
+            
+            if not shape_result.converged:
+                warnings.warn("Shape solver did not converge")
+            
+            # Build 4D structure with scale-aware coupling
+            structure_4d = self.spatial_coupling.build_4d_structure(
+                subspace_shape=shape_result.composite_shape,
+                n_target=n_target,
+                l_target=0,
+                m_target=0,
+                Delta_x=Delta_x_current  # Scale-aware coupling
+            )
+            
+            # =====================================================================
+            # STAGE 2: Minimize energy over scale parameters
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 2: Minimizing energy over scale parameters")
+                print("-"*70)
+            
+            energy_result = self.energy_minimizer.minimize_baryon_energy(
+                shape_structure=structure_4d,
+                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+            )
+            
+            # Extract new scales
+            A_new = energy_result.A
+            Delta_x_new = energy_result.Delta_x
+            Delta_sigma_new = energy_result.Delta_sigma
+            
+            # Store in history
+            scale_history['A'].append(A_new)
+            scale_history['Delta_x'].append(Delta_x_new)
+            scale_history['Delta_sigma'].append(Delta_sigma_new)
+            scale_history['iteration'].append(iter_outer)
+            
+            # =====================================================================
+            # CHECK CONVERGENCE
+            # =====================================================================
+            if iter_outer > 0:
+                delta_A = abs(A_new - A_current)
+                delta_Dx = abs(Delta_x_new - Delta_x_current)
+                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
+                
+                rel_delta_A = delta_A / max(A_current, 0.01)
+                rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
+                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
+                
+                if self.verbose:
+                    print(f"\n  Outer convergence check:")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                    converged_outer = True
+                    if self.verbose:
+                        print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
+                    break
+                
+                # Adaptive mixing (oscillation detection)
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_current
+                dDs_current = Delta_sigma_new - Delta_sigma_current
+                
+                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
+                    mixing = max(0.05, mixing * 0.5)
+                    if self.verbose:
+                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
+                elif iter_outer > 5:
+                    mixing = min(0.5, mixing * 1.1)
+                
+                dA_prev = dA_current
+                dDx_prev = dDx_current
+                dDs_prev = dDs_current
+            
+            # =====================================================================
+            # UPDATE SCALES WITH MIXING
+            # =====================================================================
+            if iter_outer == 0:
+                A_current = A_new
+                Delta_x_current = Delta_x_new
+                Delta_sigma_current = Delta_sigma_new
+            else:
+                A_current = (1 - mixing) * A_current + mixing * A_new
+                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
+                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Amplitude A: {energy_result.A:.6f}")
-            print(f"Spatial scale Delta_x: {energy_result.Delta_x:.6f} fm")
-            print(f"Subspace width Delta_sigma: {energy_result.Delta_sigma:.6f}")
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
-        # Return unified result
+        # Return unified result with outer loop info
         return UnifiedSolverResult(
             mass=energy_result.mass,
-            A=energy_result.A,
-            Delta_x=energy_result.Delta_x,
-            Delta_sigma=energy_result.Delta_sigma,
+            A=A_current,
+            Delta_x=Delta_x_current,
+            Delta_sigma=Delta_sigma_current,
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,
@@ -284,6 +389,9 @@ class UnifiedSFMSolver:
             shape_iterations=shape_result.iterations,
             energy_converged=energy_result.converged,
             energy_iterations=energy_result.iterations,
+            outer_iterations=iter_outer + 1,
+            outer_converged=converged_outer,
+            scale_history=scale_history,
             particle_type='baryon',
             quantum_numbers={
                 'quark_windings': quark_windings,
@@ -298,75 +406,194 @@ class UnifiedSFMSolver:
         generation_n: int,
         max_iter: int = 200,
         tol: float = 1e-6,
+        max_iter_outer: int = 30,
+        tol_outer: float = 1e-4,
         initial_scale_guess: Optional[Tuple[float, float, float]] = None
     ) -> UnifiedSolverResult:
         """
-        Solve for lepton using two-stage approach.
+        Solve for lepton using two-stage approach with outer iteration.
+        
+        The outer loop iterates between:
+          1. Stage 1: Solve shape at current scales
+          2. Stage 2: Optimize scales for that shape
+          3. Check convergence and update scales with mixing
         
         Args:
             winding_k: Winding number (determines charge)
             generation_n: Generation number (1=e, 2=mu, 3=tau)
-            max_iter: Maximum iterations for shape
-            tol: Convergence tolerance for shape
+            max_iter: Maximum iterations for shape (inner loop)
+            tol: Convergence tolerance for shape (inner loop)
+            max_iter_outer: Maximum outer loop iterations
+            tol_outer: Convergence tolerance for outer loop (scale changes)
             initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
             
         Returns:
-            UnifiedSolverResult with mass, scales, and shape
+            UnifiedSolverResult with mass, scales, shape, and outer convergence info
         """
         if self.verbose:
             print("\n" + "="*70)
             print(f"UNIFIED SOLVER: Lepton (n={generation_n}, k={winding_k})")
             print("="*70)
         
-        # =====================================================================
-        # STAGE 1: Solve for normalized shape (dimensionless)
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 1: Solving for dimensionless shape")
-            print("-"*70)
+        # Initialize scale tracking
+        scale_history = {
+            'A': [],
+            'Delta_x': [],
+            'Delta_sigma': [],
+            'iteration': []
+        }
         
-        shape_result = self.shape_solver.solve_lepton_shape(
-            winding_k=winding_k,
-            generation_n=generation_n,
-            max_iter=max_iter,
-            tol=tol
-        )
+        # Initialize current scales (first iteration uses defaults)
+        if initial_scale_guess is not None:
+            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+        else:
+            # Use energy minimizer's generation-dependent defaults (legacy values)
+            if generation_n == 1:
+                A_current = 0.9
+            elif generation_n == 2:
+                A_current = 12.0
+            elif generation_n == 3:
+                A_current = 50.0
+            else:
+                A_current = max(1.0, 5.0 * generation_n)
+            
+            Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
+            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Build 4D structure with spatial coupling
-        structure_4d = self.spatial_coupling.build_4d_structure(
-            subspace_shape=shape_result.composite_shape,
-            n_target=generation_n,  # Leptons: generation = spatial quantum number
-            l_target=0,
-            m_target=0
-        )
+        # Adaptive mixing for stability (legacy default)
+        mixing = 0.3
+        dA_prev = 0.0
+        dDx_prev = 0.0
+        dDs_prev = 0.0
         
-        # =====================================================================
-        # STAGE 2: Minimize energy over scale parameters
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 2: Minimizing energy over scale parameters")
-            print("-"*70)
+        converged_outer = False
+        shape_result = None
+        energy_result = None
+        structure_4d = None
         
-        energy_result = self.energy_minimizer.minimize_lepton_energy(
-            shape_structure=structure_4d,
-            generation_n=generation_n,
-            initial_guess=initial_scale_guess
-        )
+        for iter_outer in range(max_iter_outer):
+            if self.verbose:
+                print(f"\n{'='*70}")
+                print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
+                print(f"{'='*70}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            
+            # =====================================================================
+            # STAGE 1: Solve shape (dimensionless) at current scales
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 1: Solving for dimensionless shape")
+                print("-"*70)
+            
+            shape_result = self.shape_solver.solve_lepton_shape(
+                winding_k=winding_k,
+                generation_n=generation_n,
+                max_iter=max_iter,
+                tol=tol
+            )
+            
+            # Build 4D structure with scale-aware coupling
+            structure_4d = self.spatial_coupling.build_4d_structure(
+                subspace_shape=shape_result.composite_shape,
+                n_target=generation_n,
+                l_target=0,
+                m_target=0,
+                Delta_x=Delta_x_current  # Pass current scale for scale-aware coupling
+            )
+            
+            # =====================================================================
+            # STAGE 2: Find optimal scales for this shape
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 2: Minimizing energy over scale parameters")
+                print("-"*70)
+            
+            energy_result = self.energy_minimizer.minimize_lepton_energy(
+                shape_structure=structure_4d,
+                generation_n=generation_n,
+                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+            )
+            
+            # Extract new scales
+            A_new = energy_result.A
+            Delta_x_new = energy_result.Delta_x
+            Delta_sigma_new = energy_result.Delta_sigma
+            
+            # Store in history
+            scale_history['A'].append(A_new)
+            scale_history['Delta_x'].append(Delta_x_new)
+            scale_history['Delta_sigma'].append(Delta_sigma_new)
+            scale_history['iteration'].append(iter_outer)
+            
+            # =====================================================================
+            # CHECK CONVERGENCE
+            # =====================================================================
+            if iter_outer > 0:
+                delta_A = abs(A_new - A_current)
+                delta_Dx = abs(Delta_x_new - Delta_x_current)
+                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
+                
+                rel_delta_A = delta_A / max(A_current, 0.01)
+                rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
+                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
+                
+                if self.verbose:
+                    print(f"\n  Outer convergence check:")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                    converged_outer = True
+                    if self.verbose:
+                        print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
+                    break
+                
+                # Adaptive mixing (oscillation detection)
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_current
+                dDs_current = Delta_sigma_new - Delta_sigma_current
+                
+                oscillating = False
+                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
+                    mixing = max(0.05, mixing * 0.5)
+                    oscillating = True
+                    if self.verbose:
+                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
+                elif iter_outer > 5:
+                    mixing = min(0.5, mixing * 1.1)
+                
+                dA_prev = dA_current
+                dDx_prev = dDx_current
+                dDs_prev = dDs_current
+            
+            # =====================================================================
+            # UPDATE SCALES WITH MIXING
+            # =====================================================================
+            if iter_outer == 0:
+                # First iteration - use values directly
+                A_current = A_new
+                Delta_x_current = Delta_x_new
+                Delta_sigma_current = Delta_sigma_new
+            else:
+                # Apply adaptive mixing
+                A_current = (1 - mixing) * A_current + mixing * A_new
+                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
+                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Amplitude A: {energy_result.A:.6f}")
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
-        # Return unified result
+        # Return unified result with outer loop info
         return UnifiedSolverResult(
             mass=energy_result.mass,
-            A=energy_result.A,
-            Delta_x=energy_result.Delta_x,
-            Delta_sigma=energy_result.Delta_sigma,
+            A=A_current,
+            Delta_x=Delta_x_current,
+            Delta_sigma=Delta_sigma_current,
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,
@@ -384,6 +611,9 @@ class UnifiedSFMSolver:
             shape_iterations=shape_result.iterations,
             energy_converged=energy_result.converged,
             energy_iterations=energy_result.iterations,
+            outer_iterations=iter_outer + 1,
+            outer_converged=converged_outer,
+            scale_history=scale_history,
             particle_type='lepton',
             quantum_numbers={
                 'winding_k': winding_k,
@@ -401,10 +631,12 @@ class UnifiedSFMSolver:
         max_scf_iter: int = 500,
         scf_tol: float = 1e-4,
         scf_mixing: float = 0.1,
+        max_iter_outer: int = 30,
+        tol_outer: float = 1e-4,
         initial_scale_guess: Optional[Tuple[float, float, float]] = None
     ) -> UnifiedSolverResult:
         """
-        Solve for meson using two-stage approach.
+        Solve for meson using two-stage approach with outer iteration.
         
         Args:
             quark_winding: Quark winding number
@@ -415,66 +647,167 @@ class UnifiedSFMSolver:
             max_scf_iter: Maximum SCF iterations for shape
             scf_tol: Convergence tolerance for shape
             scf_mixing: Mixing parameter for SCF
+            max_iter_outer: Maximum outer loop iterations
+            tol_outer: Convergence tolerance for outer loop (scale changes)
             initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
             
         Returns:
-            UnifiedSolverResult with mass, scales, and shape
+            UnifiedSolverResult with mass, scales, shape, and outer convergence info
         """
         if self.verbose:
             print("\n" + "="*70)
             print(f"UNIFIED SOLVER: Meson (k_q={quark_winding}, k_qbar={antiquark_winding})")
             print("="*70)
         
-        # =====================================================================
-        # STAGE 1: Solve for normalized shape (dimensionless)
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 1: Solving for dimensionless shape")
-            print("-"*70)
+        # Initialize scale tracking
+        scale_history = {
+            'A': [],
+            'Delta_x': [],
+            'Delta_sigma': [],
+            'iteration': []
+        }
         
-        shape_result = self.shape_solver.solve_meson_shape(
-            quark_winding=quark_winding,
-            antiquark_winding=antiquark_winding,
-            quark_phase=quark_phase,
-            antiquark_phase=antiquark_phase,
-            max_iter=max_scf_iter,
-            tol=scf_tol,
-            mixing=scf_mixing
-        )
+        # Initialize current scales
+        if initial_scale_guess is not None:
+            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+        else:
+            # Mesons typically have intermediate amplitudes
+            A_current = 20.0  # Reasonable starting point for mesons
+            Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
+            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Build 4D structure
-        structure_4d = self.spatial_coupling.build_4d_structure(
-            subspace_shape=shape_result.composite_shape,
-            n_target=n_target,
-            l_target=0,
-            m_target=0
-        )
+        # Adaptive mixing for stability
+        mixing = 0.3
+        dA_prev = 0.0
+        dDx_prev = 0.0
+        dDs_prev = 0.0
         
-        # =====================================================================
-        # STAGE 2: Minimize energy over scale parameters
-        # =====================================================================
-        if self.verbose:
-            print("\n" + "-"*70)
-            print("STAGE 2: Minimizing energy over scale parameters")
-            print("-"*70)
+        converged_outer = False
+        shape_result = None
+        energy_result = None
+        structure_4d = None
         
-        energy_result = self.energy_minimizer.minimize_meson_energy(
-            shape_structure=structure_4d,
-            initial_guess=initial_scale_guess
-        )
+        for iter_outer in range(max_iter_outer):
+            if self.verbose:
+                print(f"\n{'='*70}")
+                print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
+                print(f"{'='*70}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            
+            # =====================================================================
+            # STAGE 1: Solve for normalized shape (dimensionless)
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 1: Solving for dimensionless shape")
+                print("-"*70)
+            
+            shape_result = self.shape_solver.solve_meson_shape(
+                quark_winding=quark_winding,
+                antiquark_winding=antiquark_winding,
+                quark_phase=quark_phase,
+                antiquark_phase=antiquark_phase,
+                max_iter=max_scf_iter,
+                tol=scf_tol,
+                mixing=scf_mixing
+            )
+            
+            # Build 4D structure with scale-aware coupling
+            structure_4d = self.spatial_coupling.build_4d_structure(
+                subspace_shape=shape_result.composite_shape,
+                n_target=n_target,
+                l_target=0,
+                m_target=0,
+                Delta_x=Delta_x_current  # Scale-aware coupling
+            )
+            
+            # =====================================================================
+            # STAGE 2: Minimize energy over scale parameters
+            # =====================================================================
+            if self.verbose:
+                print("\n" + "-"*70)
+                print("STAGE 2: Minimizing energy over scale parameters")
+                print("-"*70)
+            
+            energy_result = self.energy_minimizer.minimize_meson_energy(
+                shape_structure=structure_4d,
+                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+            )
+            
+            # Extract new scales
+            A_new = energy_result.A
+            Delta_x_new = energy_result.Delta_x
+            Delta_sigma_new = energy_result.Delta_sigma
+            
+            # Store in history
+            scale_history['A'].append(A_new)
+            scale_history['Delta_x'].append(Delta_x_new)
+            scale_history['Delta_sigma'].append(Delta_sigma_new)
+            scale_history['iteration'].append(iter_outer)
+            
+            # =====================================================================
+            # CHECK CONVERGENCE
+            # =====================================================================
+            if iter_outer > 0:
+                delta_A = abs(A_new - A_current)
+                delta_Dx = abs(Delta_x_new - Delta_x_current)
+                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
+                
+                rel_delta_A = delta_A / max(A_current, 0.01)
+                rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
+                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
+                
+                if self.verbose:
+                    print(f"\n  Outer convergence check:")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                    converged_outer = True
+                    if self.verbose:
+                        print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
+                    break
+                
+                # Adaptive mixing (oscillation detection)
+                dA_current = A_new - A_current
+                dDx_current = Delta_x_new - Delta_x_current
+                dDs_current = Delta_sigma_new - Delta_sigma_current
+                
+                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
+                    mixing = max(0.05, mixing * 0.5)
+                    if self.verbose:
+                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
+                elif iter_outer > 5:
+                    mixing = min(0.5, mixing * 1.1)
+                
+                dA_prev = dA_current
+                dDx_prev = dDx_current
+                dDs_prev = dDs_current
+            
+            # =====================================================================
+            # UPDATE SCALES WITH MIXING
+            # =====================================================================
+            if iter_outer == 0:
+                A_current = A_new
+                Delta_x_current = Delta_x_new
+                Delta_sigma_current = Delta_sigma_new
+            else:
+                A_current = (1 - mixing) * A_current + mixing * A_new
+                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
+                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
-        # Return unified result
+        # Return unified result with outer loop info
         return UnifiedSolverResult(
             mass=energy_result.mass,
-            A=energy_result.A,
-            Delta_x=energy_result.Delta_x,
-            Delta_sigma=energy_result.Delta_sigma,
+            A=A_current,
+            Delta_x=Delta_x_current,
+            Delta_sigma=Delta_sigma_current,
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,
@@ -492,6 +825,9 @@ class UnifiedSFMSolver:
             shape_iterations=shape_result.iterations,
             energy_converged=energy_result.converged,
             energy_iterations=energy_result.iterations,
+            outer_iterations=iter_outer + 1,
+            outer_converged=converged_outer,
+            scale_history=scale_history,
             particle_type='meson',
             quantum_numbers={
                 'quark_winding': quark_winding,

@@ -101,7 +101,8 @@ class SpatialCouplingBuilder:
         subspace_shape: NDArray,
         n_target: int = 1,
         l_target: int = 0,
-        m_target: int = 0
+        m_target: int = 0,
+        Delta_x: Optional[float] = None
     ) -> Dict[Tuple[int, int, int], NDArray]:
         """
         Build 4D wavefunction structure with spatial coupling.
@@ -115,12 +116,15 @@ class SpatialCouplingBuilder:
         Input:
             subspace_shape: Normalized chi(sigma) with integral|chi|^2 = 1
             n_target, l_target, m_target: Primary quantum numbers
+            Delta_x: Optional spatial scale in fm (for scale-aware coupling)
             
         Output:
             {(n,l,m): chi_nlm(sigma)} all dimensionless, normalized
             
         The key is that this builds the RELATIVE structure of different
         (n,l,m) components, independent of overall scale.
+        
+        If Delta_x is provided, recomputes coupling matrix at that scale.
         """
         if self.verbose:
             print(f"\n=== Building 4D Structure (n={n_target}, l={l_target}, m={m_target}) ===")
@@ -136,6 +140,15 @@ class SpatialCouplingBuilder:
             warnings.warn(f"Target state ({n_target},{l_target},{m_target}) not in basis")
             return chi_components
         
+        # Recompute coupling matrix if scale provided (outer loop)
+        if Delta_x is not None:
+            a_n = Delta_x / np.sqrt(2 * n_target + 1)  # Characteristic scale
+            R_coupling = self._compute_coupling_matrix_at_scale(a_n)
+            if self.verbose:
+                print(f"  Using scale-aware coupling at Delta_x={Delta_x:.6f} fm (a_n={a_n:.6f})")
+        else:
+            R_coupling = self.R_coupling  # Use pre-computed unit scale
+        
         # Energy of target state (dimensionless, harmonic oscillator)
         E_target = 2*n_target + l_target
         
@@ -148,7 +161,7 @@ class SpatialCouplingBuilder:
                 continue
             
             # Spatial coupling matrix element
-            R_ij = self.R_coupling[i, target_idx]
+            R_ij = R_coupling[i, target_idx]
             
             if abs(R_ij) < 1e-10:
                 # No coupling, component is zero
@@ -220,6 +233,27 @@ class SpatialCouplingBuilder:
                 R[i, j] = R_ij
         
         return R
+    
+    def _compute_coupling_matrix_at_scale(self, a_n: float) -> NDArray:
+        """
+        Compute R_ij = <phi_i|grad^2|phi_j> at spatial scale a_n.
+        
+        Harmonic oscillator wavefunctions scale as phi(r/a_n)/a_n^(3/2).
+        Laplacian scales as grad^2 ~ 1/a_n^2.
+        
+        For the Laplacian operator acting on scaled wavefunctions:
+            R(a_n) = R(a0=1) / a_n^2
+        
+        This is the analytical scaling for harmonic oscillator states.
+        
+        Args:
+            a_n: Characteristic spatial scale in fm
+            
+        Returns:
+            Coupling matrix scaled appropriately
+        """
+        # Scale from unit coupling: R(a_n) = R(a0=1) / a_n^2
+        return self.R_coupling / (a_n ** 2)
     
     def _compute_laplacian_overlap(
         self,

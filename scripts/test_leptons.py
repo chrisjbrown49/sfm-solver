@@ -37,7 +37,9 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
             winding_k=lepton_config.winding,
             generation_n=lepton_config.generation,
             max_iter=200,
-            tol=1e-6  # Shape solver tolerance (Stage 1)
+            tol=1e-6,  # Shape solver tolerance (Stage 1)
+            max_iter_outer=30,  # Outer loop iterations
+            tol_outer=1e-4  # Outer loop tolerance (legacy value)
         )
         
         elapsed_time = time.time() - start_time
@@ -45,7 +47,17 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
         if verbose:
             print(f"  Shape converged: {result.shape_converged} ({result.shape_iterations} iters)")
             print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
+            print(f"  Outer loop: {result.outer_iterations} iterations, converged={result.outer_converged}")
             print(f"  Time: {elapsed_time:.3f} s")
+            
+            # Show scale evolution for first few iterations
+            if result.scale_history and len(result.scale_history['A']) > 1:
+                print(f"\n  Scale evolution (first 5 iterations):")
+                for i in range(min(5, len(result.scale_history['A']))):
+                    A = result.scale_history['A'][i]
+                    Dx = result.scale_history['Delta_x'][i]
+                    Ds = result.scale_history['Delta_sigma'][i]
+                    print(f"    Iter {i}: A={A:.6f}, Dx={Dx:.6f} fm, Ds={Ds:.6f}")
         
         # Calculate mass from amplitude using calibrated beta
         mass_mev = beta * (result.A ** 2) * 1000.0

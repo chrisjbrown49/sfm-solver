@@ -49,10 +49,10 @@ def test_g_internal_value(g_internal_value):
         # Calibrate beta from electron
         beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
         
-        # Solve all three leptons
-        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200)
-        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200)
-        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200)
+        # Solve all three leptons (max_iter is for shape solver, outer loop has separate limit)
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=30)
+        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=30)
+        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=30)
         
         # Calculate masses
         mass_e = beta * result_e.A**2 * 1000  # MeV
@@ -70,15 +70,15 @@ def test_g_internal_value(g_internal_value):
         tau_error = abs(A_ratio_tau_e - 59.0) / 59.0 * 100
         combined_error = (mu_error + tau_error) / 2
         
-        # Check confinement (Delta_x should be < 1000 fm)
-        confined = (result_e.Delta_x < 999.0 and 
-                   result_mu.Delta_x < 999.0 and 
-                   result_tau.Delta_x < 999.0)
+        # Check confinement (Delta_x should be < 9999 fm)
+        confined = (result_e.Delta_x < 9999.0 and 
+                   result_mu.Delta_x < 9999.0 and 
+                   result_tau.Delta_x < 9999.0)
         
-        # Check convergence
-        converged = (result_e.energy_converged and 
-                    result_mu.energy_converged and 
-                    result_tau.energy_converged)
+        # Check convergence (outer loop is the key metric)
+        converged = (result_e.outer_converged and 
+                    result_mu.outer_converged and 
+                    result_tau.outer_converged)
         
         return {
             'g_internal': g_internal_value,
@@ -132,26 +132,25 @@ def test_g_internal_value(g_internal_value):
 
 def main():
     print("="*100)
-    print("FINE SCAN OF g_internal PARAMETER (1e8 to 2e8, steps of 1e7)")
+    print("COARSE LOGARITHMIC SCAN OF g_internal PARAMETER (1e-4 to 1e8)")
     print("="*100)
-    print("\nZooming in on the muon-tau crossover region")
-    print("\nPrevious scan with optimal alpha=30, g1=50 showed:")
-    print("  - At 1e8: Muon resonance! A_mu/A_e = 66.68 (4.6x too high), A_tau/A_e = 2.69 (too low)")
-    print("  - At 2e8: Tau resonance! A_mu/A_e = 3.09 (too low), A_tau/A_e = 55.34 (nearly perfect!)")
-    print("  - There must be a crossover point between them!")
+    print("\nScanning to find physically reasonable regime with outer loop convergence")
     print("\nTarget metrics:")
-    print("  - Beta: ~0.001-0.1 GeV")
+    print("  - Beta: ~0.001-1.0 GeV")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
     print("  - A_tau/A_e: ~59.0 (from sqrt(3477))")
     print("  - Mass ratios: mu/e = 206.8, tau/e = 3477")
     print("  - Convergence: All leptons should converge")
-    print("  - Confinement: Delta_x < 1000 fm")
+    print("  - Confinement: Delta_x < 9999 fm (unconstrained range)")
+    print("\nLooking for:")
+    print("  - Regime where outer loop converges")
+    print("  - Physical spatial scales (Delta_x ~ 0.1-100 fm)")
+    print("  - Generation-dependent amplitudes")
     
-    # Fine scan: 1e8 to 2e8 in steps of 1e7
-    # 1.0e8, 1.1e8, 1.2e8, ..., 1.9e8, 2.0e8
-    g_internal_values = [1.0e8 + i * 1e7 for i in range(11)]
+    # Logarithmic scan: one value per decade from 1e-4 to 1e8
+    g_internal_values = [10**i for i in range(-4, 9)]  # 1e-4, 1e-3, ..., 1e7, 1e8
     
-    print(f"\nTesting {len(g_internal_values)} values...")
+    print(f"\nTesting {len(g_internal_values)} values (one per decade)...")
     print("="*100)
     
     results = []

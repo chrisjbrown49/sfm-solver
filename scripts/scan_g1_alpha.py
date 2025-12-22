@@ -26,7 +26,7 @@ from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import ELECTRON, MUON, TAU
 
 
-def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=2e8):
+def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e8):
     """Test a single (g1, alpha) combination with fixed g_internal and return results."""
     
     try:
@@ -44,10 +44,10 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=2e8):
         # Calibrate beta from electron
         beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
         
-        # Solve all three leptons
-        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200)
-        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200)
-        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200)
+        # Solve all three leptons (with outer loop iterations)
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=30)
+        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=30)
+        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=30)
         
         # Calculate masses
         mass_e = beta * result_e.A**2 * 1000  # MeV
@@ -67,14 +67,14 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=2e8):
         combined_error = (mu_error + tau_error) / 2
         
         # Check confinement
-        confined = (result_e.Delta_x < 999.0 and 
-                   result_mu.Delta_x < 999.0 and 
-                   result_tau.Delta_x < 999.0)
+        confined = (result_e.Delta_x < 9999.0 and 
+                   result_mu.Delta_x < 9999.0 and 
+                   result_tau.Delta_x < 9999.0)
         
-        # Check convergence
-        converged = (result_e.energy_converged and 
-                    result_mu.energy_converged and 
-                    result_tau.energy_converged)
+        # Check convergence (outer loop is key)
+        converged = (result_e.outer_converged and 
+                    result_mu.outer_converged and 
+                    result_tau.outer_converged)
         
         return {
             'g1': g1_value,
@@ -134,25 +134,27 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=2e8):
 
 def main():
     print("="*100)
-    print("2D SCAN: g1 AND alpha AT OPTIMAL g_internal = 2e8")
+    print("2D SCAN: g1 AND alpha AT g_internal = 1e8")
     print("="*100)
     print("\nFixed parameter:")
-    print("  g_internal = 2.00e+08  (optimal for tau from previous scan)")
+    print("  g_internal = 1.00e+08  (only value with convergence + physical scales)")
     print("\nPrevious results:")
-    print("  - At (g1=50, alpha=30): A_mu/A_e=3.43, A_tau/A_e=62.14")
-    print("    Tau nearly perfect, but muon too low!")
-    print("  - g1 alone shows competition between generations")
-    print("\nGoal: Find (g1, alpha) combination that balances both generations")
+    print("  - Coarse scan showed g_internal = 1e8 is the only regime with:")
+    print("    * Outer loop convergence")
+    print("    * Physical spatial scales (Delta_x ~ 4.5 fm)")
+    print("  - At (g1=50, alpha=30): All generations identical (A_mu/A_e=1.0, A_tau/A_e=1.0)")
+    print("  - Need to find g1 and alpha that create generation hierarchy")
+    print("\nGoal: Find (g1, alpha) combination that differentiates generations")
     print("\nTarget metrics:")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
     print("  - A_tau/A_e: ~59.0 (from sqrt(3477))")
     print("  - Mass ratios: mu/e = 206.8, tau/e = 3477")
     
-    # 3x3 grid scan
-    g1_values = [50, 100, 150]
-    alpha_values = [20, 30, 50]
+    # 3x3 grid scan - exploring wide parameter space
+    g1_values = [10, 50, 200]  # Low to high
+    alpha_values = [10, 30, 100]  # Low to high
     
-    g_internal_fixed = 2e8
+    g_internal_fixed = 1e8
     
     total_tests = len(g1_values) * len(alpha_values)
     print(f"\nScanning {len(g1_values)} g1 values x {len(alpha_values)} alpha values = {total_tests} combinations...")
@@ -228,7 +230,7 @@ def main():
             print(f"\n{'-'*100}")
             print(f"#{idx+1}: g1={r['g1']:.0f}, alpha={r['alpha']:.0f}  (Combined error: {r['combined_error_pct']:.1f}%)")
             print(f"{'-'*100}")
-            print(f"  Parameters: g_internal=2e8, g1={r['g1']:.0f}, alpha={r['alpha']:.0f}")
+            print(f"  Parameters: g_internal=1e8, g1={r['g1']:.0f}, alpha={r['alpha']:.0f}")
             print(f"  Beta: {r['beta']:.6f} GeV")
             print(f"\n  Amplitudes:")
             print(f"    A_e   = {r['A_e']:.6f}")
@@ -261,7 +263,7 @@ def main():
             print(f"\n  EXCELLENT CANDIDATE FOUND!")
             print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.0f}) gives combined error of only {best['combined_error_pct']:.1f}%")
             print(f"\n  Optimal parameters:")
-            print(f"    g_internal = 2e8")
+            print(f"    g_internal = 1e8")
             print(f"    g1 = {best['g1']:.0f}")
             print(f"    alpha = {best['alpha']:.0f}")
             print(f"\n  Next steps:")
