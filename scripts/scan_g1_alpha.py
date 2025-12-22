@@ -1,19 +1,19 @@
 """
-2D scan of g1 and alpha parameters at g_internal = 2e8.
+Stability test: 2D scan of g1 and alpha parameters at g_internal = 1e7.
 
-Previous scans identified:
-  - g_internal = 2e8 optimal for tau (A_tau/A_e = 62.14, only 5.3% error!)
-  - At g1=50: tau perfect but muon too low (A_mu/A_e = 3.43)
-  - g1 alone can't balance both generations (competition effect)
+This script tests whether small parameter changes (±10%) cause large
+unpredictable jumps in masses, which would indicate chaotic oscillations.
 
-This script performs a 3x3 grid scan of both g1 and alpha to find
-the optimal combination that balances all three lepton generations.
+Current optimal values:
+  - g_internal = 1e7
+  - alpha = 10.5
+  - g1 = 5000
 
-Strategy:
-  - Fix g_internal = 2e8
-  - Scan g1 = [50, 100, 150] (3 values)
-  - Scan alpha = [20, 30, 50] (3 values)
-  - Look for combination that achieves both targets simultaneously
+Test strategy:
+  - Fix g_internal = 1e7
+  - Scan alpha = [9.45, 10.5, 11.55] (nominal ±10%)
+  - Scan g1 = [4500, 5000, 5500] (nominal ±10%)
+  - Check if results vary smoothly or chaotically
 """
 
 import numpy as np
@@ -26,7 +26,7 @@ from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import ELECTRON, MUON, TAU
 
 
-def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e8):
+def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e7):
     """Test a single (g1, alpha) combination with fixed g_internal and return results."""
     
     try:
@@ -44,10 +44,10 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e8):
         # Calibrate beta from electron
         beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
         
-        # Solve all three leptons (with outer loop iterations)
-        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=30)
-        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=30)
-        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=30)
+        # Solve all three leptons (with 50 outer loop iterations)
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
+        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
+        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
         
         # Calculate masses
         mass_e = beta * result_e.A**2 * 1000  # MeV
@@ -134,28 +134,36 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e8):
 
 def main():
     print("="*100)
-    print("AGGRESSIVE 2D SCAN: g1 AND alpha AT g_internal = 5e8")
+    print("STABILITY TEST: g1 AND alpha SCAN AT g_internal = 1e7")
     print("="*100)
     print("\nFixed parameter:")
-    print("  g_internal = 5.00e+08  (current working value with convergence)")
+    print("  g_internal = 1.00e+07  (optimal from previous scans)")
     print("\nCurrent baseline:")
-    print("  - With (g1=5000, alpha=150): Weak hierarchy (mu/e=1.07, tau/e=1.18)")
-    print("  - E_coupling is significant but not dominant")
-    print("  - All leptons converge within bounds")
-    print("\nGoal: AGGRESSIVE SCAN for stronger generation hierarchy")
+    print("  - alpha = 10.5, g1 = 5000")
+    print("  - A_mu/A_e = 16.19 (target: 14.4, error: 12%)")
+    print("  - A_tau/A_e = 39.51 (target: 59.0, error: 33%)")
+    print("  - Muon: 120.8 MeV (exp: 105.7, error: 14%)")
+    print("\nGoal: TEST STABILITY")
+    print("  - Check if ±10% changes in alpha/g1 cause smooth or chaotic changes")
+    print("  - If smooth: solver is stable despite oscillations")
+    print("  - If chaotic: need to improve convergence before tuning")
     print("\nTarget metrics:")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
     print("  - A_tau/A_e: ~59.0 (from sqrt(3477))")
     print("  - Mass ratios: mu/e = 206.8, tau/e = 3477")
     
-    # AGGRESSIVE grid scan - pushing for stronger hierarchy
-    g1_values = [2000, 5000, 10000, 20000]  # Explore nonlinear effects
-    alpha_values = [200, 300, 400, 500, 600]  # Very aggressive coupling
+    # Small grid scan around optimal values (±10%)
+    g1_nominal = 5000
+    alpha_nominal = 10.5
+    g1_values = [int(g1_nominal * 0.9), g1_nominal, int(g1_nominal * 1.1)]  # [4500, 5000, 5500]
+    alpha_values = [alpha_nominal * 0.9, alpha_nominal, alpha_nominal * 1.1]  # [9.45, 10.5, 11.55]
     
-    g_internal_fixed = 5e8
+    g_internal_fixed = 1e7
     
     total_tests = len(g1_values) * len(alpha_values)
-    print(f"\nAGGRESSIVE SCAN: {len(g1_values)} g1 values x {len(alpha_values)} alpha values = {total_tests} combinations")
+    print(f"\nSTABILITY SCAN: {len(g1_values)} g1 values x {len(alpha_values)} alpha values = {total_tests} combinations")
+    print(f"  g1 = {g1_values}")
+    print(f"  alpha = {[f'{a:.2f}' for a in alpha_values]}")
     print("This will take approximately {:.0f} minutes...".format(total_tests * 0.5))
     print("="*100)
     

@@ -50,9 +50,9 @@ def test_g_internal_value(g_internal_value):
         beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
         
         # Solve all three leptons (max_iter is for shape solver, outer loop has separate limit)
-        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=30)
-        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=30)
-        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=30)
+        result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=50)
+        result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=50)
+        result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=50)
         
         # Calculate masses
         mass_e = beta * result_e.A**2 * 1000  # MeV
@@ -132,9 +132,9 @@ def test_g_internal_value(g_internal_value):
 
 def main():
     print("="*100)
-    print("COARSE LOGARITHMIC SCAN OF g_internal PARAMETER (1e-4 to 1e8)")
+    print("FINE SCAN OF g_internal PARAMETER (1e6 to 1e8)")
     print("="*100)
-    print("\nScanning to find physically reasonable regime with outer loop convergence")
+    print("\nScanning optimal regime with 3 values per decade and increased outer iterations (50)")
     print("\nTarget metrics:")
     print("  - Beta: ~0.001-1.0 GeV")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
@@ -143,14 +143,21 @@ def main():
     print("  - Convergence: All leptons should converge")
     print("  - Confinement: Delta_x < 9999 fm (unconstrained range)")
     print("\nLooking for:")
-    print("  - Regime where outer loop converges")
-    print("  - Physical spatial scales (Delta_x ~ 0.1-100 fm)")
-    print("  - Generation-dependent amplitudes")
+    print("  - Best convergence with outer_iter_max = 50")
+    print("  - Physical spatial scales (Delta_x ~ 0.01-0.1 fm)")
+    print("  - Strongest generation hierarchy")
     
-    # Logarithmic scan: one value per decade from 1e-4 to 1e8
-    g_internal_values = [10**i for i in range(-4, 9)]  # 1e-4, 1e-3, ..., 1e7, 1e8
+    # Fine scan: 3 values per decade from 1e6 to 1e8
+    # For each decade [10^n, 10^(n+1)], sample at 10^n, 10^(n+1/3), 10^(n+2/3)
+    g_internal_values = []
+    for decade in [6, 7]:  # 1e6-1e7, 1e7-1e8
+        g_internal_values.append(10**decade)
+        g_internal_values.append(10**(decade + 1/3))
+        g_internal_values.append(10**(decade + 2/3))
+    g_internal_values.append(1e8)  # Final endpoint
     
-    print(f"\nTesting {len(g_internal_values)} values (one per decade)...")
+    print(f"\nTesting {len(g_internal_values)} values (3 per decade)...")
+    print(f"Values: {[f'{v:.2e}' for v in g_internal_values]}")
     print("="*100)
     
     results = []
