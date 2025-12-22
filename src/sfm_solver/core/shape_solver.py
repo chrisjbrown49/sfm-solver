@@ -297,25 +297,49 @@ class DimensionlessShapeSolver:
         chi = self._normalize(chi)
         
         # Self-consistent iteration for EM potential
+        # ENFORCED WINDING: chi(σ) = A(σ) × exp(ikσ) where A(σ) is a REAL envelope
+        # This explicitly maintains winding k throughout
         for iteration in range(max_iter):
             chi_old = chi.copy()
             
-            # Compute circulation (normalized)
-            J_norm = self._compute_circulation(chi)
+            # Extract REAL envelope: A = |chi / exp(ikσ)| (magnitude only!)
+            A_old = np.abs(chi_old / np.exp(1j * winding_k * self.sigma))
+            
+            # Compute circulation (normalized) for EM potential
+            J_norm = self._compute_circulation(chi_old)
+            
+            if self.verbose and iteration < 3:
+                dchi_check = D1 @ chi_old
+                circ_check = np.sum(np.conj(chi_old) * dchi_check) * self.dsigma
+                print(f"  Iter {iteration}: Im(circulation) = {np.imag(circ_check):.6f}")
             
             # EM contribution to potential
             V_em = self.g2_dimless * np.abs(J_norm)**2
             
-            # Build Hamiltonian
-            T_winding = self._build_winding_kinetic(winding_k)
-            V_total = self.V_well_dimless + V_em
-            H = -D2 + T_winding + np.diag(V_total)
+            # Build Hamiltonian for REAL envelope A(σ)
+            # For chi = A×exp(ikσ):  ∂chi/∂σ = (∂A/∂σ + ikA)×exp(ikσ)
+            # So |∂chi/∂σ|² = (∂A/∂σ)² + k²A²
+            # 
+            # Kinetic energy: T = integral [-(∂²A/∂σ²) + k²A²] dsigma
+            # 
+            # This gives effective Hamiltonian for A:
+            # H_eff = -∂²/∂σ² + k² + V
+            V_total = self.V_well_dimless + V_em + winding_k**2
+            H_eff = -D2 + np.diag(V_total)
             
-            # Solve eigenvalue problem
-            eigenvalues, eigenvectors = np.linalg.eigh(H)
+            # Solve for REAL envelope (H_eff is Hermitian)
+            eigenvalues, eigenvectors = np.linalg.eigh(H_eff)
             
-            # Select ground state (lowest energy)
-            chi_new = eigenvectors[:, 0].astype(complex)
+            # Select ground state
+            A_new = np.real(eigenvectors[:, 0])  # Force real
+            A_new = A_new / np.sqrt(np.sum(A_new**2) * self.dsigma)
+            
+            # Make sure envelope is positive (by convention)
+            if np.sum(A_new) < 0:
+                A_new = -A_new
+            
+            # Reconstruct full wavefunction: chi = A × exp(ikσ)
+            chi_new = A_new * np.exp(1j * winding_k * self.sigma)
             chi_new = self._normalize(chi_new)
             
             # Check convergence
@@ -324,7 +348,9 @@ class DimensionlessShapeSolver:
             if delta < tol:
                 chi = chi_new
                 if self.verbose:
-                    print(f"  Converged after {iteration+1} iterations")
+                    dchi_final = D1 @ chi
+                    circ_final = np.sum(np.conj(chi) * dchi_final) * self.dsigma
+                    print(f"  Converged after {iteration+1} iterations, Im(circ) = {np.imag(circ_final):.6f}")
                 break
             
             chi = chi_new
@@ -618,4 +644,73 @@ class DimensionlessShapeSolver:
         chi_new = self._normalize(chi_new)
         
         return chi_new
+    
+    def _select_winding_eigenstate(
+        self,
+        eigenvectors: NDArray,
+        winding_k: int,
+        n_check: int = 20
+    ) -> NDArray:
+        """
+        Select eigenstate with circulation closest to target winding k.
+        
+        CRITICAL FOR GENERATION HIERARCHY:
+        The ground state (lowest energy) naturally has ZERO winding to minimize
+        kinetic energy. For leptons with winding k=1, we need an excited state
+        with definite circulation Im[∫ χ* ∂χ/∂σ dσ] ≈ k.
+        
+        Strategy:
+        1. Check first n_check eigenstates (sorted by energy)
+        2. Compute circulation for each: C = Im[∫ χ* ∂χ/∂σ dσ]
+        3. Select the state with circulation closest to target winding k
+        
+        Args:
+            eigenvectors: Eigenvectors from diagonalization [N_sigma, N_states]
+            winding_k: Target winding number (e.g., k=1 for electron)
+            n_check: Number of low-energy states to check
+            
+        Returns:
+            Selected eigenstate (complex array)
+        """
+        # Build derivative operator
+        D1 = self._build_derivative_operator()
+        
+        # Check first n_check eigenstates
+        n_states = min(n_check, eigenvectors.shape[1])
+        
+        best_idx = 0
+        best_circulation_error = float('inf')
+        
+        if self.verbose:
+            print(f"\n  Selecting eigenstate with winding k={winding_k}")
+            print(f"  Checking {n_states} lowest energy states...")
+        
+        for i in range(n_states):
+            chi = eigenvectors[:, i].astype(complex)
+            
+            # Compute circulation: C = Im[∫ χ* ∂χ/∂σ dσ]
+            dchi = D1 @ chi
+            circulation_complex = np.sum(np.conj(chi) * dchi) * self.dsigma
+            circulation = np.imag(circulation_complex)
+            
+            # How close is this circulation to our target winding?
+            error = abs(circulation - winding_k)
+            
+            if self.verbose and i < 5:
+                print(f"    State {i}: circulation = {circulation:.6f}, error = {error:.6f}")
+            
+            if error < best_circulation_error:
+                best_circulation_error = error
+                best_idx = i
+        
+        if self.verbose:
+            chi_best = eigenvectors[:, best_idx].astype(complex)
+            dchi_best = D1 @ chi_best
+            circ_best = np.imag(np.sum(np.conj(chi_best) * dchi_best) * self.dsigma)
+            print(f"  Selected state {best_idx}: circulation = {circ_best:.6f} (error = {best_circulation_error:.6f})")
+        
+        # Get the best eigenstate
+        chi_selected = eigenvectors[:, best_idx].astype(complex)
+        
+        return chi_selected
 

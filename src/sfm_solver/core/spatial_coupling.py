@@ -182,9 +182,21 @@ class SpatialCouplingBuilder:
             
             chi_components[(n, l, m)] = chi_nlm
         
-        # DO NOT renormalize! The primary component is already normalized from Stage 1.
-        # The induced components are perturbative corrections and should be small.
-        # The overall scale is provided by amplitude A in Stage 2.
+        # RENORMALIZE the total 4D structure
+        # NOTE: This is necessary because with large alpha_dimless >> 1, the perturbative
+        # approximation breaks down and induced components become large. Renormalization
+        # ensures the energy minimizer receives a properly normalized structure.
+        N_sigma = len(subspace_shape)
+        dsigma = 2*np.pi / N_sigma
+        
+        # Compute total norm
+        chi_total = sum(chi_components.values())
+        total_norm = np.sqrt(np.sum(np.abs(chi_total)**2) * dsigma)
+        
+        # Renormalize all components
+        if total_norm > 1e-10:
+            for key in chi_components:
+                chi_components[key] = chi_components[key] / total_norm
         
         if self.verbose:
             # Report total norm for diagnostic purposes

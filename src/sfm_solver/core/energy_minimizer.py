@@ -214,9 +214,16 @@ class UniversalEnergyMinimizer:
         # CORRECT spatial coupling factor: ∫ |∇φ|² d³x = 4π ∫ (dφ/dr)² r² dr
         # This is the SQUARED GRADIENT which is always positive and non-zero!
         # Scales as (2n+1)/Δx² - THIS IS WHERE GENERATION HIERARCHY COMES FROM!
-        spatial_factor = 4 * np.pi * np.trapz(dphi_dr**2 * r**2, r)
+        spatial_factor_fm = 4 * np.pi * np.trapz(dphi_dr**2 * r**2, r)  # Units: 1/fm²
         
-        return float(spatial_factor)
+        # CRITICAL: Make dimensionless by multiplying by Delta_x²
+        # This gives spatial_factor = (Delta_x² × ∫|∇φ|² d³x), which is dimensionless
+        # and represents the integrated gradient strength relative to the confinement scale.
+        # The factor Delta_x² makes the coupling energy formula dimensionally correct:
+        #   E_coupling [GeV] = alpha [GeV] × spatial_factor [dimensionless] × circ [dimensionless] × A [dimensionless]
+        spatial_factor_dimensionless = spatial_factor_fm * (delta_x ** 2)  # Dimensionless
+        
+        return float(spatial_factor_dimensionless)
     
     # =========================================================================
     # ANALYTICAL FORMULAS for optimal parameters from energy balance
@@ -800,7 +807,14 @@ class UniversalEnergyMinimizer:
         spatial_factor = self._compute_spatial_factor(n_target, Delta_x)
         
         # Compute subspace factor from circulation
-        # subspace_factor = Im[∫ χ* ∂χ/∂σ dσ]
+        # CRITICAL: The circulation integral depends on Delta_sigma scaling!
+        # For chi_scaled(σ) = (A/√Δσ) × chi_shape(σ/Δσ), the circulation is:
+        # Im[∫ χ* ∂χ/∂σ dσ] = (A²/Δσ) × Im[∫ χ_shape* ∂χ_shape/∂σ dσ]
+        #
+        # So subspace_factor scales as A²/Δσ, but we want it relative to the
+        # normalized shape (which has circ ~ 1), so we multiply by Δσ/A² to get
+        # the dimensionless winding number, then multiply by A to get the right
+        # energy scaling.
         chi_total = sum(chi_scaled.values())
         N = len(chi_total)
         dsigma = 2*np.pi / N
@@ -816,8 +830,14 @@ class UniversalEnergyMinimizer:
         dchi_total = D1 @ chi_total
         
         # Circulation integral (imaginary part carries the winding)
-        circulation = np.sum(np.conj(chi_total) * dchi_total) * dsigma
-        subspace_factor = np.imag(circulation)
+        circulation_scaled = np.sum(np.conj(chi_total) * dchi_total) * dsigma
+        
+        # CRITICAL FIX: Correct for Delta_sigma dependence
+        # circulation_scaled = (A²/Δσ) × circulation_shape
+        # We want: subspace_factor = circulation_shape (the winding number ~ 1)
+        # So: subspace_factor = circulation_scaled × (Δσ/A²) × A = circulation_scaled × (Δσ/A)
+        # This gives the correct A-scaling for energy while preserving the winding.
+        subspace_factor = np.imag(circulation_scaled) * (Delta_sigma / A)
         
         # Total coupling energy (NOTE: negative sign - this is attractive!)
         E_coupling = -self.alpha * spatial_factor * subspace_factor * A
