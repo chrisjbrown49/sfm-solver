@@ -18,19 +18,15 @@ Test strategy:
 
 import numpy as np
 from tabulate import tabulate
-import json
-import os
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
-from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
-from sfm_solver.core.particle_configurations import ELECTRON, MUON, TAU
 
 
 def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e7):
     """Test a single (g1, alpha) combination with fixed g_internal and return results."""
     
     try:
-        # Create solver with modified g1, alpha and fixed g_internal
+        # Create solver with specified parameters
         solver = UnifiedSFMSolver(
             g_internal=g_internal_fixed,
             g1=g1_value,
@@ -41,18 +37,19 @@ def test_parameter_combination(g1_value, alpha_value, g_internal_fixed=1e7):
             verbose=False
         )
         
-        # Calibrate beta from electron
-        beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
-        
         # Solve all three leptons (with 50 outer loop iterations)
         result_e = solver.solve_lepton(winding_k=1, generation_n=1, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
         result_mu = solver.solve_lepton(winding_k=1, generation_n=2, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
         result_tau = solver.solve_lepton(winding_k=1, generation_n=3, max_iter=200, max_iter_outer=50, tol_outer=1e-3)
         
+        # Derive beta from electron mass
+        m_e_exp = 0.511  # Electron mass in MeV
+        beta = m_e_exp / (result_e.A ** 2)
+        
         # Calculate masses
-        mass_e = beta * result_e.A**2 * 1000  # MeV
-        mass_mu = beta * result_mu.A**2 * 1000  # MeV
-        mass_tau = beta * result_tau.A**2 * 1000  # MeV
+        mass_e = beta * result_e.A**2  # MeV
+        mass_mu = beta * result_mu.A**2  # MeV
+        mass_tau = beta * result_tau.A**2  # MeV
         
         # Calculate ratios
         A_ratio_mu_e = result_mu.A / result_e.A
@@ -138,15 +135,6 @@ def main():
     print("="*100)
     print("\nFixed parameter:")
     print("  g_internal = 1.00e+07  (optimal from previous scans)")
-    print("\nCurrent baseline:")
-    print("  - alpha = 10.5, g1 = 5000")
-    print("  - A_mu/A_e = 16.19 (target: 14.4, error: 12%)")
-    print("  - A_tau/A_e = 39.51 (target: 59.0, error: 33%)")
-    print("  - Muon: 120.8 MeV (exp: 105.7, error: 14%)")
-    print("\nGoal: TEST STABILITY")
-    print("  - Check if ±10% changes in alpha/g1 cause smooth or chaotic changes")
-    print("  - If smooth: solver is stable despite oscillations")
-    print("  - If chaotic: need to improve convergence before tuning")
     print("\nTarget metrics:")
     print("  - A_mu/A_e: ~14.4 (from sqrt(206.8))")
     print("  - A_tau/A_e: ~59.0 (from sqrt(3477))")
@@ -172,7 +160,7 @@ def main():
     for g1 in g1_values:
         for alpha in alpha_values:
             test_num += 1
-            print(f"\n[{test_num}/{total_tests}] Testing g1={g1:.0f}, alpha={alpha:.0f}...", end=" ")
+            print(f"\n[{test_num}/{total_tests}] Testing g1={g1:.0f}, alpha={alpha:.2f}...", end=" ")
             result = test_parameter_combination(g1, alpha, g_internal_fixed)
             results.append(result)
             
@@ -193,7 +181,7 @@ def main():
         if r['error']:
             table_data.append([
                 f"{r['g1']:.0f}",
-                f"{r['alpha']:.0f}",
+                f"{r['alpha']:.2f}",
                 "ERROR",
                 "---",
                 "---",
@@ -207,7 +195,7 @@ def main():
             
             table_data.append([
                 f"{r['g1']:.0f}",
-                f"{r['alpha']:.0f}",
+                f"{r['alpha']:.2f}",
                 mu_str,
                 tau_str,
                 combined_err_str,
@@ -235,10 +223,10 @@ def main():
         
         for idx, r in enumerate(valid_results[:3]):
             print(f"\n{'-'*100}")
-            print(f"#{idx+1}: g1={r['g1']:.0f}, alpha={r['alpha']:.0f}  (Combined error: {r['combined_error_pct']:.1f}%)")
+            print(f"#{idx+1}: g1={r['g1']:.0f}, alpha={r['alpha']:.2f}  (Combined error: {r['combined_error_pct']:.1f}%)")
             print(f"{'-'*100}")
-            print(f"  Parameters: g_internal=1e8, g1={r['g1']:.0f}, alpha={r['alpha']:.0f}")
-            print(f"  Beta: {r['beta']:.6f} GeV")
+            print(f"  Parameters: g_internal={r['g_internal']:.0e}, g1={r['g1']:.0f}, alpha={r['alpha']:.2f}")
+            print(f"  Beta: {r['beta']/1000:.6f} GeV")
             print(f"\n  Amplitudes:")
             print(f"    A_e   = {r['A_e']:.6f}")
             print(f"    A_mu  = {r['A_mu']:.6f}  (ratio: {r['A_ratio_mu_e']:.2f}, target: 14.4, error: {r['mu_error_pct']:.1f}%)")
@@ -268,39 +256,21 @@ def main():
         
         if best['combined_error_pct'] < 30.0:
             print(f"\n  EXCELLENT CANDIDATE FOUND!")
-            print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.0f}) gives combined error of only {best['combined_error_pct']:.1f}%")
+            print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.2f}) gives combined error of only {best['combined_error_pct']:.1f}%")
             print(f"\n  Optimal parameters:")
-            print(f"    g_internal = 5e8")
+            print(f"    g_internal = {best['g_internal']:.0e}")
             print(f"    g1 = {best['g1']:.0f}")
-            print(f"    alpha = {best['alpha']:.0f}")
+            print(f"    alpha = {best['alpha']:.2f}")
             print(f"\n  Next steps:")
             print(f"    - Update constants.json with these values")
             print(f"    - Run full lepton test to verify")
             print(f"    - Use parameter optimizer for final fine-tuning")
-        elif best['combined_error_pct'] < 50.0:
-            print(f"\n  PROMISING CANDIDATE FOUND!")
-            print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.0f}) gives combined error of {best['combined_error_pct']:.1f}%")
-            print(f"\n  Next steps:")
-            print(f"    - Refine search around this region")
-            print(f"    - Try intermediate values: g1={best['g1']-25:.0f}-{best['g1']+25:.0f}, alpha={best['alpha']-10:.0f}-{best['alpha']+10:.0f}")
-            print(f"    - Use parameter optimizer for final tuning")
         else:
             print(f"\n  Best result has {best['combined_error_pct']:.1f}% combined error")
-            print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.0f})")
+            print(f"  (g1={best['g1']:.0f}, alpha={best['alpha']:.2f})")
             print(f"\n  Analysis:")
             print(f"    Muon error: {best['mu_error_pct']:.1f}% (A_mu/A_e = {best['A_ratio_mu_e']:.2f}, target: 14.4)")
             print(f"    Tau error:  {best['tau_error_pct']:.1f}% (A_tau/A_e = {best['A_ratio_tau_e']:.2f}, target: 59.0)")
-            print(f"\n  Further tuning needed:")
-            
-            if best['mu_error_pct'] > best['tau_error_pct']:
-                print(f"    - Muon error is larger")
-                if best['A_ratio_mu_e'] < 14.4:
-                    print(f"    - Try higher g1 or different alpha")
-                else:
-                    print(f"    - Try lower g1 or different alpha")
-            else:
-                print(f"    - Tau error is larger")
-                print(f"    - May need to adjust g_internal or g2 parameters")
     
     else:
         print("\nNo valid results - all runs encountered errors")

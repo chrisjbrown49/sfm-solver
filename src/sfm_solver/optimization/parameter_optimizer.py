@@ -1060,30 +1060,40 @@ class SFMParameterOptimizer:
         A_squared = {}
         all_converged = True  # Track convergence status
         
+        # Create solver ONCE and reuse for all leptons (like scan script does)
+        try:
+            from sfm_solver.core.unified_solver import UnifiedSFMSolver
+            
+            # Use new UnifiedSFMSolver for amplitude-only optimization
+            # Beta will be derived from electron after optimization
+            # DEBUG
+            if self._eval_count == 1:
+                print(f"  DEBUG PARAM OPT: alpha={alpha}, g_internal={g_internal:.0e}, g1={g1}")
+            solver = UnifiedSFMSolver(
+                alpha=alpha,
+                g_internal=g_internal,
+                g1=g1,
+                # g2 not specified - uses default from constants.json
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+                verbose=False,
+            )
+        except Exception as e:
+            return 1e20
+        
         for particle in self.calibration:
             if particle.particle_type != 'lepton':
                 continue
             
             try:
-                from sfm_solver.core.unified_solver import UnifiedSFMSolver
-                
-                # Use new UnifiedSFMSolver for amplitude-only optimization
-                # Beta will be derived from electron after optimization
-                solver = UnifiedSFMSolver(
-                    alpha=alpha,
-                    g_internal=g_internal,
-                    g1=g1,
-                    g2=0.004,
-                    n_max=5,
-                    l_max=2,
-                    N_sigma=64,
-                    verbose=False,
-                )
-                
                 n_target = particle.generation
                 result = solver.solve_lepton(
                     winding_k=1,
                     generation_n=n_target,
+                    max_iter=200,
+                    max_iter_outer=50,
+                    tol_outer=1e-3,
                 )
                 
                 # Check convergence
@@ -1156,11 +1166,18 @@ class SFMParameterOptimizer:
                 if is_best:
                     f.write(" *** BEST ***")
                 f.write("\n")
+                # Write detailed mass predictions
+                for name, pred in predictions.items():
+                    f.write(f"  {name}: {pred['predicted']:.3f} MeV (exp: {pred['experimental']:.3f}, err: {pred['error']:.1f}%)\n")
         
-        if self.verbose and (self._eval_count % 10 == 0 or is_best):
+        if self.verbose and (self._eval_count % 5 == 0 or is_best):
             marker = " *** BEST ***" if is_best else ""
-            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, "
-                  f"g1={g1:.1f}, error={total_error:.2f}%{marker}")
+            print(f"Eval {self._eval_count}: alpha={alpha:.4f}, g_int={g_internal:.6f}, g1={g1:.1f} -> err={total_error:.2f}%{marker}")
+            # Print lepton masses with errors
+            for name in ['electron', 'muon', 'tau']:
+                if name in predictions:
+                    pred = predictions[name]
+                    print(f"  {name:8s}: {pred['predicted']:7.3f} MeV (exp: {pred['experimental']:7.3f}, err: {pred['error']:5.1f}%)")
         
         return total_error
 
@@ -1256,7 +1273,7 @@ class SFMParameterOptimizer:
                 alpha=alpha_opt,
                 g_internal=g_internal_opt,
                 g1=g1_opt,
-                g2=0.004,
+                # g2 not specified - uses default from constants.json
                 n_max=5,
                 l_max=2,
                 N_sigma=64,
@@ -1353,63 +1370,35 @@ class SFMParameterOptimizer:
         start_time = time.time()
         
         from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        from sfm_solver.core.unified_solver import UnifiedSFMSolver
+        from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
         
-        # Create solver with current parameters
-        solver = NonSeparableWavefunctionSolver(
-            alpha=alpha,
-            g_internal=g_internal,
-            g1=g1,
-            g2=g2,
-            lambda_so=lambda_so,
-            V0=self.V0,
-            n_max=5,
-            l_max=2,
-            N_sigma=64,
-        )
-        
-        # First, get electron amplitude to derive beta
+        # Use UnifiedSFMSolver to calibrate beta from electron (consistent with scan scripts)
         try:
-            result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
+            unified_solver = UnifiedSFMSolver(
+                alpha=alpha,
+                g_internal=g_internal,
+                g1=g1,
+                g2=g2,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+                verbose=False
             )
             
-            # Check convergence with diagnostics
-            if not result_e.converged:
-                conv_status = "UNKNOWN"
-                final_change = None
-                validity = ""
-                
-                if result_e.convergence_history and 'A' in result_e.convergence_history:
-                    A_hist = result_e.convergence_history['A']
-                    if len(A_hist) > 1:
-                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
-                        if final_change < 5e-4:
-                            conv_status = "SOFT"
-                            validity = " [LIKELY VALID]"
-                        elif final_change < 1e-3:
-                            conv_status = "MODERATE"
-                            validity = " [CAUTION]"
-                        else:
-                            conv_status = "HARD"
-                            validity = " [UNRELIABLE]"
-                
-                warning_msg = (f"WARNING: Electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
-                              f"{conv_status}")
-                if final_change is not None:
-                    warning_msg += f", dA/A={final_change:.2e}"
-                warning_msg += validity
-                
-                if self.log_file:
-                    with open(self.log_file, 'a', encoding='utf-8') as f:
-                        f.write(f"  {warning_msg}\n")
-            
-            A_e_squared = result_e.structure_norm ** 2
-            beta_derived = 0.511 / A_e_squared  # SFM units convention
+            # Calibrate beta using the standard helper (with full outer loop)
+            beta_derived = calibrate_beta_from_electron(
+                unified_solver,
+                electron_mass_exp=0.000510999,
+                max_iter=200,
+                max_iter_outer=self.max_iter_lepton,
+                tol_outer=1e-3
+            )
         except Exception:
             return 1e20
         
-        # CRITICAL: Recreate solver with derived beta
-        # The beta parameter affects internal physics during SCF iteration
+        # Create NonSeparableWavefunctionSolver for baryon solving with derived beta
+        # (NonSeparableWavefunctionSolver still used for baryon 4D solver)
         solver = NonSeparableWavefunctionSolver(
             alpha=alpha,
             g_internal=g_internal,
@@ -1604,63 +1593,35 @@ class SFMParameterOptimizer:
         start_time = time.time()
         
         from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+        from sfm_solver.core.unified_solver import UnifiedSFMSolver
+        from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
         
-        # Create solver with current parameters
-        solver = NonSeparableWavefunctionSolver(
-            alpha=alpha,
-            g_internal=g_internal,
-            g1=g1,
-            g2=g2,
-            lambda_so=lambda_so,
-            V0=self.V0,
-            n_max=5,
-            l_max=2,
-            N_sigma=64,
-        )
-        
-        # First, get electron amplitude to derive beta
+        # Use UnifiedSFMSolver to calibrate beta from electron (consistent with scan scripts)
         try:
-            result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
+            unified_solver = UnifiedSFMSolver(
+                alpha=alpha,
+                g_internal=g_internal,
+                g1=g1,
+                g2=g2,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+                verbose=False
             )
             
-            # Check convergence with diagnostics
-            if not result_e.converged:
-                conv_status = "UNKNOWN"
-                final_change = None
-                validity = ""
-                
-                if result_e.convergence_history and 'A' in result_e.convergence_history:
-                    A_hist = result_e.convergence_history['A']
-                    if len(A_hist) > 1:
-                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
-                        if final_change < 5e-4:
-                            conv_status = "SOFT"
-                            validity = " [LIKELY VALID]"
-                        elif final_change < 1e-3:
-                            conv_status = "MODERATE"
-                            validity = " [CAUTION]"
-                        else:
-                            conv_status = "HARD"
-                            validity = " [UNRELIABLE]"
-                
-                warning_msg = (f"WARNING: Electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
-                              f"{conv_status}")
-                if final_change is not None:
-                    warning_msg += f", dA/A={final_change:.2e}"
-                warning_msg += validity
-                
-                if self.log_file:
-                    with open(self.log_file, 'a', encoding='utf-8') as f:
-                        f.write(f"  {warning_msg}\n")
-            
-            A_e_squared = result_e.structure_norm ** 2
-            beta_derived = 0.511 / A_e_squared  # SFM units convention
+            # Calibrate beta using the standard helper (with full outer loop)
+            beta_derived = calibrate_beta_from_electron(
+                unified_solver,
+                electron_mass_exp=0.000510999,
+                max_iter=200,
+                max_iter_outer=self.max_iter_lepton,
+                tol_outer=1e-3
+            )
         except Exception:
             return 1e20
         
-        # CRITICAL: Recreate solver with derived beta
-        # The beta parameter affects internal physics during SCF iteration
+        # Create NonSeparableWavefunctionSolver for baryon solving with derived beta
+        # (NonSeparableWavefunctionSolver still used for baryon 4D solver)
         solver = NonSeparableWavefunctionSolver(
             alpha=alpha,
             g_internal=g_internal,
@@ -1992,55 +1953,30 @@ class SFMParameterOptimizer:
         else:
             g1_opt, g2_opt, lambda_so_opt = result.x
         
-        # Derive beta from electron mass
+        # Derive beta from electron mass using UnifiedSFMSolver (consistent with scan scripts)
         try:
-            from sfm_solver.core.nonseparable_wavefunction_solver import NonSeparableWavefunctionSolver
+            from sfm_solver.core.unified_solver import UnifiedSFMSolver
+            from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
             
-            solver = NonSeparableWavefunctionSolver(
+            solver = UnifiedSFMSolver(
                 alpha=ALPHA_INITIAL,
                 g_internal=G_INTERNAL_INITIAL,
                 g1=g1_opt,
                 g2=g2_opt,
-                lambda_so=lambda_so_opt,
+                n_max=5,
+                l_max=2,
+                N_sigma=64,
+                verbose=False
             )
             
-            result_e = solver.solve_lepton_self_consistent(
-                n_target=1, k_winding=1, max_iter_outer=self.max_iter_lepton, verbose=False
+            # Use the standard calibrate_beta_from_electron helper
+            beta_opt = calibrate_beta_from_electron(
+                solver,
+                electron_mass_exp=0.000510999,
+                max_iter=200,
+                max_iter_outer=self.max_iter_lepton,
+                tol_outer=1e-3
             )
-            
-            # Check convergence with diagnostics
-            if not result_e.converged:
-                conv_status = "UNKNOWN"
-                final_change = None
-                validity = ""
-                
-                if result_e.convergence_history and 'A' in result_e.convergence_history:
-                    A_hist = result_e.convergence_history['A']
-                    if len(A_hist) > 1:
-                        final_change = abs(A_hist[-1] - A_hist[-2]) / max(A_hist[-1], 0.01)
-                        if final_change < 5e-4:
-                            conv_status = "SOFT"
-                            validity = " [LIKELY VALID]"
-                        elif final_change < 1e-3:
-                            conv_status = "MODERATE"
-                            validity = " [CAUTION]"
-                        else:
-                            conv_status = "HARD"
-                            validity = " [UNRELIABLE]"
-                
-                warning_msg = (f"WARNING: Final electron: {result_e.iterations}/{self.max_iter_lepton} iters, "
-                              f"{conv_status}")
-                if final_change is not None:
-                    warning_msg += f", dA/A={final_change:.2e}"
-                warning_msg += validity
-                
-                if self.verbose:
-                    print(f"  {warning_msg}")
-                if self.log_file:
-                    self._log(f"  {warning_msg}")
-            
-            A_e_squared = result_e.structure_norm ** 2
-            beta_opt = 0.511 / A_e_squared  # SFM units convention
         except Exception as e:
             print(f"Warning: Failed to derive beta: {e}")
             beta_opt = BETA_INITIAL

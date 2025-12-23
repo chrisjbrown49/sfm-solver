@@ -38,8 +38,8 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
             generation_n=lepton_config.generation,
             max_iter=200,
             tol=1e-6,  # Shape solver tolerance (Stage 1)
-            max_iter_outer=30,  # Outer loop iterations
-            tol_outer=1e-4  # Outer loop tolerance (legacy value)
+            max_iter_outer=100,  # Increased to check convergence behavior
+            tol_outer=1e-3  # Outer loop tolerance
         )
         
         elapsed_time = time.time() - start_time
@@ -228,7 +228,12 @@ def main():
     print("="*80)
     print("  Solving electron to determine beta = m_e / A_e^2...")
     
-    beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
+    beta = calibrate_beta_from_electron(
+        solver, 
+        electron_mass_exp=0.000510999,
+        max_iter_outer=100,
+        tol_outer=1e-3
+    )
     
     print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
     print(f"  This beta will be used to convert all amplitudes to masses: m = beta * A^2")
