@@ -239,11 +239,22 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Adaptive mixing for stability
-        mixing = 0.3
-        dA_prev = 0.0
-        dDx_prev = 0.0
-        dDs_prev = 0.0
+        # Improved adaptive mixing with momentum for stability
+        mixing = 0.05  # Start with heavy damping
+        mixing_min = 0.01
+        mixing_max = 0.3
+        
+        # Momentum terms
+        momentum_A = 0.0
+        momentum_Dx = 0.0
+        momentum_Ds = 0.0
+        momentum_weight = 0.15
+        
+        # History for oscillation detection
+        history_window = 5
+        dA_history = []
+        dDx_history = []
+        dDs_history = []
         
         converged_outer = False
         shape_result = None
@@ -324,6 +335,7 @@ class UnifiedSFMSolver:
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
                     print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
                 if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
                     converged_outer = True
@@ -331,33 +343,73 @@ class UnifiedSFMSolver:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
                     break
                 
-                # Adaptive mixing (oscillation detection)
+                # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
                 dDs_current = Delta_sigma_new - Delta_sigma_current
                 
-                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
-                    mixing = max(0.05, mixing * 0.5)
-                    if self.verbose:
-                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
-                elif iter_outer > 5:
-                    mixing = min(0.5, mixing * 1.1)
+                # Add to history
+                dA_history.append(dA_current)
+                dDx_history.append(dDx_current)
+                dDs_history.append(dDs_current)
                 
-                dA_prev = dA_current
-                dDx_prev = dDx_current
-                dDs_prev = dDs_current
+                # Keep only last history_window iterations
+                if len(dA_history) > history_window:
+                    dA_history.pop(0)
+                    dDx_history.pop(0)
+                    dDs_history.pop(0)
+                
+                # Improved oscillation detection
+                oscillating = False
+                oscillation_count = 0
+                
+                if len(dA_history) >= 2:
+                    for i in range(len(dA_history) - 1):
+                        if (dA_history[i] * dA_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDx_history[i] * dDx_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDs_history[i] * dDs_history[i+1]) < 0:
+                            oscillation_count += 1
+                    
+                    if oscillation_count >= 2:
+                        oscillating = True
+                
+                # Adaptive mixing based on oscillation behavior
+                if oscillating:
+                    mixing = max(mixing_min, mixing * 0.5)
+                    if self.verbose:
+                        print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
+                elif iter_outer > 10:
+                    mixing = min(mixing_max, mixing * 1.05)
+                    if self.verbose and mixing < mixing_max:
+                        print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING
+            # UPDATE SCALES WITH MIXING AND MOMENTUM
             # =====================================================================
             if iter_outer == 0:
                 A_current = A_new
                 Delta_x_current = Delta_x_new
                 Delta_sigma_current = Delta_sigma_new
             else:
-                A_current = (1 - mixing) * A_current + mixing * A_new
-                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
-                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
+                # Momentum-damped changes
+                dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
+                dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
+                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
+                
+                # Apply mixing with momentum
+                A_current = A_current + mixing * dA_damped
+                Delta_x_current = Delta_x_current + mixing * dDx_damped
+                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
+                
+                # Update momentum
+                momentum_A = dA_damped
+                momentum_Dx = dDx_damped
+                momentum_Ds = dDs_damped
+                
+                if self.verbose:
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
@@ -459,11 +511,22 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Adaptive mixing for stability (legacy default)
-        mixing = 0.3
-        dA_prev = 0.0
-        dDx_prev = 0.0
-        dDs_prev = 0.0
+        # Improved adaptive mixing with momentum for stability
+        mixing = 0.05  # Start with heavy damping (was 0.3)
+        mixing_min = 0.01  # Minimum mixing (very heavy damping)
+        mixing_max = 0.3  # Maximum mixing (was 0.5, now more conservative)
+        
+        # Momentum terms to smooth updates
+        momentum_A = 0.0
+        momentum_Dx = 0.0
+        momentum_Ds = 0.0
+        momentum_weight = 0.15  # Typical value for momentum damping
+        
+        # History for better oscillation detection (track last 5 iterations)
+        history_window = 5
+        dA_history = []
+        dDx_history = []
+        dDs_history = []
         
         converged_outer = False
         shape_result = None
@@ -541,6 +604,7 @@ class UnifiedSFMSolver:
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
                     print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
                 if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
                     converged_outer = True
@@ -548,26 +612,54 @@ class UnifiedSFMSolver:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
                     break
                 
-                # Adaptive mixing (oscillation detection)
+                # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
                 dDs_current = Delta_sigma_new - Delta_sigma_current
                 
-                oscillating = False
-                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
-                    mixing = max(0.05, mixing * 0.5)
-                    oscillating = True
-                    if self.verbose:
-                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
-                elif iter_outer > 5:
-                    mixing = min(0.5, mixing * 1.1)
+                # Add to history
+                dA_history.append(dA_current)
+                dDx_history.append(dDx_current)
+                dDs_history.append(dDs_current)
                 
-                dA_prev = dA_current
-                dDx_prev = dDx_current
-                dDs_prev = dDs_current
+                # Keep only last history_window iterations
+                if len(dA_history) > history_window:
+                    dA_history.pop(0)
+                    dDx_history.pop(0)
+                    dDs_history.pop(0)
+                
+                # Improved oscillation detection: check for sign changes in history
+                oscillating = False
+                oscillation_count = 0
+                
+                if len(dA_history) >= 2:
+                    # Count sign changes in recent history
+                    for i in range(len(dA_history) - 1):
+                        if (dA_history[i] * dA_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDx_history[i] * dDx_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDs_history[i] * dDs_history[i+1]) < 0:
+                            oscillation_count += 1
+                    
+                    # If we see multiple sign changes, it's oscillating
+                    if oscillation_count >= 2:
+                        oscillating = True
+                
+                # Adaptive mixing based on oscillation behavior
+                if oscillating:
+                    # Reduce mixing aggressively on oscillation
+                    mixing = max(mixing_min, mixing * 0.5)
+                    if self.verbose:
+                        print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
+                elif iter_outer > 10:
+                    # Very slowly increase mixing after stable iterations
+                    mixing = min(mixing_max, mixing * 1.05)
+                    if self.verbose and mixing < mixing_max:
+                        print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING
+            # UPDATE SCALES WITH MIXING AND MOMENTUM
             # =====================================================================
             if iter_outer == 0:
                 # First iteration - use values directly
@@ -575,10 +667,24 @@ class UnifiedSFMSolver:
                 Delta_x_current = Delta_x_new
                 Delta_sigma_current = Delta_sigma_new
             else:
-                # Apply adaptive mixing
-                A_current = (1 - mixing) * A_current + mixing * A_new
-                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
-                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
+                # Compute momentum-damped changes
+                # Momentum smooths the direction of updates to prevent wild swings
+                dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
+                dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
+                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
+                
+                # Apply adaptive mixing with momentum
+                A_current = A_current + mixing * dA_damped
+                Delta_x_current = Delta_x_current + mixing * dDx_damped
+                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
+                
+                # Update momentum for next iteration
+                momentum_A = dA_damped
+                momentum_Dx = dDx_damped
+                momentum_Ds = dDs_damped
+                
+                if self.verbose:
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
@@ -674,11 +780,22 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Adaptive mixing for stability
-        mixing = 0.3
-        dA_prev = 0.0
-        dDx_prev = 0.0
-        dDs_prev = 0.0
+        # Improved adaptive mixing with momentum for stability
+        mixing = 0.05  # Start with heavy damping
+        mixing_min = 0.01
+        mixing_max = 0.3
+        
+        # Momentum terms
+        momentum_A = 0.0
+        momentum_Dx = 0.0
+        momentum_Ds = 0.0
+        momentum_weight = 0.15
+        
+        # History for oscillation detection
+        history_window = 5
+        dA_history = []
+        dDx_history = []
+        dDs_history = []
         
         converged_outer = False
         shape_result = None
@@ -758,6 +875,7 @@ class UnifiedSFMSolver:
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
                     print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
                 if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
                     converged_outer = True
@@ -765,33 +883,73 @@ class UnifiedSFMSolver:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
                     break
                 
-                # Adaptive mixing (oscillation detection)
+                # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
                 dDs_current = Delta_sigma_new - Delta_sigma_current
                 
-                if (dA_current * dA_prev) < 0 or (dDx_current * dDx_prev) < 0 or (dDs_current * dDs_prev) < 0:
-                    mixing = max(0.05, mixing * 0.5)
-                    if self.verbose:
-                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
-                elif iter_outer > 5:
-                    mixing = min(0.5, mixing * 1.1)
+                # Add to history
+                dA_history.append(dA_current)
+                dDx_history.append(dDx_current)
+                dDs_history.append(dDs_current)
                 
-                dA_prev = dA_current
-                dDx_prev = dDx_current
-                dDs_prev = dDs_current
+                # Keep only last history_window iterations
+                if len(dA_history) > history_window:
+                    dA_history.pop(0)
+                    dDx_history.pop(0)
+                    dDs_history.pop(0)
+                
+                # Improved oscillation detection
+                oscillating = False
+                oscillation_count = 0
+                
+                if len(dA_history) >= 2:
+                    for i in range(len(dA_history) - 1):
+                        if (dA_history[i] * dA_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDx_history[i] * dDx_history[i+1]) < 0:
+                            oscillation_count += 1
+                        if (dDs_history[i] * dDs_history[i+1]) < 0:
+                            oscillation_count += 1
+                    
+                    if oscillation_count >= 2:
+                        oscillating = True
+                
+                # Adaptive mixing based on oscillation behavior
+                if oscillating:
+                    mixing = max(mixing_min, mixing * 0.5)
+                    if self.verbose:
+                        print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
+                elif iter_outer > 10:
+                    mixing = min(mixing_max, mixing * 1.05)
+                    if self.verbose and mixing < mixing_max:
+                        print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING
+            # UPDATE SCALES WITH MIXING AND MOMENTUM
             # =====================================================================
             if iter_outer == 0:
                 A_current = A_new
                 Delta_x_current = Delta_x_new
                 Delta_sigma_current = Delta_sigma_new
             else:
-                A_current = (1 - mixing) * A_current + mixing * A_new
-                Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_new
-                Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_new
+                # Momentum-damped changes
+                dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
+                dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
+                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
+                
+                # Apply mixing with momentum
+                A_current = A_current + mixing * dA_damped
+                Delta_x_current = Delta_x_current + mixing * dDx_damped
+                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
+                
+                # Update momentum
+                momentum_A = dA_damped
+                momentum_Dx = dDx_damped
+                momentum_Ds = dDs_damped
+                
+                if self.verbose:
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
