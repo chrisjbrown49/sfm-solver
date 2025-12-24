@@ -105,6 +105,7 @@ class UniversalEnergyMinimizer:
         V0: float,
         V1: float,
         alpha: float,
+        lambda_so: float,
         verbose: bool = False
     ):
         """
@@ -126,6 +127,7 @@ class UniversalEnergyMinimizer:
             V0: Three-well primary depth (GeV)
             V1: Three-well secondary depth (GeV)
             alpha: Spatial-subspace coupling strength (GeV)
+            lambda_so: Spin-orbit coupling strength
             verbose: Print diagnostic information
         """
         self.G_5D = G_5D  # FUNDAMENTAL - 5D gravitational constant
@@ -134,6 +136,7 @@ class UniversalEnergyMinimizer:
         self.V0 = V0
         self.V1 = V1
         self.alpha = alpha
+        self.lambda_so = lambda_so
         self.verbose = verbose
         
         # Radial grid for spatial wavefunction integrals
@@ -148,11 +151,21 @@ class UniversalEnergyMinimizer:
             g1=self.g1,
             g2=self.g2,
             alpha=self.alpha,
+            lambda_so=self.lambda_so,
             V0=self.V0,
             V1=self.V1,
             N_r=N_R_GRID,
             N_sigma=N_SIGMA_GRID,
             r_max=R_MAX_FM
+        )
+        
+        # Create spatial coupling builder for rebuilding structure
+        from .spatial_coupling import SpatialCouplingBuilder
+        self.spatial_coupling = SpatialCouplingBuilder(
+            alpha_dimensionless=self.alpha / self.V0,
+            n_max=5,
+            l_max=2,
+            verbose=False  # Don't clutter output during energy evaluations
         )
         
         if self.verbose:
@@ -225,7 +238,7 @@ class UniversalEnergyMinimizer:
     
     def minimize_baryon_energy(
         self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        chi_normalized: NDArray,
         initial_guess: Optional[Tuple[float, float, float]] = None,
         method: str = 'Nelder-Mead'
     ) -> EnergyMinimizationResult:
@@ -233,8 +246,7 @@ class UniversalEnergyMinimizer:
         Find optimal (Delta_x, Delta_sigma, A) for baryon.
         
         Args:
-            shape_structure: Normalized 4D shape from Stage 1
-                            {(n,l,m): chi_nlm(sigma)} with integral_Sigma|chi|^2 = 1
+            chi_normalized: Normalized subspace shape from Stage 1
             initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
             method: Optimization method
             
@@ -257,7 +269,7 @@ class UniversalEnergyMinimizer:
         
         # Minimize
         result = self._minimize_energy(
-            shape_structure=shape_structure,
+            chi_normalized=chi_normalized,
             initial_guess=initial_guess,
             method=method,
             particle_type='baryon'
@@ -267,7 +279,7 @@ class UniversalEnergyMinimizer:
     
     def minimize_lepton_energy(
         self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        chi_normalized: NDArray,
         generation_n: int,
         initial_guess: Optional[Tuple[float, float, float]] = None,
         method: str = 'Nelder-Mead'
@@ -276,7 +288,7 @@ class UniversalEnergyMinimizer:
         Find optimal (Delta_x, Delta_sigma, A) for lepton.
         
         Args:
-            shape_structure: Normalized 4D shape from Stage 1
+            chi_normalized: Normalized subspace shape from Stage 1
             generation_n: Generation number (1, 2, 3)
             initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
             method: Optimization method
@@ -310,7 +322,7 @@ class UniversalEnergyMinimizer:
         
         # Minimize
         result = self._minimize_energy(
-            shape_structure=shape_structure,
+            chi_normalized=chi_normalized,
             initial_guess=initial_guess,
             method=method,
             particle_type='lepton',
@@ -321,7 +333,7 @@ class UniversalEnergyMinimizer:
     
     def minimize_meson_energy(
         self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        chi_normalized: NDArray,
         initial_guess: Optional[Tuple[float, float, float]] = None,
         method: str = 'Nelder-Mead'
     ) -> EnergyMinimizationResult:
@@ -329,7 +341,7 @@ class UniversalEnergyMinimizer:
         Find optimal (Delta_x, Delta_sigma, A) for meson.
         
         Args:
-            shape_structure: Normalized 4D shape from Stage 1
+            chi_normalized: Normalized subspace shape from Stage 1
             initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
             method: Optimization method
             
@@ -348,7 +360,7 @@ class UniversalEnergyMinimizer:
         
         # Minimize
         result = self._minimize_energy(
-            shape_structure=shape_structure,
+            chi_normalized=chi_normalized,
             initial_guess=initial_guess,
             method=method,
             particle_type='meson'
@@ -358,7 +370,7 @@ class UniversalEnergyMinimizer:
     
     def _minimize_energy(
         self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        chi_normalized: NDArray,
         initial_guess: Tuple[float, float, float],
         method: str,
         particle_type: str,
@@ -367,23 +379,29 @@ class UniversalEnergyMinimizer:
         A_bounds: Optional[Tuple[float, float]] = None
     ) -> EnergyMinimizationResult:
         """
-        Minimize energy using full 3D optimization over (Delta_x, Delta_sigma, A).
+        Minimize energy using NESTED OPTIMIZATION approach.
         
-        FIRST-PRINCIPLES APPROACH:
-        =========================================
-        All three parameters are independent optimization variables.
-        The energy functional includes:
-        - E_spatial: Quantum confinement (∝ 1/(A²·Δx²))
-        - E_sigma: Subspace field energy
-        - E_coupling: Spatial-subspace coupling (generation-dependent!)
-        - E_em: Electromagnetic circulation
-        - E_curvature: Gravitational self-confinement (∝ A⁴/Δx)
+        ARCHITECTURE (FULLY COUPLED - FIRST PRINCIPLES):
+        =================================================
+        Outer Loop: Optimize A (primary variable, 1D search)
+          └─> Inner Loop: For each A, optimize (Δx, Δσ) by minimizing full 5D energy (2D search)
+               └─> Energy computed from full 5D wavefunction
+                    ├─> Spatial coupling structure rebuilt at current Δx
+                    └─> All Hamiltonian operators applied
         
-        The interplay between E_spatial (wants large Δx) and E_curvature (wants small Δx)
-        naturally determines the optimal spatial scale. The optimizer finds the balance.
+        This ensures complete self-consistency: the wavefunction structure
+        depends on (A, Δx, Δσ) through the spatial coupling, which is
+        rebuilt for every energy evaluation.
+        
+        Energy components (computed from 5D wavefunction):
+        - E_spatial: Spatial kinetic energy from ∇² operator
+        - E_sigma: Subspace kinetic + potential + nonlinear
+        - E_coupling: Mixed derivative ∂²/∂r∂σ operator [generation-dependent!]
+        - E_em: Circulation penalty
+        - E_curvature: ∫|∇φ_n|² (generation-dependent via spatial gradients)
         
         Args:
-            shape_structure: Normalized shape from Stage 1
+            chi_normalized: Normalized subspace shape from Stage 1
             initial_guess: (Delta_x_0, Delta_sigma_0, A_0)
             method: Optimization method ('L-BFGS-B' recommended)
             particle_type: 'lepton', 'meson', or 'baryon'
@@ -405,7 +423,7 @@ class UniversalEnergyMinimizer:
         # Extract initial guess
         Delta_x_initial, Delta_sigma_initial, A_initial = initial_guess
         
-        # Set bounds for all three parameters
+        # Set bounds
         if A_bounds is not None:
             MIN_A, MAX_A = A_bounds
         else:
@@ -413,65 +431,114 @@ class UniversalEnergyMinimizer:
             MAX_A = 100.0  # Maximum reasonable amplitude
         
         MIN_DELTA_X = 0.001   # fm - minimum localization
-        MAX_DELTA_X = 100.0   # fm - maximum spread
+        MAX_DELTA_X = 1000.0  # fm - maximum spread (increased to find natural minimum)
         MIN_DELTA_SIGMA = 0.1  # Minimum subspace width
         MAX_DELTA_SIGMA = 2.0  # Maximum subspace width
         
         # Ensure initial guess is within bounds
-        Delta_x_initial = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_initial))
-        Delta_sigma_initial = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_initial))
         A_initial = max(MIN_A, min(MAX_A, A_initial))
         
-        x0 = np.array([Delta_x_initial, Delta_sigma_initial, A_initial])
-        bounds = [(MIN_DELTA_X, MAX_DELTA_X), (MIN_DELTA_SIGMA, MAX_DELTA_SIGMA), (MIN_A, MAX_A)]
-        
         if self.verbose:
-            print(f"  3D Energy minimization over (Delta_x, Delta_sigma, A)")
-            print(f"  Initial guess: Delta_x={Delta_x_initial:.6f} fm, Delta_sigma={Delta_sigma_initial:.6f}, A={A_initial:.6f}")
+            print(f"  NESTED Energy minimization:")
+            print(f"    Outer: Optimize A (1D)")
+            print(f"    Inner: For each A, optimize (Delta_x, Delta_sigma) (2D)")
+            print(f"  Initial A: {A_initial:.6f}")
             print(f"  Method: {method}")
         
-        # Define objective function for 3D optimization
-        def energy_objective_3d(x: NDArray) -> float:
+        # Track iterations for reporting
+        inner_optimization_count = [0]
+        total_inner_iterations = [0]
+        
+        # === INNER OPTIMIZATION: For fixed A, find optimal (Δx, Δσ) ===
+        def optimize_scales_for_amplitude(A: float) -> Tuple[float, float, float]:
             """
-            Compute total energy as a function of (Delta_x, Delta_sigma, A).
-            All three are independent optimization variables.
-            """
-            Delta_x, Delta_sigma, A = x
+            For a given amplitude A, find the (Δx, Δσ) that minimize total energy.
             
-            # Compute and return total energy (ignore components for optimization)
-            E_total, _ = self._compute_total_energy(
-                shape_structure, Delta_x, Delta_sigma, A, n_target
+            Returns:
+                (E_total, Delta_x_opt, Delta_sigma_opt)
+            """
+            # Use analytical formulas for initial guess
+            Delta_x_init = self._compute_optimal_delta_x(A)
+            Delta_sigma_init = self._compute_optimal_delta_sigma(A)
+            
+            # Ensure within bounds
+            Delta_x_init = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_init))
+            Delta_sigma_init = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_init))
+            
+            x0 = np.array([Delta_x_init, Delta_sigma_init])
+            bounds = [(MIN_DELTA_X, MAX_DELTA_X), (MIN_DELTA_SIGMA, MAX_DELTA_SIGMA)]
+            
+            # Inner objective: energy as function of (Δx, Δσ) at fixed A
+            def energy_for_scales(x: NDArray) -> float:
+                Delta_x, Delta_sigma = x
+                E_total, _ = self._compute_total_energy(
+                    chi_normalized, n_target, Delta_x, Delta_sigma, A
+                )
+                return E_total
+            
+            # Optimize (Δx, Δσ)
+            result = minimize(
+                energy_for_scales,
+                x0,
+                method=method,
+                bounds=bounds,
+                options={'ftol': 1e-9, 'gtol': 1e-6, 'maxiter': 100}
             )
+            
+            # Track iterations
+            inner_optimization_count[0] += 1
+            total_inner_iterations[0] += result.nit
+            
+            Delta_x_opt, Delta_sigma_opt = result.x
+            E_total = result.fun
+            
+            return E_total, Delta_x_opt, Delta_sigma_opt
+        
+        # === OUTER OPTIMIZATION: Find optimal A ===
+        def energy_for_amplitude(A: float) -> float:
+            """
+            Outer objective: for this A, optimize (Δx, Δσ) and return minimum energy.
+            """
+            E_total, _, _ = optimize_scales_for_amplitude(A)
             return E_total
         
-        # Use scipy's minimize for full 3D optimization
         if self.verbose:
-            print(f"  Running 3D minimization...")
+            print(f"  Running nested minimization...")
         
-        optimization_result = minimize(
-            energy_objective_3d,
-            x0,
-            method=method,  # 'L-BFGS-B' for bounded optimization
-            bounds=bounds,
-            options={'ftol': 1e-9, 'gtol': 1e-6, 'maxiter': 200}
+        # Optimize A using bounded scalar minimization
+        from scipy.optimize import minimize_scalar
+        
+        outer_result = minimize_scalar(
+            energy_for_amplitude,
+            bounds=(MIN_A, MAX_A),
+            method='bounded',
+            options={'xatol': 1e-6, 'maxiter': 100}
         )
         
-        # Extract optimal parameters
-        Delta_x_opt, Delta_sigma_opt, A_opt = optimization_result.x
-        converged = optimization_result.success
-        iterations = optimization_result.nit  # Number of iterations
+        # Extract optimal A
+        A_opt = outer_result.x
+        converged = outer_result.success
+        outer_iterations = outer_result.nit
+        
+        # Get the final optimal scales for this A
+        E_total_opt, Delta_x_opt, Delta_sigma_opt = optimize_scales_for_amplitude(A_opt)
+        
+        # Total iterations (approximate - outer × inner)
+        total_iterations = outer_iterations + total_inner_iterations[0]
         
         if self.verbose:
-            print(f"  Optimization complete:")
+            print(f"  Nested optimization complete:")
             print(f"    Status: {'CONVERGED' if converged else 'FAILED'}")
-            print(f"    Iterations: {iterations}")
+            print(f"    Outer iterations: {outer_iterations}")
+            print(f"    Inner optimizations: {inner_optimization_count[0]}")
+            print(f"    Total inner iterations: {total_inner_iterations[0]}")
+            print(f"    Optimal A: {A_opt:.6f}")
             print(f"    Optimal Delta_x: {Delta_x_opt:.6f} fm")
             print(f"    Optimal Delta_sigma: {Delta_sigma_opt:.6f}")
-            print(f"    Optimal A: {A_opt:.6f}")
         
         # === COMPUTE FINAL ENERGY AND COMPONENTS (single computation) ===
         E_total, energy_components = self._compute_total_energy(
-            shape_structure, Delta_x_opt, Delta_sigma_opt, A_opt, n_target
+            chi_normalized, n_target, Delta_x_opt, Delta_sigma_opt, A_opt
         )
         
         # Extract individual components from the returned dictionary
@@ -486,9 +553,9 @@ class UniversalEnergyMinimizer:
         
         if self.verbose:
             print(f"\n  Final solution:")
+            print(f"    A = {A_opt:.6f}")
             print(f"    Delta_x = {Delta_x_opt:.6f} fm")
             print(f"    Delta_sigma = {Delta_sigma_opt:.6f}")
-            print(f"    A = {A_opt:.6f}")
             print(f"    E_total = {E_total:.6e} GeV")
             print(f"  Energy breakdown:")
             print(f"    E_sigma:    {E_sigma:.6e} GeV")
@@ -502,7 +569,7 @@ class UniversalEnergyMinimizer:
         # m = beta * A^2, where beta is calibrated from electron
         mass = None
         
-        convergence_message = f"Converged (3D minimization, {method})" if converged else "Minimization failed"
+        convergence_message = f"Converged (nested optimization, {method})" if converged else "Nested minimization failed"
         
         return EnergyMinimizationResult(
             Delta_x=Delta_x_opt,
@@ -519,7 +586,7 @@ class UniversalEnergyMinimizer:
             E_em=E_em,
             E_curvature=E_curv,
             converged=converged,
-            iterations=iterations,
+            iterations=total_iterations,
             optimization_message=convergence_message,
             particle_type=particle_type,
             n_target=n_target,
@@ -528,52 +595,61 @@ class UniversalEnergyMinimizer:
     
     def _compute_total_energy(
         self,
-        shape_structure: Dict[Tuple[int, int, int], NDArray],
+        chi_normalized: NDArray,
+        n_target: int,
         Delta_x: float,
         Delta_sigma: float,
-        A: float,
-        n_target: int
+        A: float
     ) -> Tuple[float, Dict[str, float]]:
         """
-        Compute total energy from full 5D wavefunction.
+        Compute total energy with FRESH structure at current scales.
         
-        NEW IMPLEMENTATION (Post-Diagnostic):
-        =====================================
-        All energy components are computed directly from the full 5D wavefunction
-        Ψ(r,σ) = φ_n(r; Δx) × χ(σ; Δσ, A), faithfully implementing the Hamiltonian
-        operators from Math Formulation Part A, Section 2.
+        FULLY COUPLED IMPLEMENTATION:
+        ==============================
+        This method is called 100-1000 times per outer iteration.
+        Each call rebuilds the full structure to ensure self-consistency
+        between scale parameters (A, Δx, Δσ) and the wavefunction structure.
         
-        This eliminates factorization errors in the previous analytical approximation.
-        The diagnostic (diagnose_coupling_energy.py) revealed the old E_coupling
-        formula was incorrect by a factor of 20-100×!
+        The spatial coupling structure is rebuilt at the current Δx,
+        ensuring that all three scale parameters are properly reflected
+        in the wavefunction shape.
         
         Energy Components:
         - E_spatial: Spatial kinetic energy from -ℏ²/(2m)∇²
         - E_sigma: Subspace kinetic + potential + nonlinear
-        - E_coupling: Mixed derivative -α(∂²/∂x∂σ + ...) [CORRECTED]
+        - E_coupling: Mixed derivative -α(∂²/∂x∂σ + ...)
         - E_em: Circulation penalty g₂|J|²
         - E_curv: Gravitational self-confinement G_5D³A⁴/Δx
         
         Args:
-            shape_structure: Normalized shape from Stage 1
+            chi_normalized: Normalized subspace shape from Stage 1 (scale-independent)
+            n_target: Generation quantum number (1=e, 2=mu, 3=tau)
             Delta_x: Spatial extent (fm)
             Delta_sigma: Subspace width (dimensionless)
             A: Amplitude (dimensionless)
-            n_target: Generation quantum number (1=e, 2=mu, 3=tau)
             
         Returns:
             Tuple of (E_total, energy_components_dict)
         """
-        # Build spatial wavefunction φ_n(r)
-        phi_r = self.field_energy.build_spatial_wavefunction(n_target, Delta_x)
+        # STEP 1: Rebuild structure at current Delta_x
+        # This ensures spatial coupling reflects the current trial parameters
+        structure_4d = self.spatial_coupling.build_4d_structure(
+            subspace_shape=chi_normalized,
+            n_target=n_target,
+            l_target=0,
+            m_target=0,
+            Delta_x=Delta_x  # Use CURRENT trial value
+        )
         
-        # Extract and scale subspace wavefunction χ(σ)
-        # Composite shape is the sum over all (n,l,m) components
-        chi_shape = sum(shape_structure.values())
+        # STEP 2: Sum components and scale by (A/√Δσ)
+        chi_shape = sum(structure_4d.values())
         scaling_factor = A / np.sqrt(Delta_sigma)
         chi_sigma = scaling_factor * chi_shape
         
-        # Compute all energies from 5D field
+        # STEP 3: Build spatial wavefunction at current Delta_x
+        phi_r = self.field_energy.build_spatial_wavefunction(n_target, Delta_x)
+        
+        # STEP 4: Compute all energies from full 5D wavefunction
         E_total, components = self.field_energy.compute_all_energies(
             phi_r=phi_r,
             chi_sigma=chi_sigma,

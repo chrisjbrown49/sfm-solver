@@ -16,13 +16,13 @@ from typing import Dict, Tuple, Optional
 import warnings
 
 from sfm_solver.core.shape_solver import DimensionlessShapeSolver, DimensionlessShapeResult
-from sfm_solver.core.spatial_coupling import SpatialCouplingBuilder
 from sfm_solver.core.energy_minimizer import UniversalEnergyMinimizer, EnergyMinimizationResult
 from sfm_solver.core.constants import (
     ALPHA as ALPHA_DEFAULT,
     G_5D_CONSTANT as G_5D_DEFAULT,
     G1 as G1_DEFAULT,
     G2 as G2_DEFAULT,
+    LAMBDA_SO as LAMBDA_SO_DEFAULT,
     V0 as V0_DEFAULT,
     V1 as V1_DEFAULT
 )
@@ -106,6 +106,7 @@ class UnifiedSFMSolver:
         V0: Optional[float] = None,
         V1: Optional[float] = None,
         alpha: Optional[float] = None,
+        lambda_so: Optional[float] = None,
         n_max: int = 5,
         l_max: int = 2,
         N_sigma: int = 64,
@@ -136,6 +137,8 @@ class UnifiedSFMSolver:
                 If None, loads from constants.json (default: V1)
             alpha: Spatial-subspace coupling strength (GeV).
                    If None, loads from constants.json (default: ALPHA)
+            lambda_so: Spin-orbit coupling strength.
+                       If None, loads from constants.json (default: LAMBDA_SO)
             n_max: Maximum spatial quantum number for shape expansion
             l_max: Maximum angular momentum for shape expansion
             N_sigma: Grid points in subspace dimension
@@ -147,6 +150,7 @@ class UnifiedSFMSolver:
         self.V0 = V0 if V0 is not None else V0_DEFAULT
         self.V1 = V1 if V1 is not None else V1_DEFAULT
         self.alpha = alpha if alpha is not None else ALPHA_DEFAULT
+        self.lambda_so = lambda_so if lambda_so is not None else LAMBDA_SO_DEFAULT
         self.n_max = n_max
         self.l_max = l_max
         self.N_sigma = N_sigma
@@ -162,14 +166,6 @@ class UnifiedSFMSolver:
             verbose=verbose
         )
         
-        # Initialize spatial coupling builder
-        self.spatial_coupling = SpatialCouplingBuilder(
-            alpha_dimensionless=self.alpha / self.V0,
-            n_max=n_max,
-            l_max=l_max,
-            verbose=verbose
-        )
-        
         # Initialize Stage 2: Energy minimizer (with dimensions)
         self.energy_minimizer = UniversalEnergyMinimizer(
             G_5D=self.G_5D,
@@ -178,6 +174,7 @@ class UnifiedSFMSolver:
             V0=self.V0,
             V1=self.V1,
             alpha=self.alpha,
+            lambda_so=self.lambda_so,
             verbose=verbose
         )
         
@@ -294,25 +291,18 @@ class UnifiedSFMSolver:
             if not shape_result.converged:
                 warnings.warn("Shape solver did not converge")
             
-            # Build 4D structure with scale-aware coupling
-            structure_4d = self.spatial_coupling.build_4d_structure(
-                subspace_shape=shape_result.composite_shape,
-                n_target=n_target,
-                l_target=0,
-                m_target=0,
-                Delta_x=Delta_x_current  # Scale-aware coupling
-            )
-            
             # =====================================================================
             # STAGE 2: Minimize energy over scale parameters
             # =====================================================================
+            # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
                 print("STAGE 2: Minimizing energy over scale parameters")
+                print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_baryon_energy(
-                shape_structure=structure_4d,
+                chi_normalized=shape_result.composite_shape,
                 initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
             )
             
@@ -579,25 +569,18 @@ class UnifiedSFMSolver:
             shape_solver_history['converged'].append(shape_result.converged)
             shape_solver_history['iterations'].append(shape_result.iterations)
             
-            # Build 4D structure with scale-aware coupling
-            structure_4d = self.spatial_coupling.build_4d_structure(
-                subspace_shape=shape_result.composite_shape,
-                n_target=generation_n,
-                l_target=0,
-                m_target=0,
-                Delta_x=Delta_x_current  # Pass current scale for scale-aware coupling
-            )
-            
             # =====================================================================
             # STAGE 2: Find optimal scales for this shape
             # =====================================================================
+            # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
                 print("STAGE 2: Minimizing energy over scale parameters")
+                print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_lepton_energy(
-                shape_structure=structure_4d,
+                chi_normalized=shape_result.composite_shape,
                 generation_n=generation_n,
                 initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
             )
@@ -858,25 +841,18 @@ class UnifiedSFMSolver:
                 mixing=scf_mixing
             )
             
-            # Build 4D structure with scale-aware coupling
-            structure_4d = self.spatial_coupling.build_4d_structure(
-                subspace_shape=shape_result.composite_shape,
-                n_target=n_target,
-                l_target=0,
-                m_target=0,
-                Delta_x=Delta_x_current  # Scale-aware coupling
-            )
-            
             # =====================================================================
             # STAGE 2: Minimize energy over scale parameters
             # =====================================================================
+            # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
                 print("STAGE 2: Minimizing energy over scale parameters")
+                print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_meson_energy(
-                shape_structure=structure_4d,
+                chi_normalized=shape_result.composite_shape,
                 initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
             )
             

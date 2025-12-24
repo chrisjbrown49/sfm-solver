@@ -1,15 +1,15 @@
 {
-    "hbar": 1.0545718176461565e-34,
-    "c": 299792458,
-    "alpha": 12.0,
-    "G_5D": 3.0e-1,
-    "g1": 3000.0,
-    "g2": 0.035,
-    "lambda_so": 0.2,
-    "V0": 1.0,
-    "V1": 0.0,
-    "N_r_grid": 100,
-    "N_sigma_grid": 64,
-    "r_max_fm": 50.0,
-    "comment_grids": "Grid resolution for 5D wavefunction: N_r x N_sigma points"
+  "hbar": 1.0545718176461565e-34,
+  "c": 299792458,
+  "alpha": 12.0,
+  "G_5D": 0.3,
+  "g1": 3000.0,
+  "g2": 0.035,
+  "lambda_so": 0.2,
+  "V0": 1.0,
+  "V1": 0.0,
+  "N_r_grid": 100,
+  "N_sigma_grid": 64,
+  "r_max_fm": 50.0,
+  "comment_grids": "Grid resolution for 5D wavefunction: N_r x N_sigma points"
 }
