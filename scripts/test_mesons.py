@@ -14,20 +14,19 @@ import time
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
-from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_MESONS,
     VALIDATION_MESONS,
 )
 
 
-def test_meson(solver, meson_config, beta, verbose=False):
+def test_meson(solver, meson_config, G_5D, verbose=False):
     """Test meson and return results.
     
     Args:
         solver: UnifiedSFMSolver instance
         meson_config: Particle configuration
-        beta: Mass scale (GeV) from electron calibration
+        G_5D: 5D gravitational constant (GeV^-2)
         verbose: Print detailed output
     """
     print(f"\nTesting {meson_config.name}...")
@@ -52,8 +51,10 @@ def test_meson(solver, meson_config, beta, verbose=False):
             print(f"  Energy converged: {result.energy_converged} ({result.energy_iterations} iters)")
             print(f"  Time: {elapsed_time:.3f} s")
         
-        # Calculate mass from amplitude using calibrated beta
-        mass_mev = beta * (result.A ** 2) * 1000.0
+        # Calculate mass from amplitude using "The Beautiful Equation": m = G_5D × c × A²
+        # In natural units (c = 1): m = G_5D × A² (in GeV)
+        mass_gev = G_5D * (result.A ** 2)
+        mass_mev = mass_gev * 1000.0
         
         # Compute error
         error_percent = abs(mass_mev - meson_config.mass_exp) / meson_config.mass_exp * 100.0
@@ -211,7 +212,7 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Create solver (without beta)
+    # Create solver
     print("\nCreating solver...")
     print("  All parameters loaded from constants.json")
     
@@ -219,22 +220,17 @@ def main():
         n_max=5,
         l_max=2,
         N_sigma=64,
-        verbose=False  # Less verbose during calibration
+        verbose=False
     )
     
-    # CRITICAL: Calibrate beta from electron FIRST
-    # This ensures meson predictions don't break lepton masses
+    # Get G_5D from solver for mass calculation
+    G_5D = solver.G_5D
     print("\n" + "="*80)
-    print("CALIBRATING MASS SCALE FROM ELECTRON")
+    print("MASS CALCULATION USING THE BEAUTIFUL EQUATION")
     print("="*80)
-    print("  Solving electron to determine beta = m_e / A_e^2...")
-    print("  This ensures meson parameter tuning doesn't break lepton predictions!")
-    
-    beta = calibrate_beta_from_electron(solver, electron_mass_exp=0.000510999)
-    
-    print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
-    print(f"  Electron mass: {beta * 1.0**2 * 1000:.6f} MeV (by construction)")
-    print(f"  This beta will be used to convert all meson amplitudes to masses")
+    print(f"  G_5D = {G_5D:.6f} GeV^-2")
+    print("  Mass formula: m = G_5D × c × A^2")
+    print("  (In natural units: m = G_5D × A^2)")
     
     # Test calibration mesons
     print("\n" + "="*80)
@@ -243,7 +239,7 @@ def main():
     
     calibration_results = []
     for meson in CALIBRATION_MESONS:
-        result = test_meson(solver, meson, beta, verbose=False)
+        result = test_meson(solver, meson, G_5D, verbose=False)
         calibration_results.append(result)
     
     print_meson_results(calibration_results, "CALIBRATION MESON RESULTS")
@@ -255,7 +251,7 @@ def main():
     
     validation_results = []
     for meson in VALIDATION_MESONS:
-        result = test_meson(solver, meson, beta, verbose=False)
+        result = test_meson(solver, meson, G_5D, verbose=False)
         validation_results.append(result)
     
     print_meson_results(validation_results, "VALIDATION MESON RESULTS")

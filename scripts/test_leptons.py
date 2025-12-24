@@ -14,19 +14,18 @@ import time
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
-from sfm_solver.core.calculate_beta import calibrate_beta_from_electron
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_LEPTONS,
 )
 
 
-def test_lepton(solver, lepton_config, beta, verbose=False):
+def test_lepton(solver, lepton_config, G_5D, verbose=False):
     """Test lepton and return results.
     
     Args:
         solver: UnifiedSFMSolver instance
         lepton_config: Particle configuration
-        beta: Mass scale (GeV) from electron calibration
+        G_5D: 5D gravitational constant (GeV^-2)
         verbose: Print detailed output
     """
     print(f"\nTesting {lepton_config.name}...")
@@ -59,8 +58,10 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
                     Ds = result.scale_history['Delta_sigma'][i]
                     print(f"    Iter {i}: A={A:.6f}, Dx={Dx:.6f} fm, Ds={Ds:.6f}")
         
-        # Calculate mass from amplitude using calibrated beta
-        mass_mev = beta * (result.A ** 2) * 1000.0
+        # Calculate mass from amplitude using "The Beautiful Equation": m = G_5D × c × A²
+        # In natural units (c = 1): m = G_5D × A² (in GeV)
+        mass_gev = G_5D * (result.A ** 2)
+        mass_mev = mass_gev * 1000.0
         
         # Compute error (handle neutrinos with zero experimental mass)
         if lepton_config.mass_exp > 0:
@@ -316,7 +317,7 @@ def main():
     print("  Stage 2: Energy minimization over scales")
     print("\nLoading constants from constants.json...")
     
-    # Create solver (without beta)
+    # Create solver
     print("\nCreating solver...")
     print("  All parameters loaded from constants.json")
     
@@ -324,40 +325,33 @@ def main():
         n_max=5,
         l_max=2,
         N_sigma=64,
-        verbose=False  # Less verbose during calibration
+        verbose=False
     )
     
-    # Calibrate beta from electron
+    # Get G_5D from solver for mass calculation
+    G_5D = solver.G_5D
     print("\n" + "="*80)
-    print("CALIBRATING MASS SCALE FROM ELECTRON")
+    print("MASS CALCULATION USING THE BEAUTIFUL EQUATION")
     print("="*80)
-    print("  Solving electron to determine beta = m_e / A_e^2...")
+    print(f"  G_5D = {G_5D:.6f} GeV^-2")
+    print("  Mass formula: m = G_5D × c × A^2")
+    print("  (In natural units: m = G_5D × A^2)")
     
-    beta = calibrate_beta_from_electron(
-        solver, 
-        electron_mass_exp=0.000510999,
-        max_iter_outer=100,
-        tol_outer=1e-3
-    )
-    
-    print(f"\n  Mass scale calibrated: beta = {beta:.8f} GeV")
-    print(f"  This beta will be used to convert all amplitudes to masses: m = beta * A^2")
-    
-    # Test calibration leptons
+    # Test leptons
     print("\n" + "="*80)
-    print("TESTING CALIBRATION LEPTONS")
+    print("TESTING LEPTONS")
     print("="*80)
     
     calibration_results = []
     for lepton in CALIBRATION_LEPTONS:
-        result = test_lepton(solver, lepton, beta, verbose=False)
+        result = test_lepton(solver, lepton, G_5D, verbose=False)
         calibration_results.append(result)
     
     # Print detailed convergence report first
     print_convergence_report(calibration_results)
     
     # Then print summary tables
-    print_lepton_results(calibration_results, "CALIBRATION LEPTON RESULTS")
+    print_lepton_results(calibration_results, "LEPTON RESULTS")
     
     # Note: Validation leptons (neutrinos) are commented out - suspected to be multi-lepton particles
     validation_results = []
@@ -382,8 +376,10 @@ def main():
     else:
         print(f"\nWARNING: {total - converged} leptons did not converge")
     
-    print("\nNote: Mass predictions depend on parameter calibration.")
-    print("The new architecture may require re-optimization of fundamental constants.")
+    print("\nNote: Masses calculated using The Beautiful Equation: m = G_5D × c × A^2")
+    print(f"      Current G_5D = {G_5D:.6f} GeV^-2")
+    print("      Mass predictions depend on fundamental constants.")
+    print("      The fully coupled architecture requires proper parameter calibration.")
 
 
 if __name__ == '__main__':
