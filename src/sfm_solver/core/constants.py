@@ -30,6 +30,9 @@ _DEFAULT_CONSTANTS: Dict[str, Any] = {
     "lambda_so": 0.2,  # dimensionless (spin-orbit coupling strength)
     "V0": 1.0,  # GeV (primary three-well potential depth)
     "V1": 0.0,  # GeV (secondary six-well potential depth)
+    "N_r_grid": 100,  # Grid points for radial wavefunction
+    "N_sigma_grid": 64,  # Grid points for subspace wavefunction
+    "r_max_fm": 50.0,  # Maximum radius in fm
 }
 
 
@@ -205,6 +208,20 @@ V0: float = _LOADED_CONSTANTS.get("V0", 1.0)
 #     phenomenological artifact that should be eliminated.
 # =============================================================================
 V1: float = _LOADED_CONSTANTS.get("V1", 0.0)
+
+# =============================================================================
+# 5D Field Grid Configuration
+# =============================================================================
+# Grid resolution for computing energies from full 5D wavefunction Ψ(r,σ)
+
+# Number of radial grid points
+N_R_GRID: int = _LOADED_CONSTANTS.get("N_r_grid", 100)
+
+# Number of subspace grid points (periodic dimension σ ∈ [0, 2π])
+N_SIGMA_GRID: int = _LOADED_CONSTANTS.get("N_sigma_grid", 64)
+
+# Maximum radius for radial grid in fm
+R_MAX_FM: float = _LOADED_CONSTANTS.get("r_max_fm", 50.0)
 
 # =============================================================================
 # Single-Field Model Fundamental Constants (SI units)

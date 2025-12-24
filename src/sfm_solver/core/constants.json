@@ -7,5 +7,9 @@
     "g2": 0.035,
     "lambda_so": 0.2,
     "V0": 1.0,
-    "V1": 0.0
+    "V1": 0.0,
+    "N_r_grid": 100,
+    "N_sigma_grid": 64,
+    "r_max_fm": 50.0,
+    "comment_grids": "Grid resolution for 5D wavefunction: N_r x N_sigma points"
 }
