@@ -24,7 +24,7 @@ _DEFAULT_CONSTANTS: Dict[str, Any] = {
     "hbar": 1.0545718176461565e-34,  # J·s (reduced Planck constant)
     "c": 299792458,  # m/s (speed of light)
     "alpha": 10.5,  # GeV (spatial-subspace coupling)
-    "g_internal": 0.003,  # FUNDAMENTAL: gravitational self-confinement in amplitude units
+    "G_5D": 1.0e7,  # GeV^-2 (FUNDAMENTAL: 5D gravitational constant)
     "g1": 5000.0,  # dimensionless (nonlinear self-interaction)
     "g2": 0.035,  # dimensionless (circulation/EM coupling)
     "lambda_so": 0.2,  # dimensionless (spin-orbit coupling strength)
@@ -98,11 +98,12 @@ BETA: float = _LOADED_CONSTANTS.get("beta", 100.0)
 # Alpha: spatial-subspace coupling strength
 ALPHA: float = _LOADED_CONSTANTS["alpha"]
 
-# G_INTERNAL: FUNDAMENTAL gravitational self-confinement constant
-# This controls self-confinement: Δx = 1/(G_internal × A⁶)^(1/3)
-# G_internal is independent of beta - works directly with amplitude A
+# G_5D: FUNDAMENTAL 5D gravitational constant (in GeV^-2)
+# This is the fundamental gravitational coupling in 5D spacetime.
+# Related to mass scale via: beta = G_5D * c
+# Controls spatial confinement energy and curvature energy.
 # β only converts amplitude to physical mass at the end: m = β × A²
-G_INTERNAL: float = _LOADED_CONSTANTS.get("g_internal", 0.003)
+G_5D_CONSTANT: float = _LOADED_CONSTANTS.get("G_5D", 1.0e7)
 
 # G1: nonlinear self-interaction coupling
 G1: float = _LOADED_CONSTANTS["g1"]

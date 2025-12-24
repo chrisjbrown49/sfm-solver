@@ -38,8 +38,8 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
             generation_n=lepton_config.generation,
             max_iter=200,
             tol=1e-6,  # Shape solver tolerance (Stage 1)
-            max_iter_outer=100,  # Increased to check convergence behavior
-            tol_outer=1e-3  # Outer loop tolerance
+            max_iter_outer=100,  # Outer loop iterations
+            tol_outer=1e-4  # Outer loop tolerance
         )
         
         elapsed_time = time.time() - start_time
@@ -82,6 +82,11 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
             'shape_iterations': result.shape_iterations,
             'energy_converged': result.energy_converged,
             'energy_iterations': result.energy_iterations,
+            'outer_converged': result.outer_converged,
+            'outer_iterations': result.outer_iterations,
+            'scale_history': result.scale_history,
+            'shape_solver_history': result.shape_solver_history,
+            'energy_minimizer_history': result.energy_minimizer_history,
             'time_seconds': elapsed_time,
             'E_total': result.E_total,
             'energy_components': result.energy_components,
@@ -109,6 +114,106 @@ def test_lepton(solver, lepton_config, beta, verbose=False):
             'energy_components': None,
             'error': str(e)
         }
+
+
+def print_convergence_report(results):
+    """Print detailed convergence report for each particle."""
+    print("\n" + "="*80)
+    print("DETAILED CONVERGENCE REPORT")
+    print("="*80)
+    
+    for r in results:
+        if r.get('error') is not None:
+            continue  # Skip failed particles
+            
+        print(f"\n{'-'*80}")
+        print(f"{r['name'].replace('_', ' ').title()} (n={r['generation']})")
+        print(f"{'-'*80}")
+        
+        # Convergence status with detailed tracking
+        print(f"  Shape Solver (Stage 1) - LAST ITERATION:")
+        print(f"    Converged: {r['shape_converged']} after {r['shape_iterations']} iterations")
+        
+        # Shape solver statistics across ALL outer loop iterations
+        if r.get('shape_solver_history'):
+            ssh = r['shape_solver_history']
+            total_shape_calls = len(ssh['iterations'])
+            total_shape_iters = sum(ssh['iterations'])
+            avg_shape_iters = total_shape_iters / total_shape_calls if total_shape_calls > 0 else 0
+            shape_failures = sum(1 for c in ssh['converged'] if not c)
+            min_shape_iters = min(ssh['iterations']) if ssh['iterations'] else 0
+            max_shape_iters = max(ssh['iterations']) if ssh['iterations'] else 0
+            
+            print(f"  Shape Solver - ALL {total_shape_calls} OUTER LOOP ITERATIONS:")
+            print(f"    Total solver calls:    {total_shape_calls}")
+            print(f"    Total iterations:      {total_shape_iters}")
+            print(f"    Avg iterations/call:   {avg_shape_iters:.1f}")
+            print(f"    Min iterations:        {min_shape_iters}")
+            print(f"    Max iterations:        {max_shape_iters}")
+            print(f"    Failed to converge:    {shape_failures}")
+        
+        print(f"\n  Energy Minimizer (Stage 2 inner loop) - LAST ITERATION:")
+        print(f"    Converged: {r['energy_converged']} after {r['energy_iterations']} iterations")
+        
+        # Energy minimizer statistics across ALL outer loop iterations
+        if r.get('energy_minimizer_history'):
+            emh = r['energy_minimizer_history']
+            total_energy_calls = len(emh['iterations'])
+            total_energy_iters = sum(emh['iterations'])
+            avg_energy_iters = total_energy_iters / total_energy_calls if total_energy_calls > 0 else 0
+            energy_failures = sum(1 for c in emh['converged'] if not c)
+            min_energy_iters = min(emh['iterations']) if emh['iterations'] else 0
+            max_energy_iters = max(emh['iterations']) if emh['iterations'] else 0
+            
+            print(f"  Energy Minimizer - ALL {total_energy_calls} OUTER LOOP ITERATIONS:")
+            print(f"    Total minimizer calls: {total_energy_calls}")
+            print(f"    Total iterations:      {total_energy_iters}")
+            print(f"    Avg iterations/call:   {avg_energy_iters:.1f}")
+            print(f"    Min iterations:        {min_energy_iters}")
+            print(f"    Max iterations:        {max_energy_iters}")
+            print(f"    Failed to converge:    {energy_failures}")
+        
+        print(f"\n  Outer Loop (Stage 1 <-> Stage 2 iteration):")
+        print(f"    Converged: {r['outer_converged']} after {r['outer_iterations']} iterations")
+        print(f"    Tolerance: 1e-4 (0.01% relative change)")
+        
+        # Final scale parameters
+        print(f"  Final Scale Parameters:")
+        print(f"    A (amplitude):   {r['amplitude']:.6f}")
+        print(f"    Delta_x:         {r['Delta_x_fm']:.6f} fm")
+        print(f"    Delta_sigma:     {r['Delta_sigma']:.6f}")
+        
+        # Mass prediction
+        print(f"  Mass Prediction:")
+        print(f"    Predicted:       {r['mass_predicted_MeV']:.6f} MeV")
+        print(f"    Experimental:    {r['mass_experimental_MeV']:.6f} MeV")
+        if r['error_percent'] is not None:
+            print(f"    Error:           {r['error_percent']:.2f}%")
+        
+        # Show convergence evolution (last 10 iterations)
+        if r.get('scale_history') and len(r['scale_history']['A']) > 1:
+            print(f"\n  Scale Evolution (last 10 iterations):")
+            n_show = min(10, len(r['scale_history']['A']))
+            start_idx = max(0, len(r['scale_history']['A']) - n_show)
+            
+            print(f"    {'Iter':<6} {'A':>12} {'Delta_x (fm)':>14} {'Delta_sigma':>14}")
+            print(f"    {'-'*6} {'-'*12} {'-'*14} {'-'*14}")
+            for i in range(start_idx, len(r['scale_history']['A'])):
+                iter_num = r['scale_history']['iteration'][i]
+                A = r['scale_history']['A'][i]
+                Dx = r['scale_history']['Delta_x'][i]
+                Ds = r['scale_history']['Delta_sigma'][i]
+                print(f"    {iter_num:<6} {A:12.6f} {Dx:14.6f} {Ds:14.6f}")
+            
+            # Show convergence rate if available
+            if len(r['scale_history']['A']) >= 2:
+                A_init = r['scale_history']['A'][0]
+                A_final = r['scale_history']['A'][-1]
+                A_change = abs(A_final - A_init)
+                A_rel_change = A_change / max(abs(A_init), 0.01) * 100
+                print(f"\n    Total change in A: {A_change:.6f} ({A_rel_change:.2f}%)")
+        
+        print(f"  Computation Time: {r['time_seconds']:.2f} seconds")
 
 
 def print_lepton_results(results, title):
@@ -248,6 +353,10 @@ def main():
         result = test_lepton(solver, lepton, beta, verbose=False)
         calibration_results.append(result)
     
+    # Print detailed convergence report first
+    print_convergence_report(calibration_results)
+    
+    # Then print summary tables
     print_lepton_results(calibration_results, "CALIBRATION LEPTON RESULTS")
     
     # Note: Validation leptons (neutrinos) are commented out - suspected to be multi-lepton particles

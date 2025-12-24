@@ -20,7 +20,7 @@ from sfm_solver.core.spatial_coupling import SpatialCouplingBuilder
 from sfm_solver.core.energy_minimizer import UniversalEnergyMinimizer, EnergyMinimizationResult
 from sfm_solver.core.constants import (
     ALPHA as ALPHA_DEFAULT,
-    G_INTERNAL as G_INTERNAL_DEFAULT,
+    G_5D_CONSTANT as G_5D_DEFAULT,
     G1 as G1_DEFAULT,
     G2 as G2_DEFAULT,
     V0 as V0_DEFAULT,
@@ -64,6 +64,12 @@ class UnifiedSolverResult:
     outer_iterations: int = 0
     outer_converged: bool = True
     scale_history: Optional[Dict[str, list]] = None
+    
+    # Detailed tracking of all shape solver calls
+    shape_solver_history: Optional[Dict[str, list]] = None  # {converged: [bool], iterations: [int]}
+    
+    # Detailed tracking of all energy minimizer calls
+    energy_minimizer_history: Optional[Dict[str, list]] = None  # {converged: [bool], iterations: [int]}
 
 
 class UnifiedSFMSolver:
@@ -80,7 +86,7 @@ class UnifiedSFMSolver:
         solver = UnifiedSFMSolver()
         
         # Or override specific parameters
-        solver = UnifiedSFMSolver(g_internal=1e6, verbose=True)
+        solver = UnifiedSFMSolver(G_5D=1e7, verbose=True)
         
         # Solve for a particle
         result = solver.solve_baryon(
@@ -94,7 +100,7 @@ class UnifiedSFMSolver:
     
     def __init__(
         self,
-        g_internal: Optional[float] = None,
+        G_5D: Optional[float] = None,
         g1: Optional[float] = None,
         g2: Optional[float] = None,
         V0: Optional[float] = None,
@@ -116,9 +122,10 @@ class UnifiedSFMSolver:
         use the helper function from calculate_beta module.
         
         Args:
-            g_internal: Gravitational self-confinement strength (FUNDAMENTAL).
-                        Controls how field amplitude creates spatial confinement.
-                        If None, loads from constants.json (default: G_INTERNAL)
+            G_5D: 5D gravitational constant in GeV^-2 (FUNDAMENTAL).
+                  Controls gravitational self-confinement and spatial energy.
+                  Related to mass scale via beta = G_5D * c.
+                  If None, loads from constants.json (default: G_5D)
             g1: Nonlinear self-interaction coupling in subspace (dimensionless).
                 If None, loads from constants.json (default: G1)
             g2: Electromagnetic circulation coupling (dimensionless).
@@ -134,7 +141,7 @@ class UnifiedSFMSolver:
             N_sigma: Grid points in subspace dimension
             verbose: Print diagnostic information
         """
-        self.g_internal = g_internal if g_internal is not None else G_INTERNAL_DEFAULT
+        self.G_5D = G_5D if G_5D is not None else G_5D_DEFAULT
         self.g1 = g1 if g1 is not None else G1_DEFAULT
         self.g2 = g2 if g2 is not None else G2_DEFAULT
         self.V0 = V0 if V0 is not None else V0_DEFAULT
@@ -165,7 +172,7 @@ class UnifiedSFMSolver:
         
         # Initialize Stage 2: Energy minimizer (with dimensions)
         self.energy_minimizer = UniversalEnergyMinimizer(
-            g_internal=self.g_internal,
+            G_5D=self.G_5D,
             g1=self.g1,
             g2=self.g2,
             V0=self.V0,
@@ -177,7 +184,7 @@ class UnifiedSFMSolver:
         if self.verbose:
             print("=== UnifiedSFMSolver Initialized ===")
             print(f"  Parameters loaded from constants.json")
-            print(f"  g_internal = {self.g_internal:.6f} (Gravitational self-confinement)")
+            print(f"  G_5D = {self.G_5D:.6e} GeV^-2 (5D Gravitational constant)")
             print(f"  g1 = {self.g1:.3f} (Nonlinear subspace coupling)")
             print(f"  g2 = {self.g2:.6f} (EM circulation coupling)")
             print(f"  alpha = {self.alpha:.6f} GeV (Spatial-subspace coupling)")
@@ -239,16 +246,16 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Improved adaptive mixing with momentum for stability
-        mixing = 0.05  # Start with heavy damping
-        mixing_min = 0.01
-        mixing_max = 0.3
+        # Drastically increased damping to stabilize severe oscillations
+        mixing = 0.01  # Start with very heavy damping
+        mixing_min = 0.005
+        mixing_max = 0.15
         
-        # Momentum terms
+        # Strong momentum terms
         momentum_A = 0.0
         momentum_Dx = 0.0
         momentum_Ds = 0.0
-        momentum_weight = 0.15
+        momentum_weight = 0.5
         
         # History for oscillation detection
         history_window = 5
@@ -380,8 +387,8 @@ class UnifiedSFMSolver:
                     mixing = max(mixing_min, mixing * 0.5)
                     if self.verbose:
                         print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
-                elif iter_outer > 10:
-                    mixing = min(mixing_max, mixing * 1.05)
+                elif iter_outer > 20:
+                    mixing = min(mixing_max, mixing * 1.02)
                     if self.verbose and mixing < mixing_max:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
@@ -433,7 +440,8 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_em': energy_result.E_em
+                'E_em': energy_result.E_em,
+                'E_curvature': energy_result.E_curvature
             },
             E_total=energy_result.E_total,
             shape_converged=shape_result.converged,
@@ -494,6 +502,18 @@ class UnifiedSFMSolver:
             'iteration': []
         }
         
+        # Initialize shape solver tracking (for all outer loop iterations)
+        shape_solver_history = {
+            'converged': [],
+            'iterations': []
+        }
+        
+        # Initialize energy minimizer tracking (for all outer loop iterations)
+        energy_minimizer_history = {
+            'converged': [],
+            'iterations': []
+        }
+        
         # Initialize current scales (first iteration uses defaults)
         if initial_scale_guess is not None:
             Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
@@ -511,16 +531,16 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Improved adaptive mixing with momentum for stability
-        mixing = 0.05  # Start with heavy damping (was 0.3)
-        mixing_min = 0.01  # Minimum mixing (very heavy damping)
-        mixing_max = 0.3  # Maximum mixing (was 0.5, now more conservative)
+        # Moderate damping for stability
+        mixing = 0.1  # Start with moderate damping
+        mixing_min = 0.05  # Minimum mixing
+        mixing_max = 0.3  # Maximum mixing (legacy default)
         
         # Momentum terms to smooth updates
         momentum_A = 0.0
         momentum_Dx = 0.0
         momentum_Ds = 0.0
-        momentum_weight = 0.15  # Typical value for momentum damping
+        momentum_weight = 0.15  # Moderate momentum damping
         
         # History for better oscillation detection (track last 5 iterations)
         history_window = 5
@@ -555,6 +575,10 @@ class UnifiedSFMSolver:
                 tol=tol
             )
             
+            # Track shape solver performance
+            shape_solver_history['converged'].append(shape_result.converged)
+            shape_solver_history['iterations'].append(shape_result.iterations)
+            
             # Build 4D structure with scale-aware coupling
             structure_4d = self.spatial_coupling.build_4d_structure(
                 subspace_shape=shape_result.composite_shape,
@@ -577,6 +601,10 @@ class UnifiedSFMSolver:
                 generation_n=generation_n,
                 initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
             )
+            
+            # Track energy minimizer performance
+            energy_minimizer_history['converged'].append(energy_result.converged)
+            energy_minimizer_history['iterations'].append(energy_result.iterations)
             
             # Extract new scales
             A_new = energy_result.A
@@ -652,9 +680,9 @@ class UnifiedSFMSolver:
                     mixing = max(mixing_min, mixing * 0.5)
                     if self.verbose:
                         print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
-                elif iter_outer > 10:
-                    # Very slowly increase mixing after stable iterations
-                    mixing = min(mixing_max, mixing * 1.05)
+                elif iter_outer > 20:
+                    # Very slowly increase mixing after stable iterations (increased threshold and slower rate)
+                    mixing = min(mixing_max, mixing * 1.02)
                     if self.verbose and mixing < mixing_max:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
@@ -708,7 +736,8 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_em': energy_result.E_em
+                'E_em': energy_result.E_em,
+                'E_curvature': energy_result.E_curvature
             },
             E_total=energy_result.E_total,
             shape_converged=shape_result.converged,
@@ -718,6 +747,8 @@ class UnifiedSFMSolver:
             outer_iterations=iter_outer + 1,
             outer_converged=converged_outer,
             scale_history=scale_history,
+            shape_solver_history=shape_solver_history,
+            energy_minimizer_history=energy_minimizer_history,
             particle_type='lepton',
             quantum_numbers={
                 'winding_k': winding_k,
@@ -780,16 +811,16 @@ class UnifiedSFMSolver:
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
             Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
-        # Improved adaptive mixing with momentum for stability
-        mixing = 0.05  # Start with heavy damping
-        mixing_min = 0.01
-        mixing_max = 0.3
+        # Drastically increased damping to stabilize severe oscillations
+        mixing = 0.01  # Start with very heavy damping
+        mixing_min = 0.005
+        mixing_max = 0.15
         
-        # Momentum terms
+        # Strong momentum terms
         momentum_A = 0.0
         momentum_Dx = 0.0
         momentum_Ds = 0.0
-        momentum_weight = 0.15
+        momentum_weight = 0.5
         
         # History for oscillation detection
         history_window = 5
@@ -920,8 +951,8 @@ class UnifiedSFMSolver:
                     mixing = max(mixing_min, mixing * 0.5)
                     if self.verbose:
                         print(f"    OSCILLATION DETECTED ({oscillation_count} sign changes) - Reducing mixing to {mixing:.4f}")
-                elif iter_outer > 10:
-                    mixing = min(mixing_max, mixing * 1.05)
+                elif iter_outer > 20:
+                    mixing = min(mixing_max, mixing * 1.02)
                     if self.verbose and mixing < mixing_max:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
@@ -973,7 +1004,8 @@ class UnifiedSFMSolver:
                 'E_nonlinear_sigma': energy_result.E_nonlinear_sigma,
                 'E_spatial': energy_result.E_spatial,
                 'E_coupling': energy_result.E_coupling,
-                'E_em': energy_result.E_em
+                'E_em': energy_result.E_em,
+                'E_curvature': energy_result.E_curvature
             },
             E_total=energy_result.E_total,
             shape_converged=shape_result.converged,

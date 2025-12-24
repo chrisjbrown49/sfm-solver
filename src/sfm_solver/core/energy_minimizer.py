@@ -52,6 +52,7 @@ class EnergyMinimizationResult:
     E_spatial: float
     E_coupling: float
     E_em: float
+    E_curvature: float  # Gravitational self-confinement
     
     # Convergence
     converged: bool
@@ -79,7 +80,7 @@ class UniversalEnergyMinimizer:
     
     def __init__(
         self,
-        g_internal: float,
+        G_5D: float,
         g1: float,
         g2: float,
         V0: float,
@@ -98,8 +99,9 @@ class UniversalEnergyMinimizer:
         use the helper function in calculate_beta module.
         
         Args:
-            g_internal: FUNDAMENTAL gravitational self-confinement strength.
-                       Controls how strongly larger amplitudes are spatially confined.
+            G_5D: FUNDAMENTAL 5D gravitational constant (in GeV^-2).
+                  Controls gravitational self-confinement and spatial energy.
+                  Related to mass scale via beta = G_5D * c.
             g1: Nonlinear self-interaction coupling in subspace (dimensionless)
             g2: Electromagnetic circulation coupling (dimensionless)
             V0: Three-well primary depth (GeV)
@@ -107,7 +109,7 @@ class UniversalEnergyMinimizer:
             alpha: Spatial-subspace coupling strength (GeV)
             verbose: Print diagnostic information
         """
-        self.g_internal = g_internal  # FUNDAMENTAL - drives all physics
+        self.G_5D = G_5D  # FUNDAMENTAL - 5D gravitational constant
         self.g1 = g1
         self.g2 = g2
         self.V0 = V0
@@ -120,7 +122,7 @@ class UniversalEnergyMinimizer:
         
         if self.verbose:
             print("=== UniversalEnergyMinimizer Initialized ===")
-            print(f"  g_internal: {g_internal:.6f} (Gravitational self-confinement)")
+            print(f"  G_5D: {G_5D:.6e} GeV^-2 (5D Gravitational constant)")
             print(f"  g1: {g1:.3f} (Nonlinear subspace coupling)")
             print(f"  g2: {g2:.6f} (EM circulation coupling)")
             print(f"  alpha: {alpha:.3f} GeV (Spatial-subspace coupling)")
@@ -278,20 +280,21 @@ class UniversalEnergyMinimizer:
         ================================================
         
         The spatial confinement comes from gravitational self-energy balance.
-        From "Origin of Mass and Gravity" (Section 4) research note:
+        From "Origin of Mass and Gravity" (Section 4) and "Math Formulation (Part A)":
         
-            Δx = 1/(g_internal × A⁶)^(1/3)  [in fm]
+            Δx = (ℏ²/(G_5D × β³ × A⁶))^(1/3)
+        
+        For initial guess, approximate β ~ 1 GeV:
+            Δx ≈ (ℏ²/(G_5D × A⁶))^(1/3)  [in GeV^-1]
+            Δx_fm ≈ ℏc / (G_5D × A⁶)^(1/3)  [in fm]
         
         CRITICAL: The (1/3) power is essential! This comes from the cubic
         relationship between gravitational binding energy and spatial scale.
         
         This formula ensures:
         - Larger amplitude A → smaller Δx (more confined, Δx ∝ A^(-2))
-        - Stronger gravity g_internal → smaller Δx (more confined)
+        - Stronger G_5D → smaller Δx (more confined)
         - Prevents infinite spatial delocalization
-        
-        This couples spatial extent to amplitude through gravitational 
-        self-confinement, maintaining self-consistency.
         
         Args:
             A: Current amplitude estimate
@@ -299,14 +302,13 @@ class UniversalEnergyMinimizer:
         Returns:
             Optimal Delta_x from gravitational self-confinement (in fm)
         """
-        if self.g_internal <= 0 or A < 1e-10:
+        if self.G_5D <= 0 or A < 1e-10:
             return 1.0  # Default fallback in fm
         
-        # From gravitational self-confinement: Δx = 1/(g_internal × A⁶)
-        # NOTE: g_internal is calibrated to give Δx directly in fm (legacy convention)
-        # This gives Δx ∝ A^(-6) - strong confinement for larger amplitudes
+        # From gravitational self-confinement
+        # Δx_fm = ℏc / (G_5D × A⁶)^(1/3) with β ~ 1 GeV approximation for initial guess
         A_sixth = A ** 6
-        delta_x = 1.0 / (self.g_internal * A_sixth) ** (1.0/3.0)  # Result in fm
+        delta_x = HBAR_C_GEV_FM / (self.G_5D * A_sixth) ** (1.0/3.0)  # Result in fm
         
         # Apply reasonable physical bounds (spatial scale should be in fm range)
         MIN_DELTA_X = 0.01   # fm - minimum localization 
@@ -463,24 +465,29 @@ class UniversalEnergyMinimizer:
         A_bounds: Optional[Tuple[float, float]] = None
     ) -> EnergyMinimizationResult:
         """
-        Internal method to minimize energy using self-consistent iteration.
+        Minimize energy using full 3D optimization over (Delta_x, Delta_sigma, A).
         
-        APPROACH:
+        FIRST-PRINCIPLES APPROACH:
         =========================================
-        - Compute suggested Delta_x from gravitational confinement: Δx ~ A^(-6)
-        - Compute suggested Delta_sigma from energy balance: Δσ ~ A^(-4/3)
-        - Compute suggested A from wavefunction norm: A = sqrt(Σ ∫|χ|² dσ)
-        - Mix with current values using adaptive mixing
-        - Iterate until self-consistency
+        All three parameters are independent optimization variables.
+        The energy functional includes:
+        - E_spatial: Quantum confinement (∝ 1/(A²·Δx²))
+        - E_sigma: Subspace field energy
+        - E_coupling: Spatial-subspace coupling (generation-dependent!)
+        - E_em: Electromagnetic circulation
+        - E_curvature: Gravitational self-confinement (∝ A⁴/Δx)
+        
+        The interplay between E_spatial (wants large Δx) and E_curvature (wants small Δx)
+        naturally determines the optimal spatial scale. The optimizer finds the balance.
         
         Args:
             shape_structure: Normalized shape from Stage 1
             initial_guess: (Delta_x_0, Delta_sigma_0, A_0)
-            method: Optimization method (ignored, kept for compatibility)
+            method: Optimization method ('L-BFGS-B' recommended)
             particle_type: 'lepton', 'meson', or 'baryon'
             n_target: Target generation (for leptons)
             k_winding: Winding number
-            A_bounds: Optional bounds on A (ignored, kept for compatibility)
+            A_bounds: Optional bounds on A
             
         Returns:
             EnergyMinimizationResult
@@ -493,164 +500,112 @@ class UniversalEnergyMinimizer:
         if n_target is None:
             n_target = 1  # Use ground state spatial structure
         
-        # Extract initial values
-        Delta_x_current, Delta_sigma_current, A_current = initial_guess
+        # Extract initial guess
+        Delta_x_initial, Delta_sigma_initial, A_initial = initial_guess
         
-        # Adaptive mixing parameters (legacy solver values)
-        mixing = 0.3  # Start with moderate mixing (legacy default)
-        min_mixing = 0.05
-        max_mixing = 0.5
+        # Set bounds for all three parameters
+        if A_bounds is not None:
+            MIN_A, MAX_A = A_bounds
+        else:
+            MIN_A = 0.001  # Small but non-zero
+            MAX_A = 100.0  # Maximum reasonable amplitude
         
-        # Convergence parameters (legacy solver values)
-        max_iter = 30  # Legacy uses 30
-        tol = 1e-4  # Legacy uses 1e-4
+        MIN_DELTA_X = 0.001   # fm - minimum localization
+        MAX_DELTA_X = 100.0   # fm - maximum spread
+        MIN_DELTA_SIGMA = 0.1  # Minimum subspace width
+        MAX_DELTA_SIGMA = 2.0  # Maximum subspace width
         
-        # History for oscillation detection
-        dA_prev = 0.0
-        dDx_prev = 0.0
-        dDs_prev = 0.0
+        # Ensure initial guess is within bounds
+        Delta_x_initial = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_initial))
+        Delta_sigma_initial = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_initial))
+        A_initial = max(MIN_A, min(MAX_A, A_initial))
         
-        # Physical bounds
-        MIN_DELTA_X = 0.0001
-        MAX_DELTA_X = 100.0
-        MIN_DELTA_SIGMA = 0.1
-        MAX_DELTA_SIGMA = 2.0
-        MIN_A = 0.001
-        MAX_A = 1000.0
-        
-        converged = False
-        final_iter = 0
+        x0 = np.array([Delta_x_initial, Delta_sigma_initial, A_initial])
+        bounds = [(MIN_DELTA_X, MAX_DELTA_X), (MIN_DELTA_SIGMA, MAX_DELTA_SIGMA), (MIN_A, MAX_A)]
         
         if self.verbose:
-            print(f"  Self-consistent iteration (max_iter={max_iter}, tol={tol:.1e})")
-            print(f"  Initial: A={A_current:.6f}, Dx={Delta_x_current:.6f}, Ds={Delta_sigma_current:.6f}")
+            print(f"  3D Energy minimization over (Delta_x, Delta_sigma, A)")
+            print(f"  Initial guess: Delta_x={Delta_x_initial:.6f} fm, Delta_sigma={Delta_sigma_initial:.6f}, A={A_initial:.6f}")
+            print(f"  Method: {method}")
         
-        for iteration in range(max_iter):
-            # === STEP 1: Compute suggested Delta_x from gravitational self-confinement ===
-            Delta_x_suggested = self._compute_optimal_delta_x(A_current)
-            Delta_x_suggested = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_suggested))
+        # Define objective function for 3D optimization
+        def energy_objective_3d(x: NDArray) -> float:
+            """
+            Compute total energy as a function of (Delta_x, Delta_sigma, A).
+            All three are independent optimization variables.
+            """
+            Delta_x, Delta_sigma, A = x
             
-            # === STEP 2: Compute suggested Delta_sigma from energy balance ===
-            Delta_sigma_suggested = self._compute_optimal_delta_sigma(A_current)
-            Delta_sigma_suggested = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_suggested))
-            
-            # === STEP 3: Compute suggested A from wavefunction structure ===
-            # This is a key difference from using a gradient descent approach
-            # A is determined by the total amplitude of the scaled wavefunction
-            chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma_current, A_current)
-            
-            # Compute total amplitude: A² = Σ ∫|χ_{nlm}|² dσ
-            # But chi_scaled already includes A, so we need to extract the structure norm
-            # The shape_structure is normalized, so we can compute A from energy balance
-            # For now, use a simple update based on energy gradient
-            epsilon = 1e-6
-            E_current = self._compute_total_energy(
-                shape_structure, Delta_x_current, Delta_sigma_current, A_current, n_target
+            # Compute and return total energy (ignore components for optimization)
+            E_total, _ = self._compute_total_energy(
+                shape_structure, Delta_x, Delta_sigma, A, n_target
             )
-            E_plus = self._compute_total_energy(
-                shape_structure, Delta_x_current, Delta_sigma_current, A_current + epsilon, n_target
-            )
-            E_minus = self._compute_total_energy(
-                shape_structure, Delta_x_current, Delta_sigma_current, A_current - epsilon, n_target
-            )
-            
-            # Central difference gradient
-            grad_A = (E_plus - E_minus) / (2.0 * epsilon)
-            
-            # Suggest new A using small gradient step
-            learning_rate = 0.01 * A_current
-            A_suggested = A_current - learning_rate * grad_A
-            A_suggested = max(MIN_A, min(MAX_A, A_suggested))
-            
-            # === STEP 4: Check convergence ===
-            delta_A = abs(A_suggested - A_current)
-            delta_Dx = abs(Delta_x_suggested - Delta_x_current)
-            delta_Ds = abs(Delta_sigma_suggested - Delta_sigma_current)
-            
-            rel_delta_A = delta_A / max(A_current, 0.01)
-            rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
-            rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
-            
-            if self.verbose and (iteration % 5 == 0 or iteration < 3):
-                print(f"  Iter {iteration}: A={A_current:.6f}, Dx={Delta_x_current:.6f}, Ds={Delta_sigma_current:.6f}, E={E_current:.6e}")
-                print(f"    Deltas: dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
-            
-            if rel_delta_A < tol and rel_delta_Dx < tol and rel_delta_Ds < tol:
-                converged = True
-                final_iter = iteration
-                if self.verbose:
-                    print(f"  CONVERGED after {iteration+1} iterations")
-                break
-            
-            # === STEP 5: Adaptive mixing with oscillation detection ===
-            if iteration > 0:
-                dA_current = A_suggested - A_current
-                dDx_current = Delta_x_suggested - Delta_x_current
-                dDs_current = Delta_sigma_suggested - Delta_sigma_current
-                
-                # Check for sign reversals (oscillations)
-                oscillating_A = (dA_current * dA_prev) < 0
-                oscillating_Dx = (dDx_current * dDx_prev) < 0
-                oscillating_Ds = (dDs_current * dDs_prev) < 0
-                
-                if oscillating_A or oscillating_Dx or oscillating_Ds:
-                    # Reduce mixing when oscillating
-                    mixing = max(min_mixing, mixing * 0.5)
-                    if self.verbose:
-                        print(f"    OSCILLATION - Reducing mixing to {mixing:.3f}")
-                elif iteration > 5:
-                    # Increase mixing if stable for multiple iterations
-                    mixing = min(max_mixing, mixing * 1.1)
-                
-                # Store for next iteration
-                dA_prev = dA_current
-                dDx_prev = dDx_current
-                dDs_prev = dDs_current
-            
-            # === STEP 6: Apply mixing ===
-            A_current = (1 - mixing) * A_current + mixing * A_suggested
-            Delta_x_current = (1 - mixing) * Delta_x_current + mixing * Delta_x_suggested
-            Delta_sigma_current = (1 - mixing) * Delta_sigma_current + mixing * Delta_sigma_suggested
-            
-            final_iter = iteration
+            return E_total
         
-        # === COMPUTE FINAL ENERGY ===
-        E_total = self._compute_total_energy(
-            shape_structure, Delta_x_current, Delta_sigma_current, A_current, n_target
+        # Use scipy's minimize for full 3D optimization
+        if self.verbose:
+            print(f"  Running 3D minimization...")
+        
+        optimization_result = minimize(
+            energy_objective_3d,
+            x0,
+            method=method,  # 'L-BFGS-B' for bounded optimization
+            bounds=bounds,
+            options={'ftol': 1e-9, 'gtol': 1e-6, 'maxiter': 200}
         )
         
-        # Compute individual energy components for reporting
-        chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma_current, A_current)
-        E_spatial = self._compute_spatial_energy(Delta_x_current, A_current)
-        E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma_current)
-        E_pot_sigma = self._compute_potential_sigma(chi_scaled)
-        E_nl_sigma = self._compute_nonlinear_sigma(chi_scaled, Delta_sigma_current)
-        E_sigma = E_kin_sigma + E_pot_sigma + E_nl_sigma
-        E_coupling = self._compute_coupling_energy(chi_scaled, Delta_x_current, Delta_sigma_current, A_current, n_target)
-        E_em = self._compute_em_energy(chi_scaled)
+        # Extract optimal parameters
+        Delta_x_opt, Delta_sigma_opt, A_opt = optimization_result.x
+        converged = optimization_result.success
+        iterations = optimization_result.nit  # Number of iterations
+        
+        if self.verbose:
+            print(f"  Optimization complete:")
+            print(f"    Status: {'CONVERGED' if converged else 'FAILED'}")
+            print(f"    Iterations: {iterations}")
+            print(f"    Optimal Delta_x: {Delta_x_opt:.6f} fm")
+            print(f"    Optimal Delta_sigma: {Delta_sigma_opt:.6f}")
+            print(f"    Optimal A: {A_opt:.6f}")
+        
+        # === COMPUTE FINAL ENERGY AND COMPONENTS (single computation) ===
+        E_total, energy_components = self._compute_total_energy(
+            shape_structure, Delta_x_opt, Delta_sigma_opt, A_opt, n_target
+        )
+        
+        # Extract individual components from the returned dictionary
+        E_spatial = energy_components['E_spatial']
+        E_sigma = energy_components['E_sigma']
+        E_kin_sigma = energy_components['E_kinetic_sigma']
+        E_pot_sigma = energy_components['E_potential_sigma']
+        E_nl_sigma = energy_components['E_nonlinear_sigma']
+        E_coupling = energy_components['E_coupling']
+        E_em = energy_components['E_em']
+        E_curv = energy_components['E_curvature']
         
         if self.verbose:
             print(f"\n  Final solution:")
-            print(f"    Delta_x = {Delta_x_current:.6f} fm")
-            print(f"    Delta_sigma = {Delta_sigma_current:.6f}")
-            print(f"    A = {A_current:.6f}")
-            print(f"    E_total = {E_total:.6e}")
+            print(f"    Delta_x = {Delta_x_opt:.6f} fm")
+            print(f"    Delta_sigma = {Delta_sigma_opt:.6f}")
+            print(f"    A = {A_opt:.6f}")
+            print(f"    E_total = {E_total:.6e} GeV")
             print(f"  Energy breakdown:")
-            print(f"    E_sigma: {E_sigma:.6e}")
-            print(f"    E_spatial: {E_spatial:.6e}")
-            print(f"    E_coupling: {E_coupling:.6e}")
+            print(f"    E_sigma:    {E_sigma:.6e} GeV")
+            print(f"    E_spatial:  {E_spatial:.6e} GeV")
+            print(f"    E_coupling: {E_coupling:.6e} GeV")
+            print(f"    E_em:       {E_em:.6e} GeV")
+            print(f"    E_curv:     {E_curv:.6e} GeV (gravitational self-confinement)")
         
         # === MASS IS NOT COMPUTED HERE ===
         # Mass calculation is done externally using calculate_beta helper
         # m = beta * A^2, where beta is calibrated from electron
         mass = None
         
-        convergence_message = "Converged" if converged else f"Max iterations ({max_iter}) reached"
+        convergence_message = f"Converged (3D minimization, {method})" if converged else "Minimization failed"
         
         return EnergyMinimizationResult(
-            Delta_x=Delta_x_current,
-            Delta_sigma=Delta_sigma_current,
-            A=A_current,
+            Delta_x=Delta_x_opt,
+            Delta_sigma=Delta_sigma_opt,
+            A=A_opt,
             mass=mass,
             E_total=E_total,
             E_sigma=E_sigma,
@@ -660,8 +615,9 @@ class UniversalEnergyMinimizer:
             E_spatial=E_spatial,
             E_coupling=E_coupling,
             E_em=E_em,
+            E_curvature=E_curv,
             converged=converged,
-            iterations=final_iter + 1,
+            iterations=iterations,
             optimization_message=convergence_message,
             particle_type=particle_type,
             n_target=n_target,
@@ -846,18 +802,21 @@ class UniversalEnergyMinimizer:
         """
         Compute spatial confinement energy.
         
-        E_x = 1/(2·A²·Δx²)
+        From Math Formulation Part A, line 304:
+            E_spatial = ℏ²/(2β A² Δx²)
         
-        Quantum confinement energy scales inversely with the square of both
-        amplitude and spatial extent. Larger amplitudes in smaller regions
-        have higher confinement energy.
+        Substituting β = G_5D × c, in natural units (ℏ = c = 1):
+            E_spatial = 1/(2 G_5D A² Δx²)  [GeV]
+        
+        Quantum confinement energy scales inversely with G_5D, amplitude squared,
+        and spatial extent squared. Larger G_5D means weaker confinement energy.
         
         Args:
             Delta_x: Spatial extent in fm
             A: Amplitude (dimensionless)
             
         Returns:
-            Spatial energy contribution (natural energy units)
+            Spatial energy contribution (GeV)
             
         Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
@@ -867,7 +826,8 @@ class UniversalEnergyMinimizer:
         # Convert Delta_x from fm to GeV^-1 (natural units)
         Delta_x_nat = Delta_x / HBAR_C_GEV_FM
         
-        E_x = 1.0 / (2.0 * A**2 * Delta_x_nat**2)
+        # E_spatial = 1/(2 G_5D A² Δx²) with G_5D in [GeV^-2], giving result in [GeV]
+        E_x = 1.0 / (2.0 * self.G_5D * A**2 * Delta_x_nat**2)
         
         return E_x
     
@@ -875,7 +835,12 @@ class UniversalEnergyMinimizer:
         """
         Compute gravitational self-confinement energy.
         
-        E_curv = g_internal × A⁴/Δx
+        From Math Formulation Part A, line 305:
+            E_curv = G_5D β² A⁴/Δx
+        
+        Substituting β = G_5D × c, in natural units (c = 1):
+            E_curv = G_5D³ c² A⁴/Δx
+            E_curv = G_5D³ A⁴/Δx  [GeV]
         
         The field's own energy-density creates spacetime curvature that
         confines it. Stronger fields (larger A) in smaller regions create
@@ -887,14 +852,15 @@ class UniversalEnergyMinimizer:
             A: Amplitude (dimensionless)
             
         Returns:
-            Gravitational self-energy contribution (natural energy units)
+            Gravitational self-energy contribution (GeV)
             
         Note: Delta_x is converted from fm to GeV^-1 for calculation
         """
         # Convert Delta_x from fm to GeV^-1 (natural units)
         Delta_x_nat = Delta_x / HBAR_C_GEV_FM
         
-        E_curv = self.g_internal * A**4 / Delta_x_nat
+        # E_curv = G_5D³ A⁴/Δx with G_5D in [GeV^-2], giving result in [GeV]
+        E_curv = (self.G_5D ** 3) * A**4 / Delta_x_nat
         
         return E_curv
     
@@ -937,23 +903,20 @@ class UniversalEnergyMinimizer:
         Delta_sigma: float,
         A: float,
         n_target: int
-    ) -> float:
+    ) -> Tuple[float, Dict[str, float]]:
         """
-        Compute total energy from all field contributions.
+        Compute total energy and all components from field contributions.
         
         The energy functional determines optimal scale parameters purely from
         field dynamics and energy balance. The amplitude A that minimizes this
         energy is the natural field strength for this configuration.
         
         Energy components:
-        - E_x = 1/(2·A²·Δx²)  [spatial quantum confinement]
+        - E_spatial = 1/(2·G_5D·A²·Δx²)  [spatial quantum confinement]
         - E_sigma = kinetic + potential + nonlinear  [subspace field energy]
         - E_coupling = -alpha × spatial_factor(n,Δx) × subspace_factor × A  [GENERATION-DEPENDENT!]
         - E_em = g2·|J|²  [electromagnetic circulation]
-        
-        NOTE: Gravitational self-confinement is enforced via the CONSTRAINT
-        Delta_x = 1/(g_internal × A⁶)^(1/3), not as an energy term.
-        This matches the legacy solver architecture.
+        - E_curvature = G_5D³ × A⁴/Δx  [gravitational self-confinement]
         
         The minimum of this functional gives the stable field configuration.
         This is pure first-principles physics - no external scales required.
@@ -970,13 +933,14 @@ class UniversalEnergyMinimizer:
             n_target: Generation quantum number (1=e, 2=mu, 3=tau) - CREATES HIERARCHY!
             
         Returns:
-            Total energy in natural units
+            Tuple of (E_total, energy_components_dict)
+            where energy_components_dict contains all individual energy terms
         """
         # Scale wavefunctions
         chi_scaled = self._scale_wavefunctions(shape_structure, Delta_sigma, A)
         
         # Compute energy components from field configuration
-        E_x = self._compute_spatial_energy(Delta_x, A)
+        E_spatial = self._compute_spatial_energy(Delta_x, A)
         
         # Subspace energy components
         E_kin_sigma = self._compute_kinetic_sigma(chi_scaled, Delta_sigma)
@@ -990,10 +954,25 @@ class UniversalEnergyMinimizer:
         # Electromagnetic circulation energy
         E_em = self._compute_em_energy(chi_scaled)
         
-        # Total energy (gravitational confinement enforced via constraint, not energy term)
-        E_total = E_x + E_sigma + E_coupling + E_em
+        # Gravitational self-confinement energy (CRITICAL: prevents infinite delocalization!)
+        E_curvature = self._compute_curvature_energy(Delta_x, A)
         
-        return E_total
+        # Total energy
+        E_total = E_spatial + E_sigma + E_coupling + E_em + E_curvature
+        
+        # Package components into dictionary
+        energy_components = {
+            'E_spatial': E_spatial,
+            'E_sigma': E_sigma,
+            'E_kinetic_sigma': E_kin_sigma,
+            'E_potential_sigma': E_pot_sigma,
+            'E_nonlinear_sigma': E_nl_sigma,
+            'E_coupling': E_coupling,
+            'E_em': E_em,
+            'E_curvature': E_curvature
+        }
+        
+        return E_total, energy_components
     
     def _build_derivative_operator(self, N: int) -> NDArray:
         """
