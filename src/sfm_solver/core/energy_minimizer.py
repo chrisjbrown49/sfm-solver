@@ -431,9 +431,9 @@ class UniversalEnergyMinimizer:
             MAX_A = 100.0  # Maximum reasonable amplitude
         
         MIN_DELTA_X = 0.001   # fm - minimum localization
-        MAX_DELTA_X = 1000.0  # fm - maximum spread
+        MAX_DELTA_X = 1000.0  # fm - maximum spatial extent
         MIN_DELTA_SIGMA = 0.1  # Minimum subspace width
-        MAX_DELTA_SIGMA = 20.0  # Maximum subspace width
+        MAX_DELTA_SIGMA = 20.0  # Allow optimizer to find natural subspace confinement
         
         # Ensure initial guess is within bounds
         A_initial = max(MIN_A, min(MAX_A, A_initial))

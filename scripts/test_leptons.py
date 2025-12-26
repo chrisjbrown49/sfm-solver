@@ -53,16 +53,16 @@ def check_bounds_status(Delta_x, Delta_sigma):
     dx_status = "OK"
     ds_status = "OK"
     
-    # Check Delta_x
-    if abs(Delta_x - MIN_DELTA_X) < 0.001:
+    # Check Delta_x (use relative tolerance of 1% for large bounds)
+    if abs(Delta_x - MIN_DELTA_X) / max(MIN_DELTA_X, 0.001) < 0.01:
         dx_status = "MIN"
-    elif abs(Delta_x - MAX_DELTA_X) < 1.0:
+    elif abs(Delta_x - MAX_DELTA_X) / MAX_DELTA_X < 0.01:
         dx_status = "MAX"
     
-    # Check Delta_sigma
-    if abs(Delta_sigma - MIN_DELTA_SIGMA) < 0.01:
+    # Check Delta_sigma (use relative tolerance of 1% for large bounds)
+    if abs(Delta_sigma - MIN_DELTA_SIGMA) / MIN_DELTA_SIGMA < 0.01:
         ds_status = "MIN"
-    elif abs(Delta_sigma - MAX_DELTA_SIGMA) < 0.01:
+    elif abs(Delta_sigma - MAX_DELTA_SIGMA) / MAX_DELTA_SIGMA < 0.01:
         ds_status = "MAX"
     
     any_at_bound = (dx_status != "OK") or (ds_status != "OK")
