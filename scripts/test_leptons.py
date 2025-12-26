@@ -6,17 +6,72 @@ Tests the new two-stage solver architecture on all leptons:
 - Validation: electron neutrino, muon neutrino, tau neutrino
 
 Reports masses, amplitudes, scale parameters, convergence metrics,
-and compares to experimental values.
+bounds status, energy components, and compares to experimental values.
+
+All output is saved to a timestamped log file in the logs folder.
 """
 
 import numpy as np
 import time
+import sys
+from datetime import datetime
+from pathlib import Path
 from tabulate import tabulate
 
 from sfm_solver.core.unified_solver import UnifiedSFMSolver
 from sfm_solver.core.particle_configurations import (
     CALIBRATION_LEPTONS,
 )
+
+# Bounds for scale parameters (must match energy_minimizer.py)
+MIN_DELTA_X = 0.001
+MAX_DELTA_X = 1000.0
+MIN_DELTA_SIGMA = 0.1
+MAX_DELTA_SIGMA = 20.0
+
+class LogWriter:
+    """Writes output to both console and log file."""
+    def __init__(self, log_path):
+        self.terminal = sys.stdout
+        self.log = open(log_path, 'w', encoding='utf-8')
+    
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()  # Ensure immediate write
+    
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+    
+    def close(self):
+        self.log.close()
+
+
+def check_bounds_status(Delta_x, Delta_sigma):
+    """Check if scale parameters hit bounds."""
+    dx_status = "OK"
+    ds_status = "OK"
+    
+    # Check Delta_x
+    if abs(Delta_x - MIN_DELTA_X) < 0.001:
+        dx_status = "MIN"
+    elif abs(Delta_x - MAX_DELTA_X) < 1.0:
+        dx_status = "MAX"
+    
+    # Check Delta_sigma
+    if abs(Delta_sigma - MIN_DELTA_SIGMA) < 0.01:
+        ds_status = "MIN"
+    elif abs(Delta_sigma - MAX_DELTA_SIGMA) < 0.01:
+        ds_status = "MAX"
+    
+    any_at_bound = (dx_status != "OK") or (ds_status != "OK")
+    
+    return {
+        'dx_status': dx_status,
+        'ds_status': ds_status,
+        'any_at_bound': any_at_bound
+    }
 
 
 def test_lepton(solver, lepton_config, G_5D, verbose=False):
@@ -69,6 +124,9 @@ def test_lepton(solver, lepton_config, G_5D, verbose=False):
         else:
             error_percent = None  # Cannot compute error for zero mass
         
+        # Check bounds status
+        bounds = check_bounds_status(result.Delta_x, result.Delta_sigma)
+        
         return {
             'name': lepton_config.name,
             'generation': lepton_config.generation,
@@ -91,6 +149,7 @@ def test_lepton(solver, lepton_config, G_5D, verbose=False):
             'time_seconds': elapsed_time,
             'E_total': result.E_total,
             'energy_components': result.energy_components,
+            'bounds_status': bounds,
             'error': None
         }
     except Exception as e:
@@ -184,12 +243,74 @@ def print_convergence_report(results):
         print(f"    Delta_x:         {r['Delta_x_fm']:.6f} fm")
         print(f"    Delta_sigma:     {r['Delta_sigma']:.6f}")
         
+        # Bounds status
+        if r.get('bounds_status'):
+            bounds = r['bounds_status']
+            dx_indicator = " (AT BOUND)" if bounds['dx_status'] != "OK" else ""
+            ds_indicator = " (AT BOUND)" if bounds['ds_status'] != "OK" else ""
+            print(f"  Bounds Status:")
+            print(f"    Delta_x:         {bounds['dx_status']}{dx_indicator}")
+            print(f"    Delta_sigma:     {bounds['ds_status']}{ds_indicator}")
+            if bounds['any_at_bound']:
+                print(f"    WARNING: One or more parameters at boundary!")
+        
         # Mass prediction
         print(f"  Mass Prediction:")
         print(f"    Predicted:       {r['mass_predicted_MeV']:.6f} MeV")
         print(f"    Experimental:    {r['mass_experimental_MeV']:.6f} MeV")
         if r['error_percent'] is not None:
             print(f"    Error:           {r['error_percent']:.2f}%")
+        
+        # Energy components breakdown
+        if r.get('energy_components'):
+            comp = r['energy_components']
+            E_total = r['E_total']
+            print(f"  Energy Components (MeV):")
+            print(f"    {'Component':<20} {'Value (MeV)':>15} {'% of |Total|':>12}")
+            print(f"    {'-'*20} {'-'*15} {'-'*12}")
+            
+            abs_total = abs(E_total * 1000) if E_total != 0 else 1.0  # Convert GeV to MeV
+            
+            # Spatial
+            E_spatial = comp.get('E_spatial', 0) * 1000
+            print(f"    {'E_spatial':<20} {E_spatial:>15.3f} {100*abs(E_spatial)/abs_total:>11.1f}%")
+            
+            # Subspace (total and components)
+            E_sigma = comp.get('E_sigma', 0) * 1000
+            E_sigma_kin = comp.get('E_kinetic_sigma', 0) * 1000
+            E_sigma_pot = comp.get('E_potential_sigma', 0) * 1000
+            E_sigma_nl = comp.get('E_nonlinear_sigma', 0) * 1000
+            print(f"    {'E_sigma (total)':<20} {E_sigma:>15.3f} {100*abs(E_sigma)/abs_total:>11.1f}%")
+            print(f"      {'E_kinetic_sigma':<18} {E_sigma_kin:>15.3f} {100*abs(E_sigma_kin)/abs_total:>11.1f}%")
+            print(f"      {'E_potential_sigma':<18} {E_sigma_pot:>15.3f} {100*abs(E_sigma_pot)/abs_total:>11.1f}%")
+            print(f"      {'E_nonlinear_sigma':<18} {E_sigma_nl:>15.3f} {100*abs(E_sigma_nl)/abs_total:>11.1f}%")
+            
+            # Coupling
+            E_coupling = comp.get('E_coupling', 0) * 1000
+            print(f"    {'E_coupling':<20} {E_coupling:>15.3f} {100*abs(E_coupling)/abs_total:>11.1f}%")
+            
+            # EM
+            E_em = comp.get('E_em', 0) * 1000
+            print(f"    {'E_em':<20} {E_em:>15.3f} {100*abs(E_em)/abs_total:>11.1f}%")
+            
+            # Spin-orbit
+            E_spin_orbit = comp.get('E_spin_orbit', 0) * 1000
+            print(f"    {'E_spin_orbit':<20} {E_spin_orbit:>15.3f} {100*abs(E_spin_orbit)/abs_total:>11.1f}%")
+            
+            # Curvature
+            E_curvature = comp.get('E_curvature', 0) * 1000
+            print(f"    {'E_curvature':<20} {E_curvature:>15.3f} {100*abs(E_curvature)/abs_total:>11.1f}%")
+            
+            # Total
+            E_total_mev = E_total * 1000
+            print(f"    {'-'*20} {'-'*15} {'-'*12}")
+            print(f"    {'E_total':<20} {E_total_mev:>15.3f} {'100.0%':>12}")
+            
+            # Verify subspace components sum to total
+            E_sigma_sum = E_sigma_kin + E_sigma_pot + E_sigma_nl
+            if abs(E_sigma - E_sigma_sum) > 0.001:
+                print(f"    WARNING: E_sigma components don't sum correctly!")
+                print(f"             E_sigma = {E_sigma:.3f}, sum of components = {E_sigma_sum:.3f}")
         
         # Show convergence evolution (last 10 iterations)
         if r.get('scale_history') and len(r['scale_history']['A']) > 1:
@@ -309,77 +430,119 @@ def print_lepton_results(results, title):
 
 
 def main():
-    print("="*80)
-    print("LEPTON SOLVER TEST")
-    print("="*80)
-    print("\nTwo-Stage Architecture:")
-    print("  Stage 1: Dimensionless shape solver")
-    print("  Stage 2: Energy minimization over scales")
-    print("\nLoading constants from constants.json...")
+    # Set up log file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path(__file__).parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_path = log_dir / f"leptons_log_{timestamp}.txt"
     
-    # Create solver
-    print("\nCreating solver...")
-    print("  All parameters loaded from constants.json")
+    # Redirect output to both console and log file
+    log_writer = LogWriter(log_path)
+    sys.stdout = log_writer
     
-    solver = UnifiedSFMSolver(
-        n_max=5,
-        l_max=2,
-        N_sigma=64,
-        verbose=False
-    )
+    try:
+        print("="*80)
+        print("LEPTON SOLVER TEST")
+        print("="*80)
+        print(f"\nLog file: {log_path}")
+        print(f"Timestamp: {timestamp}")
+        print("\nTwo-Stage Architecture:")
+        print("  Stage 1: Dimensionless shape solver")
+        print("  Stage 2: Energy minimization over scales")
+        print("\nLoading constants from constants.json...")
+        
+        # Create solver
+        print("\nCreating solver...")
+        print("  All parameters loaded from constants.json")
+        
+        solver = UnifiedSFMSolver(
+            n_max=5,
+            l_max=2,
+            N_sigma=64,
+            verbose=False
+        )
     
-    # Get G_5D from solver for mass calculation
-    G_5D = solver.G_5D
-    print("\n" + "="*80)
-    print("MASS CALCULATION USING THE BEAUTIFUL EQUATION")
-    print("="*80)
-    print(f"  G_5D = {G_5D:.6f} GeV^-2")
-    print("  Mass formula: m = G_5D × c × A^2")
-    print("  (In natural units: m = G_5D × A^2)")
+        # Get fundamental constants from solver
+        G_5D = solver.G_5D
+        alpha = solver.alpha
+        V0 = solver.V0
+        g1 = solver.g1
+        g2 = solver.g2
+        lambda_so = solver.lambda_so
+        
+        print("\n" + "="*80)
+        print("FUNDAMENTAL CONSTANTS")
+        print("="*80)
+        print(f"  G_5D      = {G_5D:.6f} GeV^-2   (5D gravitational constant)")
+        print(f"  alpha     = {alpha:.1f}          (Spacetime-subspace coupling)")
+        print(f"  V0        = {V0:.6f} GeV        (Subspace potential depth)")
+        print(f"  g1        = {g1:.1f}            (Nonlinear self-interaction)")
+        print(f"  g2        = {g2:.6f}           (EM circulation coupling)")
+        print(f"  lambda_so = {lambda_so:.6f}           (Spin-orbit coupling)")
+        print(f"  Generation scaling: f(n) = 1 + sqrt(2n + 3/2)  (FORWARD scaling - matches curvature)")
+        print(f"  Bounds: Delta_x in [{MIN_DELTA_X}, {MAX_DELTA_X}] fm, Delta_sigma in [{MIN_DELTA_SIGMA}, {MAX_DELTA_SIGMA}]")
+        
+        print("\n" + "="*80)
+        print("MASS CALCULATION USING THE BEAUTIFUL EQUATION")
+        print("="*80)
+        print(f"  G_5D = {G_5D:.6f} GeV^-2")
+        print("  Mass formula: m = G_5D × c × A^2")
+        print("  (In natural units: m = G_5D × A^2)")
     
-    # Test leptons
-    print("\n" + "="*80)
-    print("TESTING LEPTONS")
-    print("="*80)
-    
-    calibration_results = []
-    for lepton in CALIBRATION_LEPTONS:
-        result = test_lepton(solver, lepton, G_5D, verbose=False)
-        calibration_results.append(result)
-    
-    # Print detailed convergence report first
-    print_convergence_report(calibration_results)
-    
-    # Then print summary tables
-    print_lepton_results(calibration_results, "LEPTON RESULTS")
-    
-    # Note: Validation leptons (neutrinos) are commented out - suspected to be multi-lepton particles
-    validation_results = []
-    
-    # Summary
-    print("\n" + "="*80)
-    print("SUMMARY")
-    print("="*80)
-    
-    all_results = calibration_results + validation_results
-    converged = sum(1 for r in all_results if r['shape_converged'] and r['energy_converged'])
-    failed = sum(1 for r in all_results if r['error'] is not None)
-    total = len(all_results)
-    
-    print(f"Total particles tested: {total}")
-    print(f"Converged: {converged}")
-    print(f"Failed: {failed}")
-    print(f"Not converged: {total - converged - failed}")
-    
-    if converged == total:
-        print("\nSUCCESS: All leptons converged")
-    else:
-        print(f"\nWARNING: {total - converged} leptons did not converge")
-    
-    print("\nNote: Masses calculated using The Beautiful Equation: m = G_5D × c × A^2")
-    print(f"      Current G_5D = {G_5D:.6f} GeV^-2")
-    print("      Mass predictions depend on fundamental constants.")
-    print("      The fully coupled architecture requires proper parameter calibration.")
+        # Test leptons
+        print("\n" + "="*80)
+        print("TESTING LEPTONS")
+        print("="*80)
+        
+        calibration_results = []
+        for lepton in CALIBRATION_LEPTONS:
+            result = test_lepton(solver, lepton, G_5D, verbose=False)
+            calibration_results.append(result)
+        
+        # Print detailed convergence report first
+        print_convergence_report(calibration_results)
+        
+        # Then print summary tables
+        print_lepton_results(calibration_results, "LEPTON RESULTS")
+        
+        # Note: Validation leptons (neutrinos) are commented out - suspected to be multi-lepton particles
+        validation_results = []
+        
+        # Summary
+        print("\n" + "="*80)
+        print("SUMMARY")
+        print("="*80)
+        
+        all_results = calibration_results + validation_results
+        converged = sum(1 for r in all_results if r['shape_converged'] and r['energy_converged'])
+        failed = sum(1 for r in all_results if r['error'] is not None)
+        at_bounds = sum(1 for r in all_results if r.get('bounds_status', {}).get('any_at_bound', False))
+        total = len(all_results)
+        
+        print(f"Total particles tested: {total}")
+        print(f"Converged: {converged}")
+        print(f"Failed: {failed}")
+        print(f"Not converged: {total - converged - failed}")
+        print(f"At bounds: {at_bounds}")
+        
+        if converged == total and at_bounds == 0:
+            print("\nSUCCESS: All leptons converged with natural (non-boundary) solutions")
+        elif converged == total:
+            print(f"\nPARTIAL SUCCESS: All leptons converged, but {at_bounds} hit boundary constraints")
+        else:
+            print(f"\nWARNING: {total - converged} leptons did not converge")
+        
+        print("\nNote: Masses calculated using The Beautiful Equation: m = G_5D × c × A^2")
+        print(f"      Current G_5D = {G_5D:.6f} GeV^-2")
+        print("      Mass predictions depend on fundamental constants.")
+        print("      The fully coupled architecture requires proper parameter calibration.")
+        print(f"\nLog saved to: {log_path}")
+        
+    finally:
+        # Restore stdout and close log file
+        sys.stdout = log_writer.terminal
+        log_writer.close()
+        print(f"\nLog file saved: {log_path}")
 
 
 if __name__ == '__main__':

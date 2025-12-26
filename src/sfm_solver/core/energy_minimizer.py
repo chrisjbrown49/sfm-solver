@@ -231,7 +231,7 @@ class UniversalEnergyMinimizer:
         
         # Apply reasonable bounds
         MIN_DELTA_SIGMA = 0.1
-        MAX_DELTA_SIGMA = 2.0
+        MAX_DELTA_SIGMA = 5.0
         delta_sigma = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, delta_sigma))
         
         return delta_sigma
@@ -431,9 +431,9 @@ class UniversalEnergyMinimizer:
             MAX_A = 100.0  # Maximum reasonable amplitude
         
         MIN_DELTA_X = 0.001   # fm - minimum localization
-        MAX_DELTA_X = 1000.0  # fm - maximum spread (increased to find natural minimum)
+        MAX_DELTA_X = 1000.0  # fm - maximum spread
         MIN_DELTA_SIGMA = 0.1  # Minimum subspace width
-        MAX_DELTA_SIGMA = 2.0  # Maximum subspace width
+        MAX_DELTA_SIGMA = 20.0  # Maximum subspace width
         
         # Ensure initial guess is within bounds
         A_initial = max(MIN_A, min(MAX_A, A_initial))
@@ -461,9 +461,10 @@ class UniversalEnergyMinimizer:
             Delta_x_init = self._compute_optimal_delta_x(A)
             Delta_sigma_init = self._compute_optimal_delta_sigma(A)
             
-            # Ensure within bounds
-            Delta_x_init = max(MIN_DELTA_X, min(MAX_DELTA_X, Delta_x_init))
-            Delta_sigma_init = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, Delta_sigma_init))
+            # DON'T clip initial guess - let optimizer start from physics-based prediction
+            # The bounds will still be enforced by minimize(), but we won't artificially
+            # constrain the starting point, which was causing different local minima
+            # to be found depending on bound values
             
             x0 = np.array([Delta_x_init, Delta_sigma_init])
             bounds = [(MIN_DELTA_X, MAX_DELTA_X), (MIN_DELTA_SIGMA, MAX_DELTA_SIGMA)]

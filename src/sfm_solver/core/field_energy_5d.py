@@ -156,7 +156,7 @@ class Full5DFieldEnergy:
         E_sigma_pot = self._compute_subspace_potential_energy(Psi)
         E_sigma_nl = self._compute_nonlinear_energy(Psi)
         E_spin_orbit = self._compute_spin_orbit_energy(Psi, phi_r, chi_sigma)
-        E_coupling = self._compute_coupling_energy(Psi, phi_r, chi_sigma)
+        E_coupling = self._compute_coupling_energy(Psi, phi_r, chi_sigma, n_target)
         E_em = self._compute_em_circulation_energy(chi_sigma)
         E_curvature = self._compute_gravitational_energy(phi_r, A, Delta_x, n_target)
         
@@ -207,14 +207,17 @@ class Full5DFieldEnergy:
         """
         Compute spatial kinetic energy from -ℏ²/(2m) ∇².
         
-        For s-wave (l=0), the Laplacian in spherical coordinates:
-            ∇²ψ = (1/r²)d/dr(r²dψ/dr)
-            
-        Energy: E = -ℏ²/(2m) ∫∫ ψ* ∇²ψ 4πr² dr dσ
+        From Research Note Section 4.4, the spatial kinetic energy scales as:
+            E_x = ℏ² / (2β A²_χ (Δx)²)
         
-        Using integration by parts:
-            E = ℏ²/(2m) ∫∫ |∇ψ|² 4πr² dr dσ
-            E = ℏ²/(2m) ∫∫ |dψ/dr|² 4πr² dr dσ  (for s-wave)
+        where β = G_5D and Δx is the characteristic spatial extent.
+        
+        This formula ensures proper photon → singularity spectrum:
+        - Photon (A→0): E_spatial → ∞ (all energy in spatial motion)
+        - Singularity (A→∞): E_spatial → 0 (all energy in mass/subspace)
+        
+        We compute Δx from the spatial wavefunction spread:
+            Δx² = ∫ r² |φ(r)|² 4πr² dr
         
         Args:
             Psi: Full 5D wavefunction [N_r, N_sigma]
@@ -224,33 +227,22 @@ class Full5DFieldEnergy:
         Returns:
             E_spatial in GeV
         """
-        # Compute dφ/dr using finite differences
-        dphi_dr = np.gradient(phi_r, self.r_grid)
+        # Compute characteristic spatial extent Δx from wavefunction
+        # Δx² = ∫ r² |φ|² 4πr² dr = ∫ r² |φ|² d³x
+        r_squared_expectation = 4 * np.pi * np.trapezoid(
+            self.r_grid**2 * phi_r**2 * self.r_grid**2,
+            self.r_grid
+        )
+        Delta_x_fm = np.sqrt(r_squared_expectation)
         
-        # For separable wavefunction Ψ = φ(r)χ(σ):
-        # |∇Ψ|² = |dφ/dr|² |χ|²
-        # E = ℏ²/(2m) ∫ |dφ/dr|² 4πr² dr × ∫ |χ|² dσ
+        # Convert to natural units
+        Delta_x_nat = Delta_x_fm / HBAR_C_GEV_FM  # GeV⁻¹
         
-        # Spatial integral: ∫ |dφ/dr|² 4πr² dr (units: 1/fm²)
-        spatial_integral = 4 * np.pi * np.trapezoid(dphi_dr**2 * self.r_grid**2, self.r_grid)
+        # Apply formula from Research Note Section 4.4:
+        # E_x = ℏ² / (2β A² (Δx)²)
+        # In natural units (ℏ=1): E_x = 1 / (2 G_5D A² (Δx)²)
         
-        # Subspace integral: ∫ |χ|² dσ = A²
-        # (chi is already properly normalized)
-        subspace_norm = A**2  # Should equal ∫|χ|²dσ
-        
-        # Convert to natural units: fm → GeV⁻¹
-        spatial_integral_nat = spatial_integral / (HBAR_C_GEV_FM**2)  # GeV²
-        
-        # E = ℏ²/(2m) × spatial_integral × ∫|χ|² dσ
-        # E = ℏ²/(2m) × spatial_integral × A²
-        # 
-        # Using m = G_5D × A² (from Section 2.1: m = β × A², β = G_5D × c, c=1):
-        # E = ℏ² × spatial_integral × A² / (2 × G_5D × A²)
-        # E = ℏ² × spatial_integral / (2 × G_5D)
-        # 
-        # The A² cancels! E_spatial is independent of A (confinement comes from Δx dependence).
-        
-        E_spatial = 0.5 * spatial_integral_nat / self.G_5D
+        E_spatial = 1.0 / (2.0 * self.G_5D * A**2 * Delta_x_nat**2)
         
         return E_spatial
     
@@ -466,10 +458,11 @@ class Full5DFieldEnergy:
         self,
         Psi: NDArray,
         phi_r: NDArray,
-        chi_sigma: NDArray
+        chi_sigma: NDArray,
+        n_target: int
     ) -> float:
         """
-        Compute spatial-subspace coupling energy [CRITICAL FIX].
+        Compute spatial-subspace coupling energy with generation-dependent scaling.
         
         Hamiltonian: H_coupling = -α (∂²/∂x∂σ + ∂²/∂y∂σ + ∂²/∂z∂σ)
         
@@ -478,16 +471,34 @@ class Full5DFieldEnergy:
         Using integration by parts:
             E = α ∫∫ (∂ψ*/∂r)(∂ψ/∂σ) 4πr² dr dσ
         
+        With generation-dependent gradient scaling:
+            E_coupling = -α · f(n) · integral
+            where f(n) = 1 + √(2n + 3/2)
+        
+        This provides FORWARD generation dependence with offset, matching the
+        curvature energy scaling. Higher generation particles have more complex
+        nodal structure which creates naturally stronger spatial gradients and
+        thus stronger spatial-subspace coupling.
+        
+        This is theoretically consistent with the curvature generation factor:
+            E_curvature ~ [1 + γ√(2n + 3/2)]
+        
         Take REAL part of result.
         
         Args:
             Psi: Full 5D wavefunction [N_r, N_sigma]
             phi_r: Radial wavefunction [N_r]
             chi_sigma: Subspace wavefunction [N_sigma]
+            n_target: Generation number (1, 2, 3)
             
         Returns:
             E_coupling in GeV
         """
+        # Generation-dependent scaling factor matching curvature energy
+        # f(n) = 1 + √(2n + 3/2) - higher n has stronger coupling
+        # n=1: 2.87, n=2: 3.35, n=3: 3.74
+        f_n = 1.0 + np.sqrt(2 * n_target + 1.5)
+        
         # Compute dφ/dr
         dphi_dr = np.gradient(phi_r, self.r_grid)
         
@@ -505,14 +516,15 @@ class Full5DFieldEnergy:
         # (∂Ψ*/∂r)(∂Ψ/∂σ)
         integrand = np.conj(dPsi_dr) * dPsi_dsigma
         
-        # Integrate: α ∫∫ (∂Ψ*/∂r)(∂Ψ/∂σ) 4πr² dr dσ
+        # Integrate: ∫∫ (∂Ψ*/∂r)(∂Ψ/∂σ) 4πr² dr dσ
         integral = 4 * np.pi * np.trapezoid(
             np.trapezoid(integrand * self.r_grid[:, np.newaxis]**2, dx=self.dr, axis=0),
             dx=self.dsigma
         )
         
-        # Take real part (energy must be real)
-        E_coupling = self.alpha * np.real(integral)
+        # Apply generation-dependent scaling
+        # E_coupling = α · f(n) · integral
+        E_coupling = self.alpha * f_n * np.real(integral)
         
         # Convert from fm² to natural units
         E_coupling = E_coupling / (HBAR_C_GEV_FM**2)  # GeV
