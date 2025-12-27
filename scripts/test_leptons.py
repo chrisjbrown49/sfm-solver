@@ -25,9 +25,8 @@ from sfm_solver.core.particle_configurations import (
 
 # Bounds for scale parameters (must match energy_minimizer.py)
 MIN_DELTA_X = 0.001
-MAX_DELTA_X = 1000.0
-MIN_DELTA_SIGMA = 0.1
-MAX_DELTA_SIGMA = 20.0
+MAX_DELTA_X = 100000.0  # Widened to allow escape from local minima
+# Delta_sigma is no longer optimized - it's fixed from Stage 1
 
 class LogWriter:
     """Writes output to both console and log file."""
@@ -48,10 +47,9 @@ class LogWriter:
         self.log.close()
 
 
-def check_bounds_status(Delta_x, Delta_sigma):
-    """Check if scale parameters hit bounds."""
+def check_bounds_status(Delta_x):
+    """Check if Delta_x hit bounds. Delta_sigma is FIXED from Stage 1."""
     dx_status = "OK"
-    ds_status = "OK"
     
     # Check Delta_x (use relative tolerance of 1% for large bounds)
     if abs(Delta_x - MIN_DELTA_X) / max(MIN_DELTA_X, 0.001) < 0.01:
@@ -59,17 +57,10 @@ def check_bounds_status(Delta_x, Delta_sigma):
     elif abs(Delta_x - MAX_DELTA_X) / MAX_DELTA_X < 0.01:
         dx_status = "MAX"
     
-    # Check Delta_sigma (use relative tolerance of 1% for large bounds)
-    if abs(Delta_sigma - MIN_DELTA_SIGMA) / MIN_DELTA_SIGMA < 0.01:
-        ds_status = "MIN"
-    elif abs(Delta_sigma - MAX_DELTA_SIGMA) / MAX_DELTA_SIGMA < 0.01:
-        ds_status = "MAX"
-    
-    any_at_bound = (dx_status != "OK") or (ds_status != "OK")
+    any_at_bound = (dx_status != "OK")
     
     return {
         'dx_status': dx_status,
-        'ds_status': ds_status,
         'any_at_bound': any_at_bound
     }
 
@@ -125,7 +116,7 @@ def test_lepton(solver, lepton_config, G_5D, verbose=False):
             error_percent = None  # Cannot compute error for zero mass
         
         # Check bounds status
-        bounds = check_bounds_status(result.Delta_x, result.Delta_sigma)
+        bounds = check_bounds_status(result.Delta_x)
         
         return {
             'name': lepton_config.name,
@@ -239,20 +230,19 @@ def print_convergence_report(results):
         
         # Final scale parameters
         print(f"  Final Scale Parameters:")
-        print(f"    A (amplitude):   {r['amplitude']:.6f}")
-        print(f"    Delta_x:         {r['Delta_x_fm']:.6f} fm")
-        print(f"    Delta_sigma:     {r['Delta_sigma']:.6f}")
+        print(f"    A (amplitude):   {r['amplitude']:.6f} [optimized]")
+        print(f"    Delta_x:         {r['Delta_x_fm']:.6f} fm [optimized]")
+        print(f"    Delta_sigma:     {r['Delta_sigma']:.6f} [fixed from Stage 1]")
         
         # Bounds status
         if r.get('bounds_status'):
             bounds = r['bounds_status']
             dx_indicator = " (AT BOUND)" if bounds['dx_status'] != "OK" else ""
-            ds_indicator = " (AT BOUND)" if bounds['ds_status'] != "OK" else ""
             print(f"  Bounds Status:")
             print(f"    Delta_x:         {bounds['dx_status']}{dx_indicator}")
-            print(f"    Delta_sigma:     {bounds['ds_status']}{ds_indicator}")
+            print(f"    Delta_sigma:     N/A (fixed from Stage 1)")
             if bounds['any_at_bound']:
-                print(f"    WARNING: One or more parameters at boundary!")
+                print(f"    WARNING: Delta_x at boundary!")
         
         # Mass prediction
         print(f"  Mass Prediction:")
@@ -318,14 +308,15 @@ def print_convergence_report(results):
             n_show = min(10, len(r['scale_history']['A']))
             start_idx = max(0, len(r['scale_history']['A']) - n_show)
             
-            print(f"    {'Iter':<6} {'A':>12} {'Delta_x (fm)':>14} {'Delta_sigma':>14}")
-            print(f"    {'-'*6} {'-'*12} {'-'*14} {'-'*14}")
+            # Delta_sigma is FIXED from Stage 1, not in scale_history
+            print(f"    {'Iter':<6} {'A':>12} {'Delta_x (fm)':>14}")
+            print(f"    {'-'*6} {'-'*12} {'-'*14}")
             for i in range(start_idx, len(r['scale_history']['A'])):
                 iter_num = r['scale_history']['iteration'][i]
                 A = r['scale_history']['A'][i]
                 Dx = r['scale_history']['Delta_x'][i]
-                Ds = r['scale_history']['Delta_sigma'][i]
-                print(f"    {iter_num:<6} {A:12.6f} {Dx:14.6f} {Ds:14.6f}")
+                print(f"    {iter_num:<6} {A:12.6f} {Dx:14.6f}")
+            print(f"    (Delta_sigma = {r['Delta_sigma']:.6f}, FIXED from Stage 1)")
             
             # Show convergence rate if available
             if len(r['scale_history']['A']) >= 2:
@@ -479,8 +470,9 @@ def main():
         print(f"  g1        = {g1:.1f}            (Nonlinear self-interaction)")
         print(f"  g2        = {g2:.6f}           (EM circulation coupling)")
         print(f"  lambda_so = {lambda_so:.6f}           (Spin-orbit coupling)")
-        print(f"  Generation scaling: f(n) = 1 + sqrt(2n + 3/2)  (FORWARD scaling - matches curvature)")
-        print(f"  Bounds: Delta_x in [{MIN_DELTA_X}, {MAX_DELTA_X}] fm, Delta_sigma in [{MIN_DELTA_SIGMA}, {MAX_DELTA_SIGMA}]")
+        print(f"  Generation scaling: f(n) = n^2  (QUADRATIC scaling with POSITIVE coupling cost)")
+        print(f"  Bounds: Delta_x in [{MIN_DELTA_X}, {MAX_DELTA_X}] fm")
+        print(f"          Delta_sigma FIXED from Stage 1 natural width")
         
         print("\n" + "="*80)
         print("MASS CALCULATION USING THE BEAUTIFUL EQUATION")

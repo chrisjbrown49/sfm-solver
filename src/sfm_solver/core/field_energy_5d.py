@@ -494,10 +494,14 @@ class Full5DFieldEnergy:
         Returns:
             E_coupling in GeV
         """
-        # Generation-dependent scaling factor matching curvature energy
-        # f(n) = 1 + √(2n + 3/2) - higher n has stronger coupling
-        # n=1: 2.87, n=2: 3.35, n=3: 3.74
-        f_n = 1.0 + np.sqrt(2 * n_target + 1.5)
+        # Generation-dependent scaling factor with QUADRATIC scaling
+        # f(n) = n² - higher n has HIGHER coupling cost
+        # Physical interpretation: Coupling represents ENERGY COST of non-separability.
+        # Higher spatial modes with more nodes have reduced coherence (phase averaging),
+        # leading to higher energy penalty that drives system to larger amplitudes.
+        # Quadratic scaling provides very strong generation dependence.
+        # n=1: 1, n=2: 4, n=3: 9
+        f_n = float(n_target ** 2)
         
         # Compute dφ/dr
         dphi_dr = np.gradient(phi_r, self.r_grid)
@@ -523,7 +527,9 @@ class Full5DFieldEnergy:
         )
         
         # Apply generation-dependent scaling
-        # E_coupling = α · f(n) · integral
+        # Coupling is an ENERGY COST --> positive
+        # Represents the energy penalty for non-separability between spatial and
+        # subspace structures. Higher generation → higher cost → larger amplitude needed.
         E_coupling = self.alpha * f_n * np.real(integral)
         
         # Convert from fm² to natural units

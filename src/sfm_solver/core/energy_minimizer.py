@@ -209,45 +209,20 @@ class UniversalEnergyMinimizer:
         
         return delta_x
     
-    def _compute_optimal_delta_sigma(self, A: float) -> float:
-        """
-        Compute initial guess for Delta_sigma from energy balance.
-        
-        This is a simplified heuristic for the outer loop initial guess.
-        The actual optimal value will be found by the energy minimizer.
-        
-        Args:
-            A: Current amplitude estimate
-            
-        Returns:
-            Initial guess for Delta_sigma
-        """
-        if self.g1 <= 0 or A < 1e-10:
-            return 1.0  # Default fallback
-        
-        # Heuristic: Delta_sigma ~ 1/(g1 * A^4)^(1/3)
-        A_fourth = A ** 4
-        delta_sigma = (2.0 / (self.g1 * A_fourth)) ** (1.0/3.0)
-        
-        # Apply reasonable bounds
-        MIN_DELTA_SIGMA = 0.1
-        MAX_DELTA_SIGMA = 5.0
-        delta_sigma = max(MIN_DELTA_SIGMA, min(MAX_DELTA_SIGMA, delta_sigma))
-        
-        return delta_sigma
-    
     def minimize_baryon_energy(
         self,
         chi_normalized: NDArray,
-        initial_guess: Optional[Tuple[float, float, float]] = None,
+        Delta_sigma_fixed: float,
+        initial_guess: Optional[Tuple[float, float]] = None,
         method: str = 'Nelder-Mead'
     ) -> EnergyMinimizationResult:
         """
-        Find optimal (Delta_x, Delta_sigma, A) for baryon.
+        Find optimal (Delta_x, A) for baryon with FIXED Delta_sigma from Stage 1.
         
         Args:
             chi_normalized: Normalized subspace shape from Stage 1
-            initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
+            Delta_sigma_fixed: Fixed natural width from Stage 1 shape solver
+            initial_guess: (Delta_x_0, A_0) or None for automatic
             method: Optimization method
             
         Returns:
@@ -255,21 +230,21 @@ class UniversalEnergyMinimizer:
         """
         if self.verbose:
             print("\n=== Minimizing Baryon Energy ===")
+            print(f"  Delta_sigma FIXED from Stage 1: {Delta_sigma_fixed:.4f}")
         
         # Auto-generate initial guess if not provided
         if initial_guess is None:
             A_0 = 60.0  # Typical baryon amplitude
             Delta_x_0 = 1.0  # fm (typical hadronic scale)
-            Delta_sigma_0 = 0.5
-            initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
+            initial_guess = (Delta_x_0, A_0)
         
         if self.verbose:
-            print(f"  Initial guess: Delta_x={initial_guess[0]:.3f} fm, "
-                  f"Delta_sigma={initial_guess[1]:.3f}, A={initial_guess[2]:.3f}")
+            print(f"  Initial guess: Delta_x={initial_guess[0]:.3f} fm, A={initial_guess[1]:.3f}")
         
         # Minimize
         result = self._minimize_energy(
             chi_normalized=chi_normalized,
+            Delta_sigma_fixed=Delta_sigma_fixed,
             initial_guess=initial_guess,
             method=method,
             particle_type='baryon'
@@ -281,16 +256,18 @@ class UniversalEnergyMinimizer:
         self,
         chi_normalized: NDArray,
         generation_n: int,
-        initial_guess: Optional[Tuple[float, float, float]] = None,
+        Delta_sigma_fixed: float,
+        initial_guess: Optional[Tuple[float, float]] = None,
         method: str = 'Nelder-Mead'
     ) -> EnergyMinimizationResult:
         """
-        Find optimal (Delta_x, Delta_sigma, A) for lepton.
+        Find optimal (Delta_x, A) for lepton with FIXED Delta_sigma from Stage 1.
         
         Args:
             chi_normalized: Normalized subspace shape from Stage 1
             generation_n: Generation number (1, 2, 3)
-            initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
+            Delta_sigma_fixed: Fixed natural width from Stage 1 shape solver
+            initial_guess: (Delta_x_0, A_0) or None for automatic
             method: Optimization method
             
         Returns:
@@ -298,6 +275,7 @@ class UniversalEnergyMinimizer:
         """
         if self.verbose:
             print(f"\n=== Minimizing Lepton Energy (n={generation_n}) ===")
+            print(f"  Delta_sigma FIXED from Stage 1: {Delta_sigma_fixed:.4f}")
         
         # Generation-dependent initial guesses (from expected mass hierarchy)
         # Legacy uses: n=1 → A=0.9, n=2 → A=12.0, n=3 → A=50.0
@@ -313,16 +291,15 @@ class UniversalEnergyMinimizer:
         # Auto-generate initial guess based on generation
         if initial_guess is None:
             Delta_x_0 = 10.0  # fm (typical atomic scale)
-            Delta_sigma_0 = 1.0
-            initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
+            initial_guess = (Delta_x_0, A_0)
         
         if self.verbose:
-            print(f"  Initial guess: Delta_x={initial_guess[0]:.3f} fm, "
-                  f"Delta_sigma={initial_guess[1]:.3f}, A={initial_guess[2]:.3f}")
+            print(f"  Initial guess: Delta_x={initial_guess[0]:.3f} fm, A={initial_guess[1]:.3f}")
         
         # Minimize
         result = self._minimize_energy(
             chi_normalized=chi_normalized,
+            Delta_sigma_fixed=Delta_sigma_fixed,
             initial_guess=initial_guess,
             method=method,
             particle_type='lepton',
@@ -334,15 +311,17 @@ class UniversalEnergyMinimizer:
     def minimize_meson_energy(
         self,
         chi_normalized: NDArray,
-        initial_guess: Optional[Tuple[float, float, float]] = None,
+        Delta_sigma_fixed: float,
+        initial_guess: Optional[Tuple[float, float]] = None,
         method: str = 'Nelder-Mead'
     ) -> EnergyMinimizationResult:
         """
-        Find optimal (Delta_x, Delta_sigma, A) for meson.
+        Find optimal (Delta_x, A) for meson with FIXED Delta_sigma from Stage 1.
         
         Args:
             chi_normalized: Normalized subspace shape from Stage 1
-            initial_guess: (Delta_x_0, Delta_sigma_0, A_0) or None for automatic
+            Delta_sigma_fixed: Fixed natural width from Stage 1 shape solver
+            initial_guess: (Delta_x_0, A_0) or None for automatic
             method: Optimization method
             
         Returns:
@@ -350,17 +329,18 @@ class UniversalEnergyMinimizer:
         """
         if self.verbose:
             print("\n=== Minimizing Meson Energy ===")
+            print(f"  Delta_sigma FIXED from Stage 1: {Delta_sigma_fixed:.4f}")
         
         # Auto-generate initial guess
         if initial_guess is None:
             A_0 = 40.0  # Typical meson amplitude (between lepton and baryon)
             Delta_x_0 = 1.0  # fm (typical hadronic scale)
-            Delta_sigma_0 = 0.5
-            initial_guess = (Delta_x_0, Delta_sigma_0, A_0)
+            initial_guess = (Delta_x_0, A_0)
         
         # Minimize
         result = self._minimize_energy(
             chi_normalized=chi_normalized,
+            Delta_sigma_fixed=Delta_sigma_fixed,
             initial_guess=initial_guess,
             method=method,
             particle_type='meson'
@@ -371,7 +351,8 @@ class UniversalEnergyMinimizer:
     def _minimize_energy(
         self,
         chi_normalized: NDArray,
-        initial_guess: Tuple[float, float, float],
+        Delta_sigma_fixed: float,
+        initial_guess: Tuple[float, float],
         method: str,
         particle_type: str,
         n_target: Optional[int] = None,
@@ -379,19 +360,19 @@ class UniversalEnergyMinimizer:
         A_bounds: Optional[Tuple[float, float]] = None
     ) -> EnergyMinimizationResult:
         """
-        Minimize energy using NESTED OPTIMIZATION approach.
+        Minimize energy using NESTED OPTIMIZATION approach with FIXED Delta_sigma.
         
         ARCHITECTURE (FULLY COUPLED - FIRST PRINCIPLES):
         =================================================
         Outer Loop: Optimize A (primary variable, 1D search)
-          └─> Inner Loop: For each A, optimize (Δx, Δσ) by minimizing full 5D energy (2D search)
-               └─> Energy computed from full 5D wavefunction
+          └─> Inner Loop: For each A, optimize Δx by minimizing full 5D energy (1D search)
+               └─> Energy computed from full 5D wavefunction with FIXED Δσ from Stage 1
                     ├─> Spatial coupling structure rebuilt at current Δx
                     └─> All Hamiltonian operators applied
         
         This ensures complete self-consistency: the wavefunction structure
-        depends on (A, Δx, Δσ) through the spatial coupling, which is
-        rebuilt for every energy evaluation.
+        depends on (A, Δx) through the spatial coupling, which is rebuilt
+        for every energy evaluation. Delta_sigma is FIXED from Stage 1.
         
         Energy components (computed from 5D wavefunction):
         - E_spatial: Spatial kinetic energy from ∇² operator
@@ -402,7 +383,8 @@ class UniversalEnergyMinimizer:
         
         Args:
             chi_normalized: Normalized subspace shape from Stage 1
-            initial_guess: (Delta_x_0, Delta_sigma_0, A_0)
+            Delta_sigma_fixed: Fixed natural width from Stage 1 shape solver
+            initial_guess: (Delta_x_0, A_0)
             method: Optimization method ('L-BFGS-B' recommended)
             particle_type: 'lepton', 'meson', or 'baryon'
             n_target: Target generation (for leptons)
@@ -421,7 +403,7 @@ class UniversalEnergyMinimizer:
             n_target = 1  # Use ground state spatial structure
         
         # Extract initial guess
-        Delta_x_initial, Delta_sigma_initial, A_initial = initial_guess
+        Delta_x_initial, A_initial = initial_guess
         
         # Set bounds
         if A_bounds is not None:
@@ -431,17 +413,16 @@ class UniversalEnergyMinimizer:
             MAX_A = 100.0  # Maximum reasonable amplitude
         
         MIN_DELTA_X = 0.001   # fm - minimum localization
-        MAX_DELTA_X = 1000.0  # fm - maximum spatial extent
-        MIN_DELTA_SIGMA = 0.1  # Minimum subspace width
-        MAX_DELTA_SIGMA = 20.0  # Allow optimizer to find natural subspace confinement
+        MAX_DELTA_X = 100000.0  # fm - maximum spatial extent (widened to allow escape from local minima)
         
         # Ensure initial guess is within bounds
         A_initial = max(MIN_A, min(MAX_A, A_initial))
         
         if self.verbose:
             print(f"  NESTED Energy minimization:")
+            print(f"    Delta_sigma FIXED: {Delta_sigma_fixed:.4f}")
             print(f"    Outer: Optimize A (1D)")
-            print(f"    Inner: For each A, optimize (Delta_x, Delta_sigma) (2D)")
+            print(f"    Inner: For each A, optimize Delta_x (1D)")
             print(f"  Initial A: {A_initial:.6f}")
             print(f"  Method: {method}")
         
@@ -449,39 +430,39 @@ class UniversalEnergyMinimizer:
         inner_optimization_count = [0]
         total_inner_iterations = [0]
         
-        # === INNER OPTIMIZATION: For fixed A, find optimal (Δx, Δσ) ===
-        def optimize_scales_for_amplitude(A: float) -> Tuple[float, float, float]:
+        # === INNER OPTIMIZATION: For fixed A, find optimal Δx (Δσ is FIXED from Stage 1) ===
+        def optimize_scales_for_amplitude(A: float) -> Tuple[float, float]:
             """
-            For a given amplitude A, find the (Δx, Δσ) that minimize total energy.
+            For a given amplitude A, find the Δx that minimizes total energy.
+            Delta_sigma is FIXED from Stage 1.
             
             Returns:
-                (E_total, Delta_x_opt, Delta_sigma_opt)
+                (E_total, Delta_x_opt)
             """
-            # Use analytical formulas for initial guess
+            # Use analytical formula for initial guess
             Delta_x_init = self._compute_optimal_delta_x(A)
-            Delta_sigma_init = self._compute_optimal_delta_sigma(A)
             
             # DON'T clip initial guess - let optimizer start from physics-based prediction
             # The bounds will still be enforced by minimize(), but we won't artificially
             # constrain the starting point, which was causing different local minima
             # to be found depending on bound values
             
-            x0 = np.array([Delta_x_init, Delta_sigma_init])
-            bounds = [(MIN_DELTA_X, MAX_DELTA_X), (MIN_DELTA_SIGMA, MAX_DELTA_SIGMA)]
+            x0 = np.array([Delta_x_init])
+            bounds = [(MIN_DELTA_X, MAX_DELTA_X)]
             
-            # Inner objective: energy as function of (Δx, Δσ) at fixed A
+            # Inner objective: energy as function of Δx at fixed A and Δσ
             def energy_for_scales(x: NDArray) -> float:
-                Delta_x, Delta_sigma = x
+                Delta_x = x[0]
                 E_total, _ = self._compute_total_energy(
-                    chi_normalized, n_target, Delta_x, Delta_sigma, A
+                    chi_normalized, n_target, Delta_x, Delta_sigma_fixed, A
                 )
                 return E_total
             
-            # Optimize (Δx, Δσ)
+            # Optimize Δx only
             result = minimize(
                 energy_for_scales,
                 x0,
-                method=method,
+                method='L-BFGS-B',
                 bounds=bounds,
                 options={'ftol': 1e-9, 'gtol': 1e-6, 'maxiter': 100}
             )
@@ -490,17 +471,18 @@ class UniversalEnergyMinimizer:
             inner_optimization_count[0] += 1
             total_inner_iterations[0] += result.nit
             
-            Delta_x_opt, Delta_sigma_opt = result.x
+            Delta_x_opt = result.x[0]
             E_total = result.fun
             
-            return E_total, Delta_x_opt, Delta_sigma_opt
+            return E_total, Delta_x_opt
         
         # === OUTER OPTIMIZATION: Find optimal A ===
         def energy_for_amplitude(A: float) -> float:
             """
-            Outer objective: for this A, optimize (Δx, Δσ) and return minimum energy.
+            Outer objective: for this A, optimize Δx and return minimum energy.
+            Delta_sigma is FIXED from Stage 1.
             """
-            E_total, _, _ = optimize_scales_for_amplitude(A)
+            E_total, _ = optimize_scales_for_amplitude(A)
             return E_total
         
         if self.verbose:
@@ -522,7 +504,7 @@ class UniversalEnergyMinimizer:
         outer_iterations = outer_result.nit
         
         # Get the final optimal scales for this A
-        E_total_opt, Delta_x_opt, Delta_sigma_opt = optimize_scales_for_amplitude(A_opt)
+        E_total_opt, Delta_x_opt = optimize_scales_for_amplitude(A_opt)
         
         # Total iterations (approximate - outer × inner)
         total_iterations = outer_iterations + total_inner_iterations[0]
@@ -535,11 +517,11 @@ class UniversalEnergyMinimizer:
             print(f"    Total inner iterations: {total_inner_iterations[0]}")
             print(f"    Optimal A: {A_opt:.6f}")
             print(f"    Optimal Delta_x: {Delta_x_opt:.6f} fm")
-            print(f"    Optimal Delta_sigma: {Delta_sigma_opt:.6f}")
+            print(f"    Delta_sigma (FIXED from Stage 1): {Delta_sigma_fixed:.6f}")
         
         # === COMPUTE FINAL ENERGY AND COMPONENTS (single computation) ===
         E_total, energy_components = self._compute_total_energy(
-            chi_normalized, n_target, Delta_x_opt, Delta_sigma_opt, A_opt
+            chi_normalized, n_target, Delta_x_opt, Delta_sigma_fixed, A_opt
         )
         
         # Extract individual components from the returned dictionary
@@ -566,15 +548,15 @@ class UniversalEnergyMinimizer:
             print(f"    E_curv:     {E_curv:.6e} GeV (gravitational self-confinement)")
         
         # === MASS IS NOT COMPUTED HERE ===
-        # Mass calculation is done externally using calculate_beta helper
-        # m = beta * A^2, where beta is calibrated from electron
+        # Mass calculation is done externally using The Beautiful Equation
+        # m = G_5D * A^2 in natural units
         mass = None
         
         convergence_message = f"Converged (nested optimization, {method})" if converged else "Nested minimization failed"
         
         return EnergyMinimizationResult(
             Delta_x=Delta_x_opt,
-            Delta_sigma=Delta_sigma_opt,
+            Delta_sigma=Delta_sigma_fixed,  # FIXED from Stage 1
             A=A_opt,
             mass=mass,
             E_total=E_total,

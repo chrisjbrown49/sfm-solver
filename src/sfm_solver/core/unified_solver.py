@@ -2,11 +2,15 @@
 Unified SFM Solver - Two-Stage Architecture.
 
 This module provides the main interface for the new two-stage solver:
-    Stage 1: Solve for normalized wavefunction shape (dimensionless)
-    Stage 2: Minimize energy over scale parameters (Delta_x, Delta_sigma, A)
+    Stage 1: Solve for normalized wavefunction shape (dimensionless) and extract natural Delta_sigma
+    Stage 2: Minimize energy over scale parameters (A, Delta_x) with FIXED Delta_sigma from Stage 1
 
 The unified solver combines shape_solver.py, spatial_coupling.py, and
 energy_minimizer.py into a single easy-to-use interface.
+
+KEY PRINCIPLE: Delta_sigma is determined by the subspace Hamiltonian in Stage 1 and 
+held FIXED during Stage 2 optimization. This ensures proper separation of quantum (shape) 
+and classical (scale) physics according to first principles.
 """
 
 import numpy as np
@@ -34,14 +38,17 @@ class UnifiedSolverResult:
     Result from unified two-stage solver.
     
     Contains shape, scale parameters, and predicted mass.
+    
+    NOTE: Delta_sigma is FIXED from Stage 1 natural width, not optimized in Stage 2.
+    Only A and Delta_x are optimized during energy minimization.
     """
     # Predicted mass
     mass: float  # GeV
     
     # Scale parameters
-    A: float
-    Delta_x: float
-    Delta_sigma: float
+    A: float  # Optimized in Stage 2
+    Delta_x: float  # Optimized in Stage 2
+    Delta_sigma: float  # FIXED from Stage 1 natural width
     
     # Shape structure {(n,l,m): chi_nlm(sigma)}
     shape_structure: Dict[Tuple[int, int, int], NDArray]
@@ -79,6 +86,13 @@ class UnifiedSFMSolver:
     This is the new architecture implementing proper separation of
     quantum (shape) and classical (scale) physics.
     
+    Stage 1: Solve for subspace wavefunction shape and compute natural Delta_sigma
+    Stage 2: Optimize (A, Delta_x) with Delta_sigma FIXED from Stage 1
+    
+    This ensures the subspace width is determined by quantum mechanics (Stage 1),
+    not adjusted by energy minimization (Stage 2), maintaining first-principles
+    consistency.
+    
     By default, loads fundamental constants from constants.json.
     
     Usage:
@@ -95,6 +109,7 @@ class UnifiedSFMSolver:
         )
         # Test script reports results:
         print(f"Amplitude A: {result.A}")
+        print(f"Delta_sigma (from Stage 1): {result.Delta_sigma}")
         print(f"Mass: {result.mass} GeV")
     """
     
@@ -200,10 +215,11 @@ class UnifiedSFMSolver:
         scf_mixing: float = 0.1,
         max_iter_outer: int = 30,
         tol_outer: float = 1e-4,
-        initial_scale_guess: Optional[Tuple[float, float, float]] = None
+        initial_scale_guess: Optional[Tuple[float, float]] = None
     ) -> UnifiedSolverResult:
         """
         Solve for baryon using two-stage approach with outer iteration.
+        Delta_sigma is FIXED from Stage 1 natural width.
         
         Args:
             quark_windings: (k1, k2, k3) winding numbers
@@ -214,7 +230,7 @@ class UnifiedSFMSolver:
             scf_mixing: Mixing parameter for SCF stability
             max_iter_outer: Maximum outer loop iterations
             tol_outer: Convergence tolerance for outer loop (scale changes)
-            initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
+            initial_scale_guess: (Delta_x_0, A_0) or None (Delta_sigma from Stage 1)
             
         Returns:
             UnifiedSolverResult with mass, scales, shape, and outer convergence info
@@ -226,39 +242,39 @@ class UnifiedSFMSolver:
             print(f"Quark windings: {quark_windings}")
             print(f"Color phases: {color_phases}")
         
-        # Initialize scale tracking
+        # Initialize scale tracking (Delta_sigma is FIXED from Stage 1)
         scale_history = {
             'A': [],
             'Delta_x': [],
-            'Delta_sigma': [],
             'iteration': []
         }
         
         # Initialize current scales
+        # Delta_sigma will be extracted from Stage 1
         if initial_scale_guess is not None:
-            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+            Delta_x_current, A_current = initial_scale_guess
         else:
             # Baryons typically have larger amplitudes than leptons
             A_current = 50.0  # Reasonable starting point for baryons
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
-            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
         # Drastically increased damping to stabilize severe oscillations
         mixing = 0.01  # Start with very heavy damping
         mixing_min = 0.005
         mixing_max = 0.15
         
-        # Strong momentum terms
+        # Strong momentum terms (only A and Delta_x)
         momentum_A = 0.0
         momentum_Dx = 0.0
-        momentum_Ds = 0.0
         momentum_weight = 0.5
         
         # History for oscillation detection
         history_window = 5
         dA_history = []
         dDx_history = []
-        dDs_history = []
+        
+        # Delta_sigma will be fixed from Stage 1
+        Delta_sigma_fixed = None
         
         converged_outer = False
         shape_result = None
@@ -270,10 +286,10 @@ class UnifiedSFMSolver:
                 print(f"\n{'='*70}")
                 print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
                 print(f"{'='*70}")
-                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
             
             # =====================================================================
-            # STAGE 1: Solve for normalized shape (dimensionless)
+            # STAGE 1: Solve for normalized shape and extract natural width
             # =====================================================================
             if self.verbose:
                 print("\n" + "-"*70)
@@ -288,53 +304,58 @@ class UnifiedSFMSolver:
                 mixing=scf_mixing
             )
             
+            # Extract natural Delta_sigma from Stage 1 (FIXED for Stage 2)
+            if iter_outer == 0:
+                Delta_sigma_fixed = shape_result.natural_width_sigma
+                if self.verbose:
+                    print(f"  Natural Delta_sigma from Stage 1: {Delta_sigma_fixed:.4f} (FIXED)")
+            
             if not shape_result.converged:
                 warnings.warn("Shape solver did not converge")
             
             # =====================================================================
-            # STAGE 2: Minimize energy over scale parameters
+            # STAGE 2: Minimize energy over (A, Delta_x) with FIXED Delta_sigma
             # =====================================================================
             # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
-                print("STAGE 2: Minimizing energy over scale parameters")
+                print("STAGE 2: Minimizing energy over (A, Delta_x)")
+                print(f"  Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                 print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_baryon_energy(
                 chi_normalized=shape_result.composite_shape,
-                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+                Delta_sigma_fixed=Delta_sigma_fixed,
+                initial_guess=(Delta_x_current, A_current)
             )
             
-            # Extract new scales
+            # Extract new scales (Delta_sigma is FIXED from Stage 1)
             A_new = energy_result.A
             Delta_x_new = energy_result.Delta_x
-            Delta_sigma_new = energy_result.Delta_sigma
             
             # Store in history
             scale_history['A'].append(A_new)
             scale_history['Delta_x'].append(Delta_x_new)
-            scale_history['Delta_sigma'].append(Delta_sigma_new)
             scale_history['iteration'].append(iter_outer)
             
             # =====================================================================
-            # CHECK CONVERGENCE
+            # CHECK CONVERGENCE (only A and Delta_x, Delta_sigma is FIXED)
             # =====================================================================
             if iter_outer > 0:
                 delta_A = abs(A_new - A_current)
                 delta_Dx = abs(Delta_x_new - Delta_x_current)
-                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
                 
                 rel_delta_A = delta_A / max(A_current, 0.01)
                 rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
-                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
                 
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
-                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}")
+                    print(f"    Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                     print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
-                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                     converged_outer = True
                     if self.verbose:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
@@ -343,18 +364,15 @@ class UnifiedSFMSolver:
                 # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
-                dDs_current = Delta_sigma_new - Delta_sigma_current
                 
                 # Add to history
                 dA_history.append(dA_current)
                 dDx_history.append(dDx_current)
-                dDs_history.append(dDs_current)
                 
                 # Keep only last history_window iterations
                 if len(dA_history) > history_window:
                     dA_history.pop(0)
                     dDx_history.pop(0)
-                    dDs_history.pop(0)
                 
                 # Improved oscillation detection
                 oscillating = False
@@ -365,8 +383,6 @@ class UnifiedSFMSolver:
                         if (dA_history[i] * dA_history[i+1]) < 0:
                             oscillation_count += 1
                         if (dDx_history[i] * dDx_history[i+1]) < 0:
-                            oscillation_count += 1
-                        if (dDs_history[i] * dDs_history[i+1]) < 0:
                             oscillation_count += 1
                     
                     if oscillation_count >= 2:
@@ -383,36 +399,33 @@ class UnifiedSFMSolver:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING AND MOMENTUM
+            # UPDATE SCALES WITH MIXING AND MOMENTUM (only A and Delta_x)
             # =====================================================================
             if iter_outer == 0:
                 A_current = A_new
                 Delta_x_current = Delta_x_new
-                Delta_sigma_current = Delta_sigma_new
             else:
                 # Momentum-damped changes
                 dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
                 dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
-                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
                 
                 # Apply mixing with momentum
                 A_current = A_current + mixing * dA_damped
                 Delta_x_current = Delta_x_current + mixing * dDx_damped
-                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
                 
                 # Update momentum
                 momentum_A = dA_damped
                 momentum_Dx = dDx_damped
-                momentum_Ds = dDs_damped
                 
                 if self.verbose:
-                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
+            print(f"Delta_sigma (FIXED from Stage 1): {Delta_sigma_fixed:.6f}")
             print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
         # Return unified result with outer loop info
@@ -420,7 +433,7 @@ class UnifiedSFMSolver:
             mass=energy_result.mass,
             A=A_current,
             Delta_x=Delta_x_current,
-            Delta_sigma=Delta_sigma_current,
+            Delta_sigma=Delta_sigma_fixed,  # FIXED from Stage 1
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,
@@ -457,15 +470,16 @@ class UnifiedSFMSolver:
         tol: float = 1e-6,
         max_iter_outer: int = 30,
         tol_outer: float = 1e-4,
-        initial_scale_guess: Optional[Tuple[float, float, float]] = None
+        initial_scale_guess: Optional[Tuple[float, float]] = None
     ) -> UnifiedSolverResult:
         """
         Solve for lepton using two-stage approach with outer iteration.
+        Delta_sigma is FIXED from Stage 1 natural width.
         
         The outer loop iterates between:
-          1. Stage 1: Solve shape at current scales
-          2. Stage 2: Optimize scales for that shape
-          3. Check convergence and update scales with mixing
+          1. Stage 1: Solve shape and extract natural Delta_sigma
+          2. Stage 2: Optimize (A, Delta_x) for that shape with FIXED Delta_sigma
+          3. Check convergence and update (A, Delta_x) with mixing
         
         Args:
             winding_k: Winding number (determines charge)
@@ -474,7 +488,7 @@ class UnifiedSFMSolver:
             tol: Convergence tolerance for shape (inner loop)
             max_iter_outer: Maximum outer loop iterations
             tol_outer: Convergence tolerance for outer loop (scale changes)
-            initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
+            initial_scale_guess: (Delta_x_0, A_0) or None (Delta_sigma from Stage 1)
             
         Returns:
             UnifiedSolverResult with mass, scales, shape, and outer convergence info
@@ -484,11 +498,10 @@ class UnifiedSFMSolver:
             print(f"UNIFIED SOLVER: Lepton (n={generation_n}, k={winding_k})")
             print("="*70)
         
-        # Initialize scale tracking
+        # Initialize scale tracking (Delta_sigma is FIXED from Stage 1)
         scale_history = {
             'A': [],
             'Delta_x': [],
-            'Delta_sigma': [],
             'iteration': []
         }
         
@@ -505,8 +518,9 @@ class UnifiedSFMSolver:
         }
         
         # Initialize current scales (first iteration uses defaults)
+        # Delta_sigma will be extracted from Stage 1
         if initial_scale_guess is not None:
-            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+            Delta_x_current, A_current = initial_scale_guess
         else:
             # Use energy minimizer's generation-dependent defaults (legacy values)
             if generation_n == 1:
@@ -519,24 +533,24 @@ class UnifiedSFMSolver:
                 A_current = max(1.0, 5.0 * generation_n)
             
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
-            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
         # Moderate damping for stability
         mixing = 0.1  # Start with moderate damping
         mixing_min = 0.05  # Minimum mixing
         mixing_max = 0.3  # Maximum mixing (legacy default)
         
-        # Momentum terms to smooth updates
+        # Momentum terms to smooth updates (only A and Delta_x)
         momentum_A = 0.0
         momentum_Dx = 0.0
-        momentum_Ds = 0.0
         momentum_weight = 0.15  # Moderate momentum damping
         
         # History for better oscillation detection (track last 5 iterations)
         history_window = 5
         dA_history = []
         dDx_history = []
-        dDs_history = []
+        
+        # Delta_sigma will be fixed from Stage 1
+        Delta_sigma_fixed = None
         
         converged_outer = False
         shape_result = None
@@ -548,10 +562,10 @@ class UnifiedSFMSolver:
                 print(f"\n{'='*70}")
                 print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
                 print(f"{'='*70}")
-                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
             
             # =====================================================================
-            # STAGE 1: Solve shape (dimensionless) at current scales
+            # STAGE 1: Solve shape (dimensionless) and extract natural width
             # =====================================================================
             if self.verbose:
                 print("\n" + "-"*70)
@@ -565,59 +579,64 @@ class UnifiedSFMSolver:
                 tol=tol
             )
             
+            # Extract natural Delta_sigma from Stage 1 (FIXED for Stage 2)
+            if iter_outer == 0:
+                Delta_sigma_fixed = shape_result.natural_width_sigma
+                if self.verbose:
+                    print(f"  Natural Delta_sigma from Stage 1: {Delta_sigma_fixed:.4f} (FIXED)")
+            
             # Track shape solver performance
             shape_solver_history['converged'].append(shape_result.converged)
             shape_solver_history['iterations'].append(shape_result.iterations)
             
             # =====================================================================
-            # STAGE 2: Find optimal scales for this shape
+            # STAGE 2: Find optimal (A, Delta_x) with FIXED Delta_sigma
             # =====================================================================
             # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
-                print("STAGE 2: Minimizing energy over scale parameters")
+                print("STAGE 2: Minimizing energy over (A, Delta_x)")
+                print(f"  Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                 print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_lepton_energy(
                 chi_normalized=shape_result.composite_shape,
                 generation_n=generation_n,
-                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+                Delta_sigma_fixed=Delta_sigma_fixed,
+                initial_guess=(Delta_x_current, A_current)
             )
             
             # Track energy minimizer performance
             energy_minimizer_history['converged'].append(energy_result.converged)
             energy_minimizer_history['iterations'].append(energy_result.iterations)
             
-            # Extract new scales
+            # Extract new scales (Delta_sigma is FIXED from Stage 1)
             A_new = energy_result.A
             Delta_x_new = energy_result.Delta_x
-            Delta_sigma_new = energy_result.Delta_sigma
             
             # Store in history
             scale_history['A'].append(A_new)
             scale_history['Delta_x'].append(Delta_x_new)
-            scale_history['Delta_sigma'].append(Delta_sigma_new)
             scale_history['iteration'].append(iter_outer)
             
             # =====================================================================
-            # CHECK CONVERGENCE
+            # CHECK CONVERGENCE (only A and Delta_x, Delta_sigma is FIXED)
             # =====================================================================
             if iter_outer > 0:
                 delta_A = abs(A_new - A_current)
                 delta_Dx = abs(Delta_x_new - Delta_x_current)
-                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
                 
                 rel_delta_A = delta_A / max(A_current, 0.01)
                 rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
-                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
                 
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
-                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}")
+                    print(f"    Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                     print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
-                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                     converged_outer = True
                     if self.verbose:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
@@ -626,18 +645,15 @@ class UnifiedSFMSolver:
                 # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
-                dDs_current = Delta_sigma_new - Delta_sigma_current
                 
                 # Add to history
                 dA_history.append(dA_current)
                 dDx_history.append(dDx_current)
-                dDs_history.append(dDs_current)
                 
                 # Keep only last history_window iterations
                 if len(dA_history) > history_window:
                     dA_history.pop(0)
                     dDx_history.pop(0)
-                    dDs_history.pop(0)
                 
                 # Improved oscillation detection: check for sign changes in history
                 oscillating = False
@@ -649,8 +665,6 @@ class UnifiedSFMSolver:
                         if (dA_history[i] * dA_history[i+1]) < 0:
                             oscillation_count += 1
                         if (dDx_history[i] * dDx_history[i+1]) < 0:
-                            oscillation_count += 1
-                        if (dDs_history[i] * dDs_history[i+1]) < 0:
                             oscillation_count += 1
                     
                     # If we see multiple sign changes, it's oscillating
@@ -670,38 +684,35 @@ class UnifiedSFMSolver:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING AND MOMENTUM
+            # UPDATE SCALES WITH MIXING AND MOMENTUM (only A and Delta_x)
             # =====================================================================
             if iter_outer == 0:
                 # First iteration - use values directly
                 A_current = A_new
                 Delta_x_current = Delta_x_new
-                Delta_sigma_current = Delta_sigma_new
             else:
                 # Compute momentum-damped changes
                 # Momentum smooths the direction of updates to prevent wild swings
                 dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
                 dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
-                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
                 
                 # Apply adaptive mixing with momentum
                 A_current = A_current + mixing * dA_damped
                 Delta_x_current = Delta_x_current + mixing * dDx_damped
-                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
                 
                 # Update momentum for next iteration
                 momentum_A = dA_damped
                 momentum_Dx = dDx_damped
-                momentum_Ds = dDs_damped
                 
                 if self.verbose:
-                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
+            print(f"Delta_sigma (FIXED from Stage 1): {Delta_sigma_fixed:.6f}")
             print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
         # Return unified result with outer loop info
@@ -709,7 +720,7 @@ class UnifiedSFMSolver:
             mass=energy_result.mass,
             A=A_current,
             Delta_x=Delta_x_current,
-            Delta_sigma=Delta_sigma_current,
+            Delta_sigma=Delta_sigma_fixed,  # FIXED from Stage 1
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,
@@ -751,10 +762,11 @@ class UnifiedSFMSolver:
         scf_mixing: float = 0.1,
         max_iter_outer: int = 30,
         tol_outer: float = 1e-4,
-        initial_scale_guess: Optional[Tuple[float, float, float]] = None
+        initial_scale_guess: Optional[Tuple[float, float]] = None
     ) -> UnifiedSolverResult:
         """
         Solve for meson using two-stage approach with outer iteration.
+        Delta_sigma is FIXED from Stage 1 natural width.
         
         Args:
             quark_winding: Quark winding number
@@ -767,7 +779,7 @@ class UnifiedSFMSolver:
             scf_mixing: Mixing parameter for SCF
             max_iter_outer: Maximum outer loop iterations
             tol_outer: Convergence tolerance for outer loop (scale changes)
-            initial_scale_guess: (Delta_x_0, Delta_sigma_0, A_0) or None
+            initial_scale_guess: (Delta_x_0, A_0) or None (Delta_sigma from Stage 1)
             
         Returns:
             UnifiedSolverResult with mass, scales, shape, and outer convergence info
@@ -777,39 +789,39 @@ class UnifiedSFMSolver:
             print(f"UNIFIED SOLVER: Meson (k_q={quark_winding}, k_qbar={antiquark_winding})")
             print("="*70)
         
-        # Initialize scale tracking
+        # Initialize scale tracking (Delta_sigma is FIXED from Stage 1)
         scale_history = {
             'A': [],
             'Delta_x': [],
-            'Delta_sigma': [],
             'iteration': []
         }
         
         # Initialize current scales
+        # Delta_sigma will be extracted from Stage 1
         if initial_scale_guess is not None:
-            Delta_x_current, Delta_sigma_current, A_current = initial_scale_guess
+            Delta_x_current, A_current = initial_scale_guess
         else:
             # Mesons typically have intermediate amplitudes
             A_current = 20.0  # Reasonable starting point for mesons
             Delta_x_current = self.energy_minimizer._compute_optimal_delta_x(A_current)
-            Delta_sigma_current = self.energy_minimizer._compute_optimal_delta_sigma(A_current)
         
         # Drastically increased damping to stabilize severe oscillations
         mixing = 0.01  # Start with very heavy damping
         mixing_min = 0.005
         mixing_max = 0.15
         
-        # Strong momentum terms
+        # Strong momentum terms (only A and Delta_x)
         momentum_A = 0.0
         momentum_Dx = 0.0
-        momentum_Ds = 0.0
         momentum_weight = 0.5
         
         # History for oscillation detection
         history_window = 5
         dA_history = []
         dDx_history = []
-        dDs_history = []
+        
+        # Delta_sigma will be fixed from Stage 1
+        Delta_sigma_fixed = None
         
         converged_outer = False
         shape_result = None
@@ -821,10 +833,10 @@ class UnifiedSFMSolver:
                 print(f"\n{'='*70}")
                 print(f"OUTER ITERATION {iter_outer + 1}/{max_iter_outer}")
                 print(f"{'='*70}")
-                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+                print(f"Current scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
             
             # =====================================================================
-            # STAGE 1: Solve for normalized shape (dimensionless)
+            # STAGE 1: Solve for normalized shape and extract natural width
             # =====================================================================
             if self.verbose:
                 print("\n" + "-"*70)
@@ -841,50 +853,55 @@ class UnifiedSFMSolver:
                 mixing=scf_mixing
             )
             
+            # Extract natural Delta_sigma from Stage 1 (FIXED for Stage 2)
+            if iter_outer == 0:
+                Delta_sigma_fixed = shape_result.natural_width_sigma
+                if self.verbose:
+                    print(f"  Natural Delta_sigma from Stage 1: {Delta_sigma_fixed:.4f} (FIXED)")
+            
             # =====================================================================
-            # STAGE 2: Minimize energy over scale parameters
+            # STAGE 2: Minimize energy over (A, Delta_x) with FIXED Delta_sigma
             # =====================================================================
             # Structure will be rebuilt inside energy minimizer for each trial
             if self.verbose:
                 print("\n" + "-"*70)
-                print("STAGE 2: Minimizing energy over scale parameters")
+                print("STAGE 2: Minimizing energy over (A, Delta_x)")
+                print(f"  Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                 print("  (Structure rebuilt at each Δx for full self-consistency)")
                 print("-"*70)
             
             energy_result = self.energy_minimizer.minimize_meson_energy(
                 chi_normalized=shape_result.composite_shape,
-                initial_guess=(Delta_x_current, Delta_sigma_current, A_current)
+                Delta_sigma_fixed=Delta_sigma_fixed,
+                initial_guess=(Delta_x_current, A_current)
             )
             
-            # Extract new scales
+            # Extract new scales (Delta_sigma is FIXED from Stage 1)
             A_new = energy_result.A
             Delta_x_new = energy_result.Delta_x
-            Delta_sigma_new = energy_result.Delta_sigma
             
             # Store in history
             scale_history['A'].append(A_new)
             scale_history['Delta_x'].append(Delta_x_new)
-            scale_history['Delta_sigma'].append(Delta_sigma_new)
             scale_history['iteration'].append(iter_outer)
             
             # =====================================================================
-            # CHECK CONVERGENCE
+            # CHECK CONVERGENCE (only A and Delta_x, Delta_sigma is FIXED)
             # =====================================================================
             if iter_outer > 0:
                 delta_A = abs(A_new - A_current)
                 delta_Dx = abs(Delta_x_new - Delta_x_current)
-                delta_Ds = abs(Delta_sigma_new - Delta_sigma_current)
                 
                 rel_delta_A = delta_A / max(A_current, 0.01)
                 rel_delta_Dx = delta_Dx / max(Delta_x_current, 0.001)
-                rel_delta_Ds = delta_Ds / max(Delta_sigma_current, 0.01)
                 
                 if self.verbose:
                     print(f"\n  Outer convergence check:")
-                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}, dDs/Ds={rel_delta_Ds:.2e}")
+                    print(f"    dA/A={rel_delta_A:.2e}, dDx/Dx={rel_delta_Dx:.2e}")
+                    print(f"    Delta_sigma FIXED at {Delta_sigma_fixed:.4f}")
                     print(f"    mixing={mixing:.4f}, momentum_weight={momentum_weight:.3f}")
                 
-                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer and rel_delta_Ds < tol_outer:
+                if rel_delta_A < tol_outer and rel_delta_Dx < tol_outer:
                     converged_outer = True
                     if self.verbose:
                         print(f"\n  OUTER LOOP CONVERGED after {iter_outer + 1} iterations")
@@ -893,18 +910,15 @@ class UnifiedSFMSolver:
                 # Compute current changes
                 dA_current = A_new - A_current
                 dDx_current = Delta_x_new - Delta_x_current
-                dDs_current = Delta_sigma_new - Delta_sigma_current
                 
                 # Add to history
                 dA_history.append(dA_current)
                 dDx_history.append(dDx_current)
-                dDs_history.append(dDs_current)
                 
                 # Keep only last history_window iterations
                 if len(dA_history) > history_window:
                     dA_history.pop(0)
                     dDx_history.pop(0)
-                    dDs_history.pop(0)
                 
                 # Improved oscillation detection
                 oscillating = False
@@ -915,8 +929,6 @@ class UnifiedSFMSolver:
                         if (dA_history[i] * dA_history[i+1]) < 0:
                             oscillation_count += 1
                         if (dDx_history[i] * dDx_history[i+1]) < 0:
-                            oscillation_count += 1
-                        if (dDs_history[i] * dDs_history[i+1]) < 0:
                             oscillation_count += 1
                     
                     if oscillation_count >= 2:
@@ -933,36 +945,33 @@ class UnifiedSFMSolver:
                         print(f"    Stable - Increasing mixing to {mixing:.4f}")
             
             # =====================================================================
-            # UPDATE SCALES WITH MIXING AND MOMENTUM
+            # UPDATE SCALES WITH MIXING AND MOMENTUM (only A and Delta_x)
             # =====================================================================
             if iter_outer == 0:
                 A_current = A_new
                 Delta_x_current = Delta_x_new
-                Delta_sigma_current = Delta_sigma_new
             else:
                 # Momentum-damped changes
                 dA_damped = (1 - momentum_weight) * dA_current + momentum_weight * momentum_A
                 dDx_damped = (1 - momentum_weight) * dDx_current + momentum_weight * momentum_Dx
-                dDs_damped = (1 - momentum_weight) * dDs_current + momentum_weight * momentum_Ds
                 
                 # Apply mixing with momentum
                 A_current = A_current + mixing * dA_damped
                 Delta_x_current = Delta_x_current + mixing * dDx_damped
-                Delta_sigma_current = Delta_sigma_current + mixing * dDs_damped
                 
                 # Update momentum
                 momentum_A = dA_damped
                 momentum_Dx = dDx_damped
-                momentum_Ds = dDs_damped
                 
                 if self.verbose:
-                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}, dDs={mixing*dDs_damped:.4e}")
+                    print(f"    Applied update: dA={mixing*dA_damped:.4e}, dDx={mixing*dDx_damped:.4e}")
         
         if self.verbose:
             print("\n" + "="*70)
             print("UNIFIED SOLVER: Complete")
             print("="*70)
-            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm, Ds={Delta_sigma_current:.6f}")
+            print(f"Final scales: A={A_current:.6f}, Dx={Delta_x_current:.6f} fm")
+            print(f"Delta_sigma (FIXED from Stage 1): {Delta_sigma_fixed:.6f}")
             print(f"Outer iterations: {iter_outer + 1}, converged: {converged_outer}")
         
         # Return unified result with outer loop info
@@ -970,7 +979,7 @@ class UnifiedSFMSolver:
             mass=energy_result.mass,
             A=A_current,
             Delta_x=Delta_x_current,
-            Delta_sigma=Delta_sigma_current,
+            Delta_sigma=Delta_sigma_fixed,  # FIXED from Stage 1
             shape_structure=structure_4d,
             energy_components={
                 'E_total': energy_result.E_total,

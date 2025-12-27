@@ -49,6 +49,9 @@ class DimensionlessShapeResult:
     # EM contribution to eigenvalue (dimensionless)
     em_eigenvalue_contribution: Optional[Dict] = None
     
+    # Natural RMS width of subspace wavefunction (FIXED for Stage 2)
+    natural_width_sigma: Optional[float] = None
+    
     # Particle type
     particle_type: str = 'unknown'  # 'lepton', 'meson', 'baryon'
 
@@ -107,6 +110,40 @@ class DimensionlessShapeSolver:
             print(f"  V0: {V0:.3f} GeV (energy reference)")
             print(f"  V1: {V1:.3f} GeV")
             print(f"  N_sigma: {N_sigma}")
+    
+    def _compute_rms_width(self, chi: NDArray) -> float:
+        """
+        Compute RMS width of subspace wavefunction.
+        
+        Delta_sigma = sqrt(<sigma^2> - <sigma>^2)
+        
+        where:
+            <sigma> = integral sigma |chi|^2 dsigma
+            <sigma^2> = integral sigma^2 |chi|^2 dsigma
+        
+        This is the NATURAL width determined by the shape solver,
+        which should be used as a FIXED parameter in Stage 2.
+        
+        Args:
+            chi: Normalized subspace wavefunction [N_sigma]
+            
+        Returns:
+            RMS width (natural Delta_sigma)
+        """
+        # Ensure normalized
+        norm = np.trapezoid(np.abs(chi)**2, dx=self.dsigma)
+        chi_norm = chi / np.sqrt(norm)
+        
+        # Probability density
+        rho = np.abs(chi_norm)**2
+        
+        # Expectation values
+        mean_sigma = np.trapezoid(self.sigma * rho, dx=self.dsigma)
+        mean_sigma_sq = np.trapezoid(self.sigma**2 * rho, dx=self.dsigma)
+        
+        # RMS width
+        variance = mean_sigma_sq - mean_sigma**2
+        return np.sqrt(max(0.0, variance))  # Guard against numerical noise
     
     def solve_baryon_shape(
         self,
@@ -244,6 +281,9 @@ class DimensionlessShapeSolver:
         composite = chi1 + chi2 + chi3
         composite_normalized = self._normalize(composite)
         
+        # Compute natural RMS width (fixed for Stage 2)
+        natural_width = self._compute_rms_width(composite_normalized)
+        
         return DimensionlessShapeResult(
             chi1_shape=chi1,
             chi2_shape=chi2,
@@ -258,6 +298,7 @@ class DimensionlessShapeSolver:
                 'q2': V_em2,
                 'q3': V_em3
             },
+            natural_width_sigma=natural_width,
             particle_type='baryon'
         )
     
@@ -355,12 +396,16 @@ class DimensionlessShapeSolver:
             
             chi = chi_new
         
+        # Compute natural RMS width (fixed for Stage 2)
+        natural_width = self._compute_rms_width(chi)
+        
         return DimensionlessShapeResult(
             composite_shape=chi,
             winding_k=winding_k,
             generation_n=generation_n,
             converged=True,
             iterations=iteration+1,
+            natural_width_sigma=natural_width,
             particle_type='lepton'
         )
     
@@ -459,12 +504,16 @@ class DimensionlessShapeSolver:
         
         composite = self._normalize(chi_q + chi_qbar)
         
+        # Compute natural RMS width (fixed for Stage 2)
+        natural_width = self._compute_rms_width(composite)
+        
         return DimensionlessShapeResult(
             chi1_shape=chi_q,
             chi2_shape=chi_qbar,
             composite_shape=composite,
             converged=converged,
             iterations=iteration+1,
+            natural_width_sigma=natural_width,
             particle_type='meson'
         )
     
