@@ -470,7 +470,8 @@ def main():
         print(f"  g1        = {g1:.1f}            (Nonlinear self-interaction)")
         print(f"  g2        = {g2:.6f}           (EM circulation coupling)")
         print(f"  lambda_so = {lambda_so:.6f}           (Spin-orbit coupling)")
-        print(f"  Generation scaling: f(n) = n^2  (QUADRATIC scaling with POSITIVE coupling cost)")
+        print(f"  Coupling generation scaling: f(n) = n^2  (QUADRATIC)")
+        print(f"  Curvature generation scaling: f(n) = 1 + sqrt(2n + 3/2)  (WEAK)")
         print(f"  Bounds: Delta_x in [{MIN_DELTA_X}, {MAX_DELTA_X}] fm")
         print(f"          Delta_sigma FIXED from Stage 1 natural width")
         

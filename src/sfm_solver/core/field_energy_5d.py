@@ -612,9 +612,11 @@ class Full5DFieldEnergy:
         # Convert Delta_x from fm to GeV⁻¹
         Delta_x_nat = Delta_x / HBAR_C_GEV_FM
         
-        # Generation-dependent gradient factor
+        # Generation-dependent gradient factor with WEAK (sqrt) scaling
         # γ is a fitting parameter of order unity
         # For now, use γ = 1.0 (can be adjusted based on detailed calculations)
+        # This provides WEAKER generation dependence than coupling (n²)
+        # n=1: 2.58, n=2: 3.35, n=3: 3.74
         gamma = 1.0
         gradient_factor = 1.0 + gamma * np.sqrt(2 * n_target + 1.5)
         
